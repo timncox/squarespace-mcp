@@ -1,0 +1,492 @@
+[
+  {
+    "category": "Intro",
+    "templates": [
+      {
+        "index": 0,
+        "name": "Text and Image",
+        "description": "Hero section with heading, body text, button, and a side image",
+        "layout": "two-column",
+        "placeholders": {
+          "texts": [
+            { "default": "Medium length headline", "role": "heading" },
+            { "default": "A small description about the content that can span a couple of lines. It is designed to help visitors understand the value of your offering.", "role": "body" }
+          ],
+          "buttons": [
+            { "default": "Button", "role": "cta" }
+          ],
+          "images": [
+            { "role": "hero", "position": "right" }
+          ]
+        },
+        "bestFor": ["landing pages", "product launches", "announcements"]
+      },
+      {
+        "index": 1,
+        "name": "Centered Text",
+        "description": "Full-width centered heading with subtext and CTA button",
+        "layout": "single-column-centered",
+        "placeholders": {
+          "texts": [
+            { "default": "This is the space for your headline", "role": "heading" },
+            { "default": "Use this space to add a short description. It gives enough room for a couple of sentences.", "role": "body" }
+          ],
+          "buttons": [
+            { "default": "Button", "role": "cta" }
+          ]
+        },
+        "bestFor": ["hero banners", "announcements", "simple headlines"]
+      },
+      {
+        "index": 2,
+        "name": "Full-Width Image",
+        "description": "Large background image with overlaid heading and button",
+        "layout": "full-width-overlay",
+        "placeholders": {
+          "texts": [
+            { "default": "Your headline goes here", "role": "heading" }
+          ],
+          "buttons": [
+            { "default": "Button", "role": "cta" }
+          ],
+          "images": [
+            { "role": "background", "position": "full" }
+          ]
+        },
+        "bestFor": ["visual heroes", "photography sites", "bold openers"]
+      },
+      {
+        "index": 3,
+        "name": "Video Header",
+        "description": "Background video or embed with overlaid heading text",
+        "layout": "full-width-overlay",
+        "placeholders": {
+          "texts": [
+            { "default": "Your headline goes here", "role": "heading" },
+            { "default": "Use this area to describe your video or add a supporting message.", "role": "body" }
+          ],
+          "buttons": [
+            { "default": "Button", "role": "cta" }
+          ]
+        },
+        "bestFor": ["video backgrounds", "brand storytelling", "dynamic heroes"]
+      }
+    ]
+  },
+  {
+    "category": "About",
+    "templates": [
+      {
+        "index": 0,
+        "name": "Bio with Image",
+        "description": "Two-column layout with a portrait image and biography text",
+        "layout": "two-column",
+        "placeholders": {
+          "texts": [
+            { "default": "About Us", "role": "heading" },
+            { "default": "This is the space to introduce the organization and the cause. Describe how the company was started, what drives it, and the impact it has. Use this section to outline your brand's story.", "role": "body" }
+          ],
+          "buttons": [
+            { "default": "Learn More", "role": "cta" }
+          ],
+          "images": [
+            { "role": "portrait", "position": "left" }
+          ]
+        },
+        "bestFor": ["founder bios", "company history", "personal stories"]
+      },
+      {
+        "index": 1,
+        "name": "Text Columns",
+        "description": "Two or three columns of text content side by side",
+        "layout": "multi-column",
+        "placeholders": {
+          "texts": [
+            { "default": "Our Story", "role": "heading" },
+            { "default": "Share the story behind your brand. What inspired you to start? What is your mission?", "role": "body-left" },
+            { "default": "Our focus is on delivering quality and creating meaningful experiences for every customer.", "role": "body-right" }
+          ]
+        },
+        "bestFor": ["mission statements", "dual narratives", "brand values"]
+      },
+      {
+        "index": 2,
+        "name": "Stats",
+        "description": "Large numbers or metrics with supporting labels",
+        "layout": "multi-column",
+        "placeholders": {
+          "texts": [
+            { "default": "By the Numbers", "role": "heading" },
+            { "default": "100+", "role": "stat" },
+            { "default": "Projects Completed", "role": "label" },
+            { "default": "50+", "role": "stat" },
+            { "default": "Clients Served", "role": "label" },
+            { "default": "10+", "role": "stat" },
+            { "default": "Years of Experience", "role": "label" }
+          ]
+        },
+        "bestFor": ["impact numbers", "achievements", "company milestones"]
+      },
+      {
+        "index": 3,
+        "name": "Timeline",
+        "description": "Chronological entries showing events or milestones",
+        "layout": "stacked",
+        "placeholders": {
+          "texts": [
+            { "default": "Our Journey", "role": "heading" },
+            { "default": "2020", "role": "year" },
+            { "default": "The beginning — we started with a simple idea and a small team.", "role": "body" },
+            { "default": "2022", "role": "year" },
+            { "default": "Growing fast — expanded our offerings and welcomed new team members.", "role": "body" }
+          ]
+        },
+        "bestFor": ["company history", "project timelines", "evolution stories"]
+      }
+    ]
+  },
+  {
+    "category": "Team",
+    "templates": [
+      {
+        "index": 0,
+        "name": "Team Grid",
+        "description": "Grid of team member photos with names and titles",
+        "layout": "grid",
+        "placeholders": {
+          "texts": [
+            { "default": "Meet the Team", "role": "heading" },
+            { "default": "Full Name", "role": "member-name" },
+            { "default": "Job Title", "role": "member-title" }
+          ],
+          "images": [
+            { "role": "headshot", "position": "above-text" }
+          ]
+        },
+        "bestFor": ["team pages", "staff directories", "about pages"]
+      },
+      {
+        "index": 1,
+        "name": "Team List",
+        "description": "Horizontal list entries with photo, name, title, and short bio",
+        "layout": "list",
+        "placeholders": {
+          "texts": [
+            { "default": "Our Team", "role": "heading" },
+            { "default": "Full Name", "role": "member-name" },
+            { "default": "Job Title", "role": "member-title" },
+            { "default": "Write a short bio for this team member. Describe their role and expertise.", "role": "bio" }
+          ],
+          "images": [
+            { "role": "headshot", "position": "left" }
+          ]
+        },
+        "bestFor": ["detailed team pages", "leadership sections", "advisory boards"]
+      },
+      {
+        "index": 2,
+        "name": "Team Carousel",
+        "description": "Scrollable carousel of team member cards",
+        "layout": "carousel",
+        "placeholders": {
+          "texts": [
+            { "default": "The Team", "role": "heading" },
+            { "default": "Full Name", "role": "member-name" },
+            { "default": "Job Title", "role": "member-title" }
+          ],
+          "images": [
+            { "role": "headshot", "position": "center" }
+          ]
+        },
+        "bestFor": ["large teams", "rotating displays", "compact team sections"]
+      }
+    ]
+  },
+  {
+    "category": "Contact",
+    "templates": [
+      {
+        "index": 0,
+        "name": "Contact Form",
+        "description": "Simple contact form with heading and description",
+        "layout": "single-column",
+        "placeholders": {
+          "texts": [
+            { "default": "Get in Touch", "role": "heading" },
+            { "default": "Have questions? Fill out the form below and we'll get back to you shortly.", "role": "body" }
+          ]
+        },
+        "bestFor": ["contact pages", "inquiry forms", "general inquiries"]
+      },
+      {
+        "index": 1,
+        "name": "Map and Form",
+        "description": "Split layout with a map on one side and contact form on the other",
+        "layout": "two-column",
+        "placeholders": {
+          "texts": [
+            { "default": "Contact Us", "role": "heading" },
+            { "default": "Visit our office or send us a message. We'd love to hear from you.", "role": "body" }
+          ]
+        },
+        "bestFor": ["local businesses", "office locations", "physical stores"]
+      },
+      {
+        "index": 2,
+        "name": "Contact Info",
+        "description": "Contact details displayed with icons — phone, email, address",
+        "layout": "multi-column",
+        "placeholders": {
+          "texts": [
+            { "default": "Reach Out", "role": "heading" },
+            { "default": "Email", "role": "label" },
+            { "default": "info@yoursite.com", "role": "detail" },
+            { "default": "Phone", "role": "label" },
+            { "default": "(555) 123-4567", "role": "detail" },
+            { "default": "Address", "role": "label" },
+            { "default": "123 Main Street, City, State", "role": "detail" }
+          ]
+        },
+        "bestFor": ["simple contact info", "footer supplements", "multi-channel contact"]
+      }
+    ]
+  },
+  {
+    "category": "Services",
+    "templates": [
+      {
+        "index": 0,
+        "name": "Service List",
+        "description": "Vertical list of services with descriptions",
+        "layout": "stacked",
+        "placeholders": {
+          "texts": [
+            { "default": "Our Services", "role": "heading" },
+            { "default": "Service Name", "role": "service-title" },
+            { "default": "Describe this service. Explain the value and what customers can expect.", "role": "service-body" }
+          ],
+          "buttons": [
+            { "default": "Learn More", "role": "cta" }
+          ]
+        },
+        "bestFor": ["service pages", "offering overviews", "consulting firms"]
+      },
+      {
+        "index": 1,
+        "name": "Icon Grid",
+        "description": "Grid of features or services with icons and short descriptions",
+        "layout": "grid",
+        "placeholders": {
+          "texts": [
+            { "default": "What We Offer", "role": "heading" },
+            { "default": "Feature Title", "role": "feature-title" },
+            { "default": "Brief description of this feature or service offering.", "role": "feature-body" }
+          ]
+        },
+        "bestFor": ["feature highlights", "capability overviews", "benefit grids"]
+      },
+      {
+        "index": 2,
+        "name": "Feature Cards",
+        "description": "Cards with images, titles, and descriptions for key features",
+        "layout": "card-grid",
+        "placeholders": {
+          "texts": [
+            { "default": "Features", "role": "heading" },
+            { "default": "Feature Title", "role": "card-title" },
+            { "default": "Explain how this feature benefits your customers. Keep it clear and concise.", "role": "card-body" }
+          ],
+          "images": [
+            { "role": "card-image", "position": "top" }
+          ]
+        },
+        "bestFor": ["product features", "service showcases", "comparison sections"]
+      },
+      {
+        "index": 3,
+        "name": "Pricing Table",
+        "description": "Side-by-side pricing tiers with features and CTA buttons",
+        "layout": "multi-column",
+        "placeholders": {
+          "texts": [
+            { "default": "Pricing", "role": "heading" },
+            { "default": "Basic", "role": "tier-name" },
+            { "default": "$9/mo", "role": "price" },
+            { "default": "Everything you need to get started.", "role": "tier-description" },
+            { "default": "Pro", "role": "tier-name" },
+            { "default": "$29/mo", "role": "price" },
+            { "default": "Advanced features for growing businesses.", "role": "tier-description" }
+          ],
+          "buttons": [
+            { "default": "Get Started", "role": "cta" }
+          ]
+        },
+        "bestFor": ["SaaS pricing", "membership plans", "subscription services"]
+      }
+    ]
+  },
+  {
+    "category": "Products",
+    "templates": [
+      {
+        "index": 0,
+        "name": "Product Grid",
+        "description": "Grid of product cards with images, names, and prices",
+        "layout": "grid",
+        "placeholders": {
+          "texts": [
+            { "default": "Shop Our Collection", "role": "heading" },
+            { "default": "Product Name", "role": "product-name" },
+            { "default": "$0.00", "role": "price" }
+          ],
+          "images": [
+            { "role": "product-photo", "position": "top" }
+          ]
+        },
+        "bestFor": ["e-commerce pages", "product catalogs", "merchandise"]
+      },
+      {
+        "index": 1,
+        "name": "Featured Product",
+        "description": "Single product highlight with large image, description, and buy button",
+        "layout": "two-column",
+        "placeholders": {
+          "texts": [
+            { "default": "Featured Product", "role": "heading" },
+            { "default": "Product Name", "role": "product-name" },
+            { "default": "Describe this product in detail. Highlight the key benefits and what makes it special.", "role": "product-description" },
+            { "default": "$0.00", "role": "price" }
+          ],
+          "buttons": [
+            { "default": "Add to Cart", "role": "purchase" }
+          ],
+          "images": [
+            { "role": "product-photo", "position": "left" }
+          ]
+        },
+        "bestFor": ["product launches", "hero products", "featured items"]
+      },
+      {
+        "index": 2,
+        "name": "Product Showcase",
+        "description": "Full-width product display with multiple images and details",
+        "layout": "full-width",
+        "placeholders": {
+          "texts": [
+            { "default": "New Arrivals", "role": "heading" },
+            { "default": "Explore our latest collection. Each piece is crafted with care and attention to detail.", "role": "body" }
+          ],
+          "buttons": [
+            { "default": "Shop Now", "role": "cta" }
+          ],
+          "images": [
+            { "role": "product-photo", "position": "center" }
+          ]
+        },
+        "bestFor": ["new arrivals", "seasonal collections", "curated selections"]
+      }
+    ]
+  },
+  {
+    "category": "FAQs",
+    "templates": [
+      {
+        "index": 0,
+        "name": "FAQ Accordion",
+        "description": "Expandable question-and-answer pairs in accordion format",
+        "layout": "stacked-accordion",
+        "placeholders": {
+          "texts": [
+            { "default": "Frequently Asked Questions", "role": "heading" },
+            { "default": "What is your return policy?", "role": "question" },
+            { "default": "We offer a 30-day return policy on all items. Contact us for more details.", "role": "answer" },
+            { "default": "How long does shipping take?", "role": "question" },
+            { "default": "Standard shipping takes 5-7 business days. Express options are available at checkout.", "role": "answer" }
+          ]
+        },
+        "bestFor": ["FAQ pages", "support sections", "product Q&A"]
+      },
+      {
+        "index": 1,
+        "name": "Q&A List",
+        "description": "Simple list of questions and answers displayed inline",
+        "layout": "stacked",
+        "placeholders": {
+          "texts": [
+            { "default": "Questions & Answers", "role": "heading" },
+            { "default": "What services do you offer?", "role": "question" },
+            { "default": "We provide a full range of services tailored to your needs. Reach out for a custom consultation.", "role": "answer" },
+            { "default": "How do I get started?", "role": "question" },
+            { "default": "Getting started is easy. Contact us through our form or give us a call.", "role": "answer" }
+          ]
+        },
+        "bestFor": ["simple FAQs", "about page addons", "informational sections"]
+      }
+    ]
+  },
+  {
+    "category": "Images",
+    "templates": [
+      {
+        "index": 0,
+        "name": "Gallery Grid",
+        "description": "Uniform grid of images, ideal for portfolios or photo galleries",
+        "layout": "grid",
+        "placeholders": {
+          "texts": [
+            { "default": "Gallery", "role": "heading" }
+          ],
+          "images": [
+            { "role": "gallery-image", "position": "grid" }
+          ]
+        },
+        "bestFor": ["portfolios", "photo galleries", "project showcases"]
+      },
+      {
+        "index": 1,
+        "name": "Slideshow",
+        "description": "Full-width image slideshow with optional captions",
+        "layout": "carousel",
+        "placeholders": {
+          "texts": [
+            { "default": "Image Caption", "role": "caption" }
+          ],
+          "images": [
+            { "role": "slide", "position": "full" }
+          ]
+        },
+        "bestFor": ["featured photos", "event highlights", "visual storytelling"]
+      },
+      {
+        "index": 2,
+        "name": "Collage",
+        "description": "Mixed-size image collage with asymmetric layout",
+        "layout": "masonry",
+        "placeholders": {
+          "texts": [
+            { "default": "Our Work", "role": "heading" }
+          ],
+          "images": [
+            { "role": "collage-image", "position": "varied" }
+          ]
+        },
+        "bestFor": ["creative portfolios", "visual variety", "mood boards"]
+      },
+      {
+        "index": 3,
+        "name": "Banner",
+        "description": "Full-width image banner with optional overlay text",
+        "layout": "full-width-overlay",
+        "placeholders": {
+          "texts": [
+            { "default": "Your Message Here", "role": "heading" }
+          ],
+          "images": [
+            { "role": "banner", "position": "full" }
+          ]
+        },
+        "bestFor": ["page dividers", "visual breaks", "statement sections"]
+      }
+    ]
+  }
+]
