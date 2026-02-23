@@ -1,0 +1,109 @@
+{
+  "login": {
+    "emailInput": [
+      "input[name='email']",
+      "input[type='email']",
+      "#email"
+    ],
+    "passwordInput": [
+      "input[name='password']",
+      "input[type='password']",
+      "#password"
+    ],
+    "submitButton": [
+      "#login-button",
+      "[data-test='login-button']",
+      "button[type='submit']",
+      "button:has-text('LOG IN')",
+      "button:has-text('Log In')",
+      "button:has-text('Continue')"
+    ],
+    "twoFactorInput": [
+      "input[name='totp']",
+      "input[name='code']",
+      "input[placeholder*='code']"
+    ]
+  },
+  "dashboard": {
+    "siteCard": [
+      "[data-test='site-dashboard-card']",
+      ".site-card",
+      "[class*='SiteDashboard']"
+    ]
+  },
+  "admin": {
+    "pagesNavItem": [
+      "[data-test='menuItem-website']",
+      "a:has-text('Pages')",
+      "button:has-text('Pages')"
+    ],
+    "pageListItem": [
+      "[data-test='pages-panel-item']",
+      "[data-test='grouped-list-item']",
+      "[role='button']"
+    ],
+    "editButton": [
+      "button:has-text('Edit')",
+      "[data-test='edit-page']",
+      "[aria-label='Edit']"
+    ],
+    "saveButton": [
+      "button:has-text('Save')",
+      "[data-test='save']",
+      "[aria-label='Save']"
+    ],
+    "doneButton": [
+      "button:has-text('Done')",
+      "[data-test='done']",
+      "[aria-label='Done editing']"
+    ]
+  },
+  "editor": {
+    "blockToolbar": [
+      "[data-test='block-toolbar']",
+      "[class*='BlockToolbar']",
+      ".block-toolbar"
+    ],
+    "deleteBlock": [
+      "[data-test='block-toolbar-delete']",
+      "button[aria-label='Delete']",
+      "button:has-text('Delete')"
+    ],
+    "textBlock": [
+      "[data-block-type='text']",
+      ".sqs-block-content",
+      "[class*='TextBlock']"
+    ],
+    "menuBlock": [
+      "[data-block-type='menu']",
+      ".sqs-block-menu",
+      "[class*='MenuBlock']"
+    ],
+    "addBlockButton": [
+      "button:has-text('Add Block')",
+      "[data-test='add-block']",
+      "[aria-label='Add block']"
+    ],
+    "blockEditor": [
+      "[data-test='block-editor']",
+      "[class*='BlockEditor']",
+      ".block-editor-panel"
+    ],
+    "confirmDelete": [
+      "button:has-text('Delete')",
+      "[data-test='confirm-delete']",
+      "button:has-text('Confirm')"
+    ]
+  },
+  "mediaManager": {
+    "uploadButton": [
+      "button:has-text('Upload')",
+      "[data-test='upload']",
+      "input[type='file']"
+    ],
+    "fileInput": [
+      "input[type='file']",
+      "[data-test='file-input']"
+    ]
+  }
+}
