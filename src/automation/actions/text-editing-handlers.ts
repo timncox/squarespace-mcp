@@ -2,7 +2,7 @@ import { Page } from 'playwright';
 import { logger } from '../../utils/logger.js';
 import { clickThroughOverlay, dblclickThroughOverlay, findTextOnPage, getSiteFrame } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
-import { isFluidEngineActive, clickEditorButton, tryContentSaveApi } from './handler-utils.js';
+import { isFluidEngineActive, clickEditorButton, tryContentSaveApi, tryFooterContentSaveApi } from './handler-utils.js';
 import type { ActionResult } from './types.js';
 
 // ─── Compound Action: editTextBlock ───────────────────────────────────────
@@ -42,7 +42,17 @@ export async function handleEditTextBlock(
   if (apiResult) {
     return apiResult;
   }
-  logger.info('editTextBlock[0/10]: API fast path unavailable, falling back to UI automation');
+  logger.info('editTextBlock[0/10]: API fast path unavailable, trying footer API...');
+
+  // ── Fast path 2: try Footer Content Save API ──────────────────────────
+  // The regular API searches page sections (article[data-page-sections]),
+  // but footer content lives in a separate data store. If the text wasn't
+  // found in page sections, try the footer API.
+  const footerResult = await tryFooterContentSaveApi(page, searchText, newText);
+  if (footerResult) {
+    return footerResult;
+  }
+  logger.info('editTextBlock[0/10]: footer API also unavailable, falling back to UI automation');
 
   // ── Step 1: Find the text in the iframe ──────────────────────────────
   logger.info({ searchText }, 'editTextBlock[1/10]: finding text');
