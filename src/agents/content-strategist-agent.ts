@@ -203,8 +203,50 @@ The content you write will be typed VERBATIM into the Squarespace website editor
     parts.push('');
   }
 
-  // Research findings
-  if (research && research.findings.length > 0) {
+  // Research findings — prefer synthesis (structured) over raw findings
+  if (research?.synthesis) {
+    const syn = research.synthesis;
+
+    parts.push('## Research Synthesis\n');
+
+    if (syn.keyFacts.length > 0) {
+      parts.push('### Key Facts (verified from sources)\n');
+      for (const fact of syn.keyFacts) {
+        parts.push(`- ${fact}`);
+      }
+      parts.push('');
+    }
+
+    if (syn.contentSuggestions.length > 0) {
+      parts.push('### Content Suggestions\n');
+      for (const suggestion of syn.contentSuggestions) {
+        parts.push(`- ${suggestion}`);
+      }
+      parts.push('');
+    }
+
+    if (syn.toneGuidance) {
+      parts.push(`### Tone Guidance\n${syn.toneGuidance}\n`);
+    }
+
+    if (syn.sources.length > 0) {
+      parts.push('### Sources (ranked by relevance)\n');
+      const highSources = syn.sources.filter(s => s.relevance === 'high');
+      const medSources = syn.sources.filter(s => s.relevance === 'medium');
+      if (highSources.length > 0) {
+        for (const s of highSources) {
+          parts.push(`- **[HIGH]** ${s.url} — ${s.summary}`);
+        }
+      }
+      if (medSources.length > 0) {
+        for (const s of medSources.slice(0, 3)) {
+          parts.push(`- [medium] ${s.url} — ${s.summary}`);
+        }
+      }
+      parts.push('');
+    }
+  } else if (research && research.findings.length > 0) {
+    // Fallback: raw findings (no synthesis available)
     parts.push('## Research Findings\n');
     for (const finding of research.findings) {
       parts.push(`- ${finding}`);
@@ -213,6 +255,27 @@ The content you write will be typed VERBATIM into the Squarespace website editor
       parts.push(`\nSources: ${research.sources.slice(0, 3).join(', ')}`);
     }
     parts.push('');
+  }
+
+  // Structured page data (from URL extraction)
+  if (research?.structuredPages && research.structuredPages.length > 0) {
+    parts.push('## Extracted Page Data\n');
+    for (const page of research.structuredPages) {
+      parts.push(`### ${page.title || page.url}\n`);
+      if (page.headings.length > 0) {
+        parts.push(`Headings: ${page.headings.slice(0, 5).join(' > ')}`);
+      }
+      if (page.keyContent.length > 0) {
+        parts.push('Key content:');
+        for (const content of page.keyContent.slice(0, 3)) {
+          parts.push(`  - ${content.substring(0, 200)}`);
+        }
+      }
+      if (page.lists.length > 0) {
+        parts.push(`Lists found: ${page.lists.length} (items: ${page.lists.map(l => l.slice(0, 3).join(', ')).join(' | ')})`);
+      }
+      parts.push('');
+    }
   }
 
   // Site analysis
