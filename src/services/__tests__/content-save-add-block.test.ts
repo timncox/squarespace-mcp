@@ -581,6 +581,264 @@ describe('ContentSaveClient — addTextBlock', () => {
 
       fetchSpy.mockRestore();
     });
+
+    // ── Explicit grid coordinate tests ──────────────────────────────────
+
+    it('addTextBlock with explicit startX/endX places block at specified columns', async () => {
+      const sections = makeSections();
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock(
+        'psid-1', 'cid-1', 0, '<p>Custom position</p>',
+        { startX: 5, endX: 20 },
+      );
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+
+      expect(newBlock.layout.desktop.start.x).toBe(5);
+      expect(newBlock.layout.desktop.end.x).toBe(20);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('addTextBlock with startX=1 endX=13 creates half-width block on left', async () => {
+      const sections = makeSections();
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock(
+        'psid-1', 'cid-1', 0, '<p>Left half</p>',
+        { startX: 1, endX: 13 },
+      );
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+
+      expect(newBlock.layout.desktop.start.x).toBe(1);
+      expect(newBlock.layout.desktop.end.x).toBe(13);
+      // Block spans 12 columns (half of 24)
+      expect(newBlock.layout.desktop.end.x - newBlock.layout.desktop.start.x).toBe(12);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('addTextBlock with startX=13 endX=25 creates half-width block on right', async () => {
+      const sections = makeSections();
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock(
+        'psid-1', 'cid-1', 0, '<p>Right half</p>',
+        { startX: 13, endX: 25 },
+      );
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+
+      expect(newBlock.layout.desktop.start.x).toBe(13);
+      expect(newBlock.layout.desktop.end.x).toBe(25);
+      // Block spans 12 columns (half of 24)
+      expect(newBlock.layout.desktop.end.x - newBlock.layout.desktop.start.x).toBe(12);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('addTextBlock with startY/endY overrides auto-positioning', async () => {
+      const existingBlocks = [
+        makeBlockWithLayout('b1', '<p>First</p>', { x: 1, y: 0 }, { x: 25, y: 3 }),
+      ];
+      const sections = makeSections(...existingBlocks);
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      // Place at row 10 instead of auto-stacking at row 3
+      await client.addTextBlock(
+        'psid-1', 'cid-1', 0, '<p>Custom Y</p>',
+        { startY: 10, endY: 15 },
+      );
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[1];
+
+      expect(newBlock.layout.desktop.start.y).toBe(10);
+      expect(newBlock.layout.desktop.end.y).toBe(15);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('two blocks with startX=1,endX=13 and startX=13,endX=25 create side-by-side layout', async () => {
+      const sections = makeSections();
+      const data = makePageSectionsData(sections);
+
+      // First block: left half
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock(
+        'psid-1', 'cid-1', 0, '<p>Left column</p>',
+        { startX: 1, endX: 13, startY: 0, endY: 3 },
+      );
+
+      // For the second block, simulate the section now having the first block
+      const sectionsWithLeft = makeSections(
+        makeBlockWithLayout('left-block', '<p>Left column</p>', { x: 1, y: 0 }, { x: 13, y: 3 }),
+      );
+      const dataWithLeft = makePageSectionsData(sectionsWithLeft);
+
+      fetchSpy
+        .mockResolvedValueOnce(new Response(JSON.stringify(dataWithLeft), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock(
+        'psid-1', 'cid-1', 0, '<p>Right column</p>',
+        { startX: 13, endX: 25, startY: 0, endY: 3 },
+      );
+
+      // Verify second PUT has both blocks side-by-side
+      const [, putOptions] = fetchSpy.mock.calls[3] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const gridContents = putBody.sections[0].fluidEngineContext.gridContents;
+      expect(gridContents).toHaveLength(2);
+
+      const leftBlock = gridContents[0];
+      const rightBlock = gridContents[1];
+
+      // Left block: columns 1-13
+      expect(leftBlock.layout.desktop.start.x).toBe(1);
+      expect(leftBlock.layout.desktop.end.x).toBe(13);
+      // Right block: columns 13-25
+      expect(rightBlock.layout.desktop.start.x).toBe(13);
+      expect(rightBlock.layout.desktop.end.x).toBe(25);
+      // Same row
+      expect(leftBlock.layout.desktop.start.y).toBe(rightBlock.layout.desktop.start.y);
+      expect(leftBlock.layout.desktop.end.y).toBe(rightBlock.layout.desktop.end.y);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('addTextBlock clamps startX to 1 when given 0', async () => {
+      const sections = makeSections();
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock(
+        'psid-1', 'cid-1', 0, '<p>Clamped</p>',
+        { startX: 0, endX: 13 },
+      );
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+
+      expect(newBlock.layout.desktop.start.x).toBe(1); // clamped from 0 to 1
+
+      fetchSpy.mockRestore();
+    });
+
+    it('addTextBlock clamps endX to maxColumns+1 when exceeding grid', async () => {
+      const sections = makeSections(); // 24 columns -> maxColumns+1 = 25
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock(
+        'psid-1', 'cid-1', 0, '<p>Wide</p>',
+        { startX: 1, endX: 30 }, // 30 exceeds 25 (maxColumns+1)
+      );
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+
+      expect(newBlock.layout.desktop.start.x).toBe(1);
+      expect(newBlock.layout.desktop.end.x).toBe(25); // clamped to maxColumns+1
+
+      fetchSpy.mockRestore();
+    });
+
+    it('addTextBlock with only columns (no startX/endX) still uses auto-stacking', async () => {
+      const existingBlocks = [
+        makeBlockWithLayout('b1', '<p>First</p>', { x: 1, y: 0 }, { x: 25, y: 3 }),
+      ];
+      const sections = makeSections(...existingBlocks);
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock(
+        'psid-1', 'cid-1', 0, '<p>Auto-stacked</p>',
+        { columns: 12 },
+      );
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[1];
+
+      // Auto X: starts at 1, spans 12 columns
+      expect(newBlock.layout.desktop.start.x).toBe(1);
+      expect(newBlock.layout.desktop.end.x).toBe(13);
+      // Auto Y: stacks below existing block at y=3, with default gapRows=0
+      expect(newBlock.layout.desktop.start.y).toBe(3); // 3 (maxY) + 0 (gapRows default)
+      expect(newBlock.layout.desktop.end.y).toBe(6); // 3 + 3 (default rowHeight)
+
+      fetchSpy.mockRestore();
+    });
+
+    it('addTextBlock backward compatibility: no layout param still works', async () => {
+      const existingBlocks = [
+        makeBlockWithLayout('b1', '<p>First</p>', { x: 1, y: 0 }, { x: 25, y: 3 }),
+      ];
+      const sections = makeSections(...existingBlocks);
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      // No layout param at all — should use full width, auto-stacking
+      await client.addTextBlock(
+        'psid-1', 'cid-1', 0, '<p>No layout</p>',
+      );
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[1];
+
+      // Full width
+      expect(newBlock.layout.desktop.start.x).toBe(1);
+      expect(newBlock.layout.desktop.end.x).toBe(25);
+      // Auto Y: below existing block at y=3, with gapRows=0 (default)
+      expect(newBlock.layout.desktop.start.y).toBe(3); // 3 + 0
+      expect(newBlock.layout.desktop.end.y).toBe(6); // 3 + 3
+
+      fetchSpy.mockRestore();
+    });
   });
 });
 

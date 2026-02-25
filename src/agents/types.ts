@@ -102,7 +102,15 @@ export interface ContentSpec {
   /** For blank_api strategy: text blocks to add via Content Save API */
   apiBlocks?: Array<{
     html: string;
-    layout?: { columns?: number };
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    };
     /** Structured content for rich HTML generation via buildRichHtml() */
     richContent?: Array<{
       text: string;
