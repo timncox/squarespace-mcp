@@ -38,6 +38,11 @@ const BATCH_SIZE = 3;        // operations per batch
 const STEPS_PER_BATCH = 40;  // browser agent steps per batch (~13 steps per operation)
 export const BATCH_THRESHOLD = 5;   // batch when ≥6 operations (lowered from 8 to catch 8-project requests)
 
+// ─── Two-Pass Constants ─────────────────────────────────────────────────────
+
+/** Minimum section additions to trigger two-pass execution */
+const TWO_PASS_SECTION_THRESHOLD = 3;
+
 // ─── Task Execution (main entry point) ──────────────────────────────────────
 
 /**
@@ -183,6 +188,23 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
     }
   }
 
+  // ── Two-Pass Gate (checked FIRST) ────────────────────────────────────
+  // For plans with page creation or 3+ section additions, use two-pass
+  // execution to ensure all structural elements are persisted before
+  // any content operations begin. This is more reliable than single-pass
+  // because the Content Save API can see all sections after the save.
+  if (plan && shouldUseTwoPass(plan) && conversation.taskIds.length > 0) {
+    const tasks = conversation.taskIds.map(id => getTask(id)).filter((t): t is Task => t !== null);
+    if (tasks.length > 0) {
+      logger.info(
+        { operationCount: plan.operations.length },
+        'Plan qualifies for two-pass execution',
+      );
+      await executeTwoPassPlan(conversation, tasks, plan);
+      return; // Done — skip normal execution path
+    }
+  }
+
   // ── Template Index Validation ─────────────────────────────────────────────
   // If we have cached template discovery data, validate that template indexes
   // in the plan still match expectations. Stale indexes are logged as warnings
@@ -191,7 +213,7 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
     validatePlanTemplateIndexes(plan);
   }
 
-  // ── Batching Gate (checked FIRST) ──────────────────────────────────────
+  // ── Batching Gate ─────────────────────────────────────────────────────
   // If the plan has many operations (e.g., 8 project cards), split into
   // batches instead of sending everything to the agent at once.
   // This must be checked BEFORE building the instructionMap because when
@@ -1465,6 +1487,830 @@ async function executeBlankApiFallback(
   );
 
   return { blocksAdded, errors };
+}
+
+// ─── Two-Pass Execution ─────────────────────────────────────────────────────
+
+/**
+ * Split plan operations into structural (pass 1) and content (pass 2) operations.
+ *
+ * Structural operations create pages or add sections. Content operations modify
+ * text, add blocks, replace images, remove blocks, or change styles within
+ * existing sections.
+ *
+ * Operations that are both structural AND have content (e.g., add_section with
+ * replacements or apiBlocks) appear in BOTH passes: the structural pass adds the
+ * section, and the content pass fills in the content.
+ */
+export function splitOperationsIntoPasses(operations: ContentOperation[]): {
+  structural: ContentOperation[];
+  content: ContentOperation[];
+} {
+  const structural: ContentOperation[] = [];
+  const content: ContentOperation[] = [];
+
+  for (const op of operations) {
+    const isCreatePage = op.operationType === 'create_page' || op.targetPage === 'new';
+    const isAddSection = op.operationType === 'add_section';
+
+    if (isCreatePage) {
+      // Page creation is purely structural
+      structural.push(op);
+    } else if (isAddSection) {
+      // Section additions are structural — always add to pass 1
+      structural.push(op);
+
+      // If the section also has content to fill, add a content-only copy to pass 2
+      const hasReplacements = op.content.replacements &&
+        ((op.content.replacements.texts?.length ?? 0) > 0 ||
+         (op.content.replacements.buttons?.length ?? 0) > 0 ||
+         (op.content.replacements.images?.length ?? 0) > 0 ||
+         (op.content.replacements.removeBlocks?.length ?? 0) > 0);
+      const hasApiBlocks = (op.content.apiBlocks?.length ?? 0) > 0;
+      const hasStyle = op.content.sectionTheme || op.content.sectionPadding ||
+        op.content.blockSpacing || op.content.sectionHeight || op.content.contentWidth;
+
+      if (hasReplacements || hasApiBlocks || hasStyle) {
+        content.push(op);
+      }
+    } else {
+      // Everything else is content work
+      content.push(op);
+    }
+  }
+
+  return { structural, content };
+}
+
+/**
+ * Determine whether a plan should use two-pass execution.
+ *
+ * Two-pass is beneficial when:
+ * - The plan has create_page operations (page must exist before sections)
+ * - The plan has 3+ section additions (bulk structural work benefits from save-once)
+ */
+export function shouldUseTwoPass(plan: ContentPlan): boolean {
+  const hasPageCreation = plan.operations.some(
+    op => op.operationType === 'create_page' || op.targetPage === 'new',
+  );
+
+  const sectionAdditions = plan.operations.filter(
+    op => op.operationType === 'add_section',
+  ).length;
+
+  return hasPageCreation || sectionAdditions >= TWO_PASS_SECTION_THRESHOLD;
+}
+
+/**
+ * Execute a content plan in two passes: structure first, content second.
+ *
+ * Pass 1 (Structure): Creates pages and adds all sections (blank or template).
+ *   After all structural ops, saves the editor and waits for Squarespace to persist.
+ *
+ * Pass 2 (Content): Fills text via API, applies replacements, removes blocks,
+ *   applies section styles. All sections are guaranteed to exist server-side.
+ *
+ * Section tracking: After pass 1, re-fetches page sections via API to discover
+ * the actual section IDs assigned by Squarespace. Maps operations to sections
+ * by insertion order.
+ */
+async function executeTwoPassPlan(
+  conversation: Conversation,
+  tasks: Task[],
+  plan: ContentPlan,
+): Promise<void> {
+  const primaryTask = tasks[0];
+  if (!primaryTask) {
+    logger.error('executeTwoPassPlan: no tasks provided');
+    updateConversationStatus(conversation.id, 'completed');
+    return;
+  }
+
+  const { structural, content } = splitOperationsIntoPasses(plan.operations);
+  logger.info(
+    { structuralCount: structural.length, contentCount: content.length },
+    'Two-pass plan: operations split',
+  );
+
+  updateTaskStatus(primaryTask.id, 'executing');
+  logAction(primaryTask.id, 'task_executing', `Two-pass plan: ${structural.length} structural + ${content.length} content ops`);
+
+  const { dashboardEvents } = await import('../../services/dashboard-events.js');
+
+  const browserManager = getBrowserManager({ headless: true });
+  const sessionId = `two-pass-${conversation.id}`;
+  const session = await browserManager.createSession(sessionId);
+
+  try {
+    await ensureLoggedIn(session);
+    const page = await session.getPage();
+
+    // Discover sites and navigate
+    const { discoverSites } = await import('../../automation/site-discovery.js');
+    await discoverSites(page);
+
+    const client = await resolveSite(primaryTask.siteId, page);
+    await navigateToSite(page, client);
+
+    // Detect page-creation in structural ops
+    const hasPageCreation = structural.some(
+      op => op.operationType === 'create_page' || op.targetPage === 'new',
+    );
+
+    if (hasPageCreation) {
+      // Navigate to Pages panel for page creation
+      const pagesUrl = `${derivePublicBaseUrl(client.site.adminUrl)}/config/pages`;
+      logger.info({ pagesUrl }, 'Two-pass: navigating to Pages panel for page creation');
+      await page.goto(pagesUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.waitForTimeout(4000);
+    } else if (primaryTask.targetPage) {
+      await navigateToPage(page, client, primaryTask.targetPage);
+      await enterEditMode(page);
+    }
+
+    const siteContext = {
+      pages: client.site.pages,
+      siteName: client.name,
+    };
+
+    await sendToTim(
+      `Starting two-pass execution: ${structural.length} structural ops, then ${content.length} content ops...`,
+      conversation.id,
+    );
+
+    // ── Pass 1: Structural Operations ──────────────────────────────────
+    dashboardEvents.emit('dashboard', {
+      type: 'agent_activity' as const,
+      data: {
+        agent: 'browser_agent',
+        status: 'started',
+        message: `Pass 1 (Structure): ${structural.length} operations`,
+        taskId: primaryTask.id,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    // Track which section indices were added (in order) for pass 2 mapping
+    let sectionCountBefore = 0;
+    const siteFrame = page.frame({ name: 'sqs-site-frame' });
+    if (siteFrame) {
+      sectionCountBefore = await siteFrame.locator('.page-section').count().catch(() => 0);
+    }
+
+    let pass1Succeeded = 0;
+    let pass1Failed = 0;
+
+    for (let i = 0; i < structural.length; i++) {
+      const op = structural[i];
+      const label = op.content.heading ?? op.operationType.replace(/_/g, ' ');
+
+      dashboardEvents.emit('dashboard', {
+        type: 'agent_activity' as const,
+        data: {
+          agent: 'browser_agent',
+          status: 'started',
+          message: `Pass 1 [${i + 1}/${structural.length}]: ${label}`,
+          taskId: primaryTask.id,
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+      try {
+        if (op.operationType === 'create_page') {
+          // Page creation requires the browser agent
+          const siteCtx = { pages: client.site.pages, siteName: client.name };
+          const createResult = await executeBrowserTask(page, op.editorInstruction, {
+            maxSteps: 50,
+            model: MODEL_SONNET,
+            siteId: primaryTask.siteId,
+            targetPage: primaryTask.targetPage,
+          }, siteCtx);
+
+          if (createResult.success) {
+            pass1Succeeded++;
+            logger.info({ label }, 'Two-pass pass 1: page created');
+
+            // After page creation, enter edit mode on the new page
+            try {
+              await enterEditMode(page);
+            } catch {
+              logger.warn('Two-pass: could not enter edit mode after page creation');
+            }
+          } else {
+            pass1Failed++;
+            logger.warn({ label, error: createResult.summary }, 'Two-pass pass 1: page creation failed');
+          }
+        } else if (op.operationType === 'add_section') {
+          // Add section via direct handler call (no browser agent overhead)
+          const { handleAddSection } = await import('../../automation/actions/section-management-handlers.js');
+
+          const strategy = op.content.contentStrategy;
+          let addResult;
+
+          if (strategy === 'template' && op.content.templateCategory) {
+            // Add template section (structural only — replacements happen in pass 2)
+            addResult = await handleAddSection(page, {
+              action: 'addSection',
+              category: op.content.templateCategory,
+              template: op.content.templateName,
+              templateIndex: op.content.templateIndex,
+            });
+          } else {
+            // Add blank section
+            addResult = await handleAddSection(page, { action: 'addSection' });
+          }
+
+          if (addResult.success) {
+            pass1Succeeded++;
+            logger.info({ label, strategy }, 'Two-pass pass 1: section added');
+          } else {
+            pass1Failed++;
+            logger.warn({ label, error: addResult.message }, 'Two-pass pass 1: add section failed');
+          }
+
+          // Wait for section to settle before adding the next one
+          await page.waitForTimeout(1500);
+        }
+      } catch (err) {
+        pass1Failed++;
+        logger.error({ error: errMsg(err), label }, 'Two-pass pass 1: operation error');
+      }
+    }
+
+    logger.info(
+      { succeeded: pass1Succeeded, failed: pass1Failed },
+      'Two-pass pass 1 complete',
+    );
+
+    dashboardEvents.emit('dashboard', {
+      type: 'agent_activity' as const,
+      data: {
+        agent: 'browser_agent',
+        status: pass1Failed === structural.length ? 'failed' : 'completed',
+        message: `Pass 1 done: ${pass1Succeeded}/${structural.length} structural ops succeeded`,
+        taskId: primaryTask.id,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    // ── Save after ALL structural ops ──────────────────────────────────
+    // This is the key benefit of two-pass: one save persists all sections
+    // to the server before any content operations begin.
+    logger.info('Two-pass: saving all structural changes');
+    const saveResult = await saveChanges(page);
+    logger.info({ message: saveResult.message }, 'Two-pass: editor save result');
+    await page.waitForTimeout(2000); // Let Squarespace fully persist
+
+    // Re-enter edit mode if save exited it
+    if (saveResult.message?.includes('Done')) {
+      logger.info('Two-pass: save clicked Done — re-entering edit mode');
+      await enterEditMode(page);
+      await page.waitForTimeout(1500);
+    }
+
+    // ── Skip pass 2 if no content operations ───────────────────────────
+    if (content.length === 0) {
+      logger.info('Two-pass: no content operations — done');
+      updateTaskStatus(primaryTask.id, pass1Failed === 0 ? 'done' : 'done');
+      for (const t of tasks) {
+        updateTaskStatus(t.id, 'done');
+      }
+      updateConversationStatus(conversation.id, 'completed');
+      await sendToTim(
+        `All done! ${pass1Succeeded}/${structural.length} sections added.`,
+        conversation.id,
+      );
+      return;
+    }
+
+    // ── Section tracking: discover actual section IDs ──────────────────
+    // After pass 1, re-fetch page sections via API to map content operations
+    // to their target sections by order.
+    const subdomain = page.url().match(/https?:\/\/([a-z0-9-]+)\.squarespace\.com/i)?.[1];
+    let pageSectionsId: string | null = null;
+    let collectionId: string | null = null;
+    let sectionIds: string[] = [];
+
+    if (subdomain) {
+      const siteFramePost = page.frame({ name: 'sqs-site-frame' });
+      if (siteFramePost) {
+        pageSectionsId = await siteFramePost.evaluate(() => {
+          const article = document.querySelector('article[data-page-sections]');
+          return article?.getAttribute('data-page-sections') ?? null;
+        }).catch(() => null);
+      }
+
+      if (pageSectionsId) {
+        try {
+          const apiClient = createContentSaveClient(subdomain);
+          const pageSlug = primaryTask.targetPage ?? '';
+          const ids = await apiClient.getPageIds(pageSlug);
+          if (ids) {
+            collectionId = ids.collectionId;
+          }
+
+          const sectionsData = await apiClient.getPageSections(pageSectionsId);
+          sectionIds = sectionsData.sections.map(s => s.id);
+
+          logger.info(
+            { pageSectionsId, collectionId, totalSections: sectionIds.length, newSections: sectionIds.length - sectionCountBefore },
+            'Two-pass: section IDs discovered after pass 1',
+          );
+        } catch (err) {
+          logger.warn({ error: errMsg(err) }, 'Two-pass: failed to discover section IDs');
+        }
+      }
+    }
+
+    // ── Pass 2: Content Operations ─────────────────────────────────────
+    await sendToTim(
+      `Structure complete (${pass1Succeeded} sections). Now filling content...`,
+      conversation.id,
+    );
+
+    dashboardEvents.emit('dashboard', {
+      type: 'agent_activity' as const,
+      data: {
+        agent: 'browser_agent',
+        status: 'started',
+        message: `Pass 2 (Content): ${content.length} operations`,
+        taskId: primaryTask.id,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    let pass2Succeeded = 0;
+    let pass2Failed = 0;
+    const manualOps: ContentOperation[] = [];
+
+    // Map content ops to their target section indices.
+    // Structural ops that also appear in content are ordered by their position
+    // in the structural array, which corresponds to section addition order.
+    // New sections start at index sectionCountBefore.
+    const structuralAddSectionOps = structural.filter(op => op.operationType === 'add_section');
+
+    for (let i = 0; i < content.length; i++) {
+      const op = content[i];
+      const label = op.content.heading ?? op.operationType.replace(/_/g, ' ');
+      const strategy = op.content.contentStrategy;
+
+      dashboardEvents.emit('dashboard', {
+        type: 'agent_activity' as const,
+        data: {
+          agent: 'browser_agent',
+          status: 'started',
+          message: `Pass 2 [${i + 1}/${content.length}]: ${label}`,
+          taskId: primaryTask.id,
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+      try {
+        // Determine the section index for this content operation
+        // by finding its position among the structural add_section ops
+        const structuralIndex = structuralAddSectionOps.findIndex(
+          sOp => sOp === op || (sOp.content.heading === op.content.heading && sOp.placement === op.placement),
+        );
+        const targetSectionIndex = structuralIndex >= 0
+          ? sectionCountBefore + structuralIndex
+          : -1; // Could not map — will rely on text search or last section
+
+        if (strategy === 'blank_api') {
+          // Content-only blank_api: skip adding section (done in pass 1), just add text blocks
+          const result = await executeContentOnlyBlankApi(
+            page, op, subdomain ?? '', pageSectionsId, collectionId, targetSectionIndex,
+          );
+          if (result.success) {
+            pass2Succeeded++;
+            logger.info({ label, blocksAdded: result.blocksAdded }, 'Two-pass pass 2: blank_api content filled');
+          } else {
+            pass2Failed++;
+            logger.warn({ label, error: result.error }, 'Two-pass pass 2: blank_api content failed');
+          }
+        } else if (strategy === 'template') {
+          // Content-only template: skip adding section (done in pass 1), just do replacements + removals
+          const result = await executeContentOnlyTemplate(
+            page, op, subdomain ?? '', pageSectionsId, collectionId, targetSectionIndex,
+          );
+          if (result.success) {
+            pass2Succeeded++;
+            logger.info({ label, replacementsDone: result.replacementsDone }, 'Two-pass pass 2: template content filled');
+          } else {
+            pass2Failed++;
+            logger.warn({ label, error: result.error }, 'Two-pass pass 2: template content failed');
+          }
+        } else if (strategy === 'manual') {
+          // Manual ops require the browser agent — collect them for a batched run
+          manualOps.push(op);
+        } else {
+          // Non-add_section content ops (modify_text, replace_image, etc.)
+          // Try Content Save API for text modifications
+          if (op.operationType === 'modify_text' && subdomain && pageSectionsId && collectionId) {
+            const apiClient = createContentSaveClient(subdomain);
+            const searchText = op.content.heading ?? '';
+            const newText = op.content.bodyText ?? '';
+            if (searchText && newText) {
+              const result = await apiClient.updateTextBlock(pageSectionsId, collectionId, searchText, newText);
+              if (result.success) {
+                pass2Succeeded++;
+                logger.info({ label }, 'Two-pass pass 2: text modified via API');
+                continue;
+              }
+            }
+          }
+          // Fall through to manual for anything the API can't handle
+          manualOps.push(op);
+        }
+      } catch (err) {
+        pass2Failed++;
+        logger.error({ error: errMsg(err), label }, 'Two-pass pass 2: operation error');
+      }
+    }
+
+    // Execute any manual/remaining ops via browser agent
+    if (manualOps.length > 0) {
+      logger.info({ count: manualOps.length }, 'Two-pass pass 2: executing manual ops via browser agent');
+
+      const stepLines = manualOps
+        .map((op, i) => {
+          const typeLabel = op.operationType?.replace(/_/g, ' ') ?? 'action';
+          return `## Step ${i + 1} — ${typeLabel}\n${op.editorInstruction}`;
+        })
+        .join('\n\n');
+
+      const manualInstruction =
+        `You are executing ${manualOps.length} content operations. All sections have already been added — ` +
+        `DO NOT add any new sections. Only modify existing content.\n\n` +
+        `## ACTION GUIDE\n` +
+        `- **Admin UI** buttons: use **click** (main frame)\n` +
+        `- **Page content** (text, images, buttons): use **clickInIframe** or **dblclickInIframe**\n\n` +
+        stepLines;
+
+      const maxSteps = Math.min(120, Math.max(40, manualOps.length * 20));
+
+      const manualResult = await executeBrowserTask(page, manualInstruction, {
+        maxSteps,
+        model: MODEL_SONNET,
+        siteId: primaryTask.siteId,
+        targetPage: primaryTask.targetPage,
+      }, siteContext);
+
+      if (manualResult.success) {
+        pass2Succeeded += manualOps.length;
+        logger.info({ steps: manualResult.steps.length }, 'Two-pass pass 2: manual ops completed');
+      } else {
+        pass2Failed += manualOps.length;
+        logger.warn({ error: manualResult.summary }, 'Two-pass pass 2: manual ops failed');
+      }
+    }
+
+    // Apply section styling after content operations (must be done in browser)
+    const styledOps = content.filter(op =>
+      op.content.sectionTheme || op.content.sectionPadding ||
+      op.content.blockSpacing || op.content.sectionHeight || op.content.contentWidth,
+    );
+
+    if (styledOps.length > 0) {
+      const { handleEditSectionStyle } = await import('../../automation/actions/section-management-handlers.js');
+
+      for (const op of styledOps) {
+        const searchText = op.content.heading ?? op.placement ?? '';
+        if (!searchText) continue;
+
+        try {
+          await handleEditSectionStyle(page, {
+            action: 'editSectionStyle',
+            searchText,
+            sectionTheme: op.content.sectionTheme,
+            sectionHeight: op.content.sectionHeight,
+            contentWidth: op.content.contentWidth,
+            verticalAlignment: op.content.verticalAlignment,
+            sectionPadding: op.content.sectionPadding,
+            blockSpacing: op.content.blockSpacing,
+          });
+          logger.info({ searchText }, 'Two-pass: section style applied');
+        } catch (err) {
+          logger.warn({ error: errMsg(err), searchText }, 'Two-pass: section style failed');
+        }
+      }
+    }
+
+    dashboardEvents.emit('dashboard', {
+      type: 'agent_activity' as const,
+      data: {
+        agent: 'browser_agent',
+        status: pass2Failed === content.length ? 'failed' : 'completed',
+        message: `Pass 2 done: ${pass2Succeeded}/${content.length} content ops succeeded`,
+        taskId: primaryTask.id,
+      },
+      timestamp: new Date().toISOString(),
+    });
+
+    // ── Final save + screenshot ────────────────────────────────────────
+    const finalSave = await saveChanges(page);
+    logger.info({ message: finalSave.message }, 'Two-pass: final save');
+
+    let screenshotPath: string | undefined;
+    try {
+      const { takeScreenshot } = await import('../../utils/screenshot.js');
+      screenshotPath = await takeScreenshot(page, 'two-pass-final');
+    } catch {
+      // Non-critical
+    }
+
+    // ── Update task statuses ───────────────────────────────────────────
+    const totalOps = structural.length + content.length;
+    const totalSucceeded = pass1Succeeded + pass2Succeeded;
+    const totalFailed = pass1Failed + pass2Failed;
+
+    if (totalFailed === 0) {
+      for (const t of tasks) {
+        updateTaskStatus(t.id, 'done');
+      }
+    } else if (totalSucceeded > 0) {
+      for (const t of tasks) {
+        updateTaskStatus(t.id, 'done', `${totalFailed} operation(s) had issues`);
+      }
+    } else {
+      for (const t of tasks) {
+        updateTaskStatus(t.id, 'failed', 'All operations failed');
+      }
+    }
+
+    // Send summary
+    const summary = `All done! ${totalSucceeded}/${totalOps} operations completed (${pass1Succeeded} structural, ${pass2Succeeded} content).${totalFailed > 0 ? ` ${totalFailed} had issues.` : ''}`;
+
+    if (screenshotPath) {
+      try {
+        await sendImageToTim(screenshotPath, summary, conversation.id);
+      } catch {
+        await sendToTim(summary, conversation.id);
+      }
+    } else {
+      await sendToTim(summary, conversation.id);
+    }
+  } catch (err) {
+    const errorMessage = errMsg(err);
+    logger.error({ error: errorMessage }, 'Two-pass execution failed');
+    updateTaskStatus(primaryTask.id, 'failed', errorMessage);
+    await sendToTim(`Two-pass execution failed: ${errorMessage}`, conversation.id);
+  } finally {
+    await session.close();
+  }
+
+  updateConversationStatus(conversation.id, 'completed');
+}
+
+// ─── Content-Only Template Operation ────────────────────────────────────────
+
+/**
+ * Execute content operations on an already-added template section.
+ * Skips section creation (already done in pass 1). Only does:
+ * - Text replacements via Content Save API
+ * - Block removals via Content Save API
+ * - Button/image replacements via UI handlers (fallback)
+ */
+async function executeContentOnlyTemplate(
+  page: import('playwright').Page,
+  operation: ContentOperation,
+  subdomain: string,
+  pageSectionsId: string | null,
+  collectionId: string | null,
+  targetSectionIndex: number,
+): Promise<{ success: boolean; replacementsDone: number; error?: string }> {
+  const replacements = operation.content.replacements;
+  if (!replacements) {
+    return { success: true, replacementsDone: 0 };
+  }
+
+  let replacementsDone = 0;
+  const errors: string[] = [];
+
+  // Try API-based text replacements first (fast, reliable after save)
+  if (replacements.texts && replacements.texts.length > 0 && subdomain && pageSectionsId && collectionId) {
+    const apiClient = createContentSaveClient(subdomain);
+
+    for (const textRep of replacements.texts) {
+      try {
+        const result = await apiClient.updateTextBlock(
+          pageSectionsId, collectionId, textRep.searchText, textRep.newText,
+        );
+        if (result.success) {
+          replacementsDone++;
+          logger.info(
+            { searchText: textRep.searchText.substring(0, 30) },
+            'Content-only template: text replaced via API',
+          );
+        } else {
+          // Fall back to UI handler
+          logger.info({ error: result.error }, 'Content-only template: API text replace failed, trying UI');
+          const { handleEditTextBlock } = await import('../../automation/actions/text-editing-handlers.js');
+          const uiResult = await handleEditTextBlock(page, {
+            action: 'editTextBlock',
+            searchText: textRep.searchText,
+            newText: textRep.newText,
+          });
+          if (uiResult.success) {
+            replacementsDone++;
+          } else {
+            errors.push(`text "${textRep.searchText.substring(0, 20)}": ${uiResult.message}`);
+          }
+        }
+      } catch (err) {
+        errors.push(`text "${textRep.searchText.substring(0, 20)}": ${errMsg(err)}`);
+      }
+    }
+  } else if (replacements.texts && replacements.texts.length > 0) {
+    // No API available — use UI handlers
+    const { handleEditTextBlock } = await import('../../automation/actions/text-editing-handlers.js');
+    for (const textRep of replacements.texts) {
+      const result = await handleEditTextBlock(page, {
+        action: 'editTextBlock',
+        searchText: textRep.searchText,
+        newText: textRep.newText,
+      });
+      if (result.success) {
+        replacementsDone++;
+      } else {
+        errors.push(`text "${textRep.searchText.substring(0, 20)}": ${result.message}`);
+      }
+      await page.waitForTimeout(500);
+    }
+  }
+
+  // Button replacements (UI only — no API fast path for buttons)
+  if (replacements.buttons && replacements.buttons.length > 0) {
+    const { handleEditButtonBlock } = await import('../../automation/actions/text-editing-handlers.js');
+    for (const btnRep of replacements.buttons) {
+      const result = await handleEditButtonBlock(page, {
+        action: 'editButtonBlock',
+        searchText: btnRep.searchText,
+        newLabel: btnRep.newLabel,
+        url: btnRep.url,
+      });
+      if (result.success) {
+        replacementsDone++;
+      } else {
+        errors.push(`button "${btnRep.searchText.substring(0, 20)}": ${result.message}`);
+      }
+      await page.waitForTimeout(500);
+    }
+  }
+
+  // Image replacements
+  if (replacements.images && replacements.images.length > 0) {
+    const { handleReplaceImage } = await import('../../automation/actions/image-handlers.js');
+    for (const imgRep of replacements.images) {
+      const result = await handleReplaceImage(page, {
+        action: 'replaceImage',
+        searchText: imgRep.searchText,
+        imagePath: imgRep.imagePath,
+        altText: imgRep.altText,
+      });
+      if (result.success) {
+        replacementsDone++;
+      } else {
+        errors.push(`image "${imgRep.searchText.substring(0, 20)}": ${result.message}`);
+      }
+      await page.waitForTimeout(500);
+    }
+  }
+
+  // Block removals via API (fast) or UI (fallback)
+  if (replacements.removeBlocks && replacements.removeBlocks.length > 0) {
+    if (subdomain && pageSectionsId && collectionId) {
+      const apiClient = createContentSaveClient(subdomain);
+      for (const blockText of replacements.removeBlocks) {
+        try {
+          const result = await apiClient.removeBlock(pageSectionsId, collectionId, blockText);
+          if (result.success) {
+            replacementsDone++;
+            logger.info({ blockText: blockText.substring(0, 30) }, 'Content-only template: block removed via API');
+          } else {
+            // Fall back to UI
+            const { handleRemoveBlock } = await import('../../automation/actions/block-management-handlers.js');
+            const uiResult = await handleRemoveBlock(page, { action: 'removeBlock', searchText: blockText });
+            if (uiResult.success) replacementsDone++;
+            else errors.push(`remove "${blockText.substring(0, 20)}": ${uiResult.message}`);
+          }
+        } catch (err) {
+          errors.push(`remove "${blockText.substring(0, 20)}": ${errMsg(err)}`);
+        }
+      }
+    } else {
+      const { handleRemoveBlock } = await import('../../automation/actions/block-management-handlers.js');
+      for (const blockText of replacements.removeBlocks) {
+        const result = await handleRemoveBlock(page, { action: 'removeBlock', searchText: blockText });
+        if (result.success) replacementsDone++;
+        else errors.push(`remove "${blockText.substring(0, 20)}": ${result.message}`);
+        await page.waitForTimeout(500);
+      }
+    }
+  }
+
+  const totalExpected =
+    (replacements.texts?.length ?? 0) +
+    (replacements.buttons?.length ?? 0) +
+    (replacements.images?.length ?? 0) +
+    (replacements.removeBlocks?.length ?? 0);
+
+  if (replacementsDone === 0 && totalExpected > 0) {
+    return { success: false, replacementsDone: 0, error: `All ${totalExpected} replacements failed: ${errors.join('; ')}` };
+  }
+
+  if (errors.length > 0) {
+    logger.warn({ errors, replacementsDone, totalExpected }, 'Content-only template: some replacements failed');
+  }
+
+  return { success: true, replacementsDone };
+}
+
+// ─── Content-Only Blank API Operation ───────────────────────────────────────
+
+/**
+ * Execute content operations on an already-added blank section.
+ * Skips section creation (already done in pass 1). Only does:
+ * - addTextBlock API calls for each apiBlock
+ * - UI+API fallback if API fails
+ */
+async function executeContentOnlyBlankApi(
+  page: import('playwright').Page,
+  operation: ContentOperation,
+  subdomain: string,
+  pageSectionsId: string | null,
+  collectionId: string | null,
+  targetSectionIndex: number,
+): Promise<{ success: boolean; blocksAdded: number; error?: string }> {
+  const apiBlocks = operation.content.apiBlocks;
+  if (!apiBlocks || apiBlocks.length === 0) {
+    return { success: true, blocksAdded: 0 };
+  }
+
+  if (!subdomain || !pageSectionsId || !collectionId) {
+    return { success: false, blocksAdded: 0, error: 'Missing API credentials (subdomain/pageSectionsId/collectionId)' };
+  }
+
+  const apiClient = createContentSaveClient(subdomain);
+
+  // Determine the actual section index to target
+  let sectionIndex = targetSectionIndex;
+  if (sectionIndex < 0) {
+    // Fall back to last section
+    try {
+      const sectionsData = await apiClient.getPageSections(pageSectionsId);
+      sectionIndex = sectionsData.sections.length - 1;
+    } catch (err) {
+      return { success: false, blocksAdded: 0, error: `Failed to fetch sections: ${errMsg(err)}` };
+    }
+  }
+
+  if (sectionIndex < 0) {
+    return { success: false, blocksAdded: 0, error: 'No sections found' };
+  }
+
+  // Try adding text blocks via API
+  let blocksAdded = 0;
+  let apiFailed = false;
+
+  for (const block of apiBlocks) {
+    const result = await apiClient.addTextBlock(
+      pageSectionsId,
+      collectionId,
+      sectionIndex,
+      block.html,
+      block.layout,
+    );
+
+    if (result.success) {
+      blocksAdded++;
+      logger.info(
+        { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
+        'Content-only blank_api: text block added via API',
+      );
+    } else {
+      logger.warn(
+        { error: result.error, sectionIndex },
+        'Content-only blank_api: addTextBlock failed — switching to UI fallback',
+      );
+      apiFailed = true;
+      break;
+    }
+  }
+
+  // Fallback: UI + API for remaining blocks
+  if (apiFailed) {
+    const remainingBlocks = apiBlocks.slice(blocksAdded);
+    const fallbackResult = await executeBlankApiFallback(
+      page, apiClient, pageSectionsId, collectionId, sectionIndex, remainingBlocks,
+    );
+    blocksAdded += fallbackResult.blocksAdded;
+  }
+
+  if (blocksAdded === 0) {
+    return { success: false, blocksAdded: 0, error: 'All block additions failed' };
+  }
+
+  return { success: true, blocksAdded };
 }
 
 // ─── Operation Batching ─────────────────────────────────────────────────────
