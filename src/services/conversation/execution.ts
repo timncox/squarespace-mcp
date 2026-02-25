@@ -31,6 +31,12 @@ import { getCachedDiscovery, validateTemplateIndex, invalidateTemplateCache } fr
 import type { ContentPlan, ContentOperation, SupervisorVerdict } from '../../agents/types.js';
 import type { Task } from '../../models/task.js';
 import type { Conversation } from '../../models/conversation.js';
+import {
+  createPlanOperations,
+  updateOperationStatus,
+  getOperationsByConversation,
+  type PlanOperation,
+} from '../../db/plan-operations.js';
 
 // ─── Batch Constants ────────────────────────────────────────────────────────
 
@@ -54,7 +60,7 @@ const TWO_PASS_SECTION_THRESHOLD = 3;
  * - Uses browser agent for all task types (not just remove_content)
  * - Falls back to legacy remove_content action if USE_LEGACY_ACTIONS=true
  */
-export async function executeTasks(conversation: Conversation, contentPlan?: ContentPlan): Promise<void> {
+export async function executeTasks(conversation: Conversation, contentPlan?: ContentPlan, trackedOps?: PlanOperation[]): Promise<void> {
   // Periodic maintenance: decay stale learnings (cheap, synchronous SQLite)
   try {
     decayOldLearnings();
@@ -100,11 +106,22 @@ export async function executeTasks(conversation: Conversation, contentPlan?: Con
         updateTaskStatus(taskId, 'executing');
         logAction(taskId, 'task_executing', `Starting: ${task.taskType} on ${task.siteId}/${task.targetPage ?? '?'}`);
 
+        // Mark pending tracked operations for this task as executing
+        const taskTrackedOps = (trackedOps ?? []).filter((o) => o.status === 'pending');
+        for (const tracked of taskTrackedOps) {
+          updateOperationStatus(tracked.id, 'executing');
+        }
+
         const result = await executeTask(session, task, contentPlan, conversation.id);
 
         if (result.success) {
           updateTaskStatus(taskId, 'done');
           completed++;
+
+          // Mark tracked operations as succeeded
+          for (const tracked of taskTrackedOps) {
+            updateOperationStatus(tracked.id, 'succeeded');
+          }
 
           if (result.screenshotPath) {
             updateTaskScreenshot(taskId, result.screenshotPath);
@@ -131,10 +148,20 @@ export async function executeTasks(conversation: Conversation, contentPlan?: Con
           const retryTask = getTask(taskId);
           const attempt = retryTask?.attemptCount ?? 1;
           await sendToTim(`Task ${i + 1}/${total}: 🔄 Attempt ${attempt} failed — retrying automatically…`, conversation.id);
+
+          // Reset tracked operations to pending for retry
+          for (const tracked of taskTrackedOps) {
+            updateOperationStatus(tracked.id, 'pending');
+          }
         } else {
           updateTaskStatus(taskId, 'failed', result.error);
           failed++;
           logAction(taskId, 'task_failed', result.error);
+
+          // Mark tracked operations as failed
+          for (const tracked of taskTrackedOps) {
+            updateOperationStatus(tracked.id, 'failed', result.error);
+          }
 
           const failMsg = `Task ${i + 1}/${total}: ❌ Failed — ${result.error}`;
 
@@ -154,6 +181,12 @@ export async function executeTasks(conversation: Conversation, contentPlan?: Con
         updateTaskStatus(taskId, 'failed', errorMessage);
         failed++;
         logAction(taskId, 'task_failed', errorMessage);
+
+        // Mark tracked operations as failed
+        const errorTrackedOps = (trackedOps ?? []).filter((o) => o.status === 'executing');
+        for (const tracked of errorTrackedOps) {
+          updateOperationStatus(tracked.id, 'failed', errorMessage);
+        }
 
         await sendToTim(`Task ${i + 1}/${total}: ❌ Error — ${errorMessage}`, conversation.id);
       }
@@ -185,6 +218,16 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
       plan = JSON.parse(conversation.contentPlan) as ContentPlan;
     } catch {
       logger.warn({ conversationId: conversation.id }, 'Could not parse content plan, executing without plan enrichment');
+    }
+  }
+
+  // ── Persist plan operations for granular tracking ───────────────────────
+  let trackedOps: PlanOperation[] = [];
+  if (plan && plan.operations.length > 0) {
+    try {
+      trackedOps = createPlanOperations(conversation.id, plan);
+    } catch (err) {
+      logger.warn({ error: errMsg(err) }, 'Failed to persist plan operations (non-blocking)');
     }
   }
 
@@ -226,7 +269,7 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
         { operationCount: plan.operations.length, threshold: BATCH_THRESHOLD },
         'Plan exceeds batch threshold — using batched execution',
       );
-      await executeBatchedPlan(conversation, plan, primaryTask);
+      await executeBatchedPlan(conversation, plan, primaryTask, trackedOps);
       return; // Done — skip normal execution path
     }
   }
@@ -276,6 +319,10 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
               const op = blankApiOps[i];
               const heading = op.content.heading ?? `Section ${i + 1}`;
 
+              // Find the matching tracked operation for status updates
+              const trackedOp = findTrackedOp(trackedOps, plan!.operations, op);
+              if (trackedOp) updateOperationStatus(trackedOp.id, 'executing');
+
               dashboardEvents.emit('dashboard', {
                 type: 'agent_activity' as const,
                 data: {
@@ -288,6 +335,15 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
               });
 
               const result = await executeBlankApiOperation(page, op, subdomain);
+
+              // Update tracked operation status
+              if (trackedOp) {
+                updateOperationStatus(
+                  trackedOp.id,
+                  result.success ? 'succeeded' : 'failed',
+                  result.success ? undefined : result.error,
+                );
+              }
 
               dashboardEvents.emit('dashboard', {
                 type: 'agent_activity' as const,
@@ -524,7 +580,7 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
 
   // Run the normal execution pipeline (which uses task.description)
   // Pass the plan so the supervisor can verify each operation individually
-  await executeTasks(conversation, plan);
+  await executeTasks(conversation, plan, trackedOps);
 }
 
 // ─── Single Task Execution ──────────────────────────────────────────────────
@@ -2332,6 +2388,7 @@ async function executeBatchedPlan(
   conversation: Conversation,
   plan: ContentPlan,
   task: Task,
+  trackedOps: PlanOperation[] = [],
 ): Promise<void> {
   const batches = chunkOperations(plan.operations, BATCH_SIZE);
   const totalBatches = batches.length;
@@ -2435,6 +2492,12 @@ async function executeBatchedPlan(
           .map((op) => op.content.heading || op.operationType.replace(/_/g, ' '))
           .join(', ');
 
+        // Mark tracked operations in this batch as executing
+        const batchTrackedOps = batch.map((op) => findTrackedOp(trackedOps, plan.operations, op)).filter(Boolean) as PlanOperation[];
+        for (const tracked of batchTrackedOps) {
+          updateOperationStatus(tracked.id, 'executing');
+        }
+
         // Emit agent_activity: browser_agent started for this batch
         batchDashEvents.emit('dashboard', {
           type: 'agent_activity' as const,
@@ -2455,6 +2518,11 @@ async function executeBatchedPlan(
         if (batchResult.success) {
           completedBatches++;
 
+          // Mark all operations in this batch as succeeded
+          for (const tracked of batchTrackedOps) {
+            updateOperationStatus(tracked.id, 'succeeded');
+          }
+
           batchDashEvents.emit('dashboard', {
             type: 'agent_activity' as const,
             data: {
@@ -2470,6 +2538,12 @@ async function executeBatchedPlan(
           await sendToTim(`✅ Batch ${batchNum}/${totalBatches}: ${batchOps}`, conversation.id);
         } else {
           failedBatches++;
+
+          // Mark all operations in this batch as failed
+          const batchError = batchResult.summary || 'Batch execution failed';
+          for (const tracked of batchTrackedOps) {
+            updateOperationStatus(tracked.id, 'failed', batchError);
+          }
 
           batchDashEvents.emit('dashboard', {
             type: 'agent_activity' as const,
@@ -2497,6 +2571,12 @@ async function executeBatchedPlan(
         failedBatches++;
         const errorMessage = errMsg(err);
         logger.error({ batchNum, error: errorMessage }, 'Batch execution error');
+
+        // Mark all operations in this batch as failed
+        const errorBatchTracked = batch.map((op) => findTrackedOp(trackedOps, plan.operations, op)).filter(Boolean) as PlanOperation[];
+        for (const tracked of errorBatchTracked) {
+          updateOperationStatus(tracked.id, 'failed', errorMessage);
+        }
 
         batchDashEvents.emit('dashboard', {
           type: 'agent_activity' as const,
@@ -2657,6 +2737,30 @@ function buildBatchInstruction(
     `\n\nIMPORTANT: After completing these ${batch.length} steps, STOP. Do not attempt additional operations. ` +
     `Scroll down slightly so the next batch can continue adding content below.`
   );
+}
+
+// ─── Plan Operation Tracking Helpers ─────────────────────────────────────────
+
+/**
+ * Find the tracked PlanOperation that corresponds to a ContentOperation.
+ * Matches by finding the operation's index in the original plan.
+ */
+function findTrackedOp(
+  trackedOps: PlanOperation[],
+  allPlanOps: ContentOperation[],
+  targetOp: ContentOperation,
+): PlanOperation | undefined {
+  const idx = allPlanOps.indexOf(targetOp);
+  if (idx === -1) {
+    // Fallback: match by operationType + targetPage + placement
+    return trackedOps.find(
+      (t) =>
+        t.operationType === targetOp.operationType &&
+        t.targetPage === (targetOp.targetPage ?? null) &&
+        t.placement === (targetOp.placement ?? null),
+    );
+  }
+  return trackedOps.find((t) => t.operationIndex === idx);
 }
 
 // ─── Template Index Validation ──────────────────────────────────────────────
