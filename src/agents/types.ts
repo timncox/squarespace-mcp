@@ -129,6 +129,8 @@ export interface ContentSpec {
   }>;
   /** Template index for position-based selection (0-based) */
   templateIndex?: number;
+  /** Named layout preset for blank_api sections (e.g., "two-column", "hero-wide") */
+  layoutPreset?: string;
   /** Structured replacements for template sections (texts, buttons, images, block removals) */
   replacements?: {
     texts?: Array<{ searchText: string; newText: string }>;
