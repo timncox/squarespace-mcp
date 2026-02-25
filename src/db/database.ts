@@ -210,6 +210,29 @@ function migrate(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_template_cache_expires ON template_cache(expires_at);
   `);
 
+  // Phase 14 migrations — Granular per-operation tracking
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS plan_operations (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      task_id TEXT,
+      operation_index INTEGER NOT NULL,
+      operation_type TEXT NOT NULL,
+      target_page TEXT,
+      placement TEXT,
+      content_strategy TEXT,
+      status TEXT DEFAULT 'pending',
+      error_message TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_plan_ops_conversation ON plan_operations(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_plan_ops_task ON plan_operations(task_id);
+    CREATE INDEX IF NOT EXISTS idx_plan_ops_status ON plan_operations(status);
+  `);
+
   logger.debug('Database migrations applied');
 }
 
