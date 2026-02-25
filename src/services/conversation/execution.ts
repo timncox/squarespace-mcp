@@ -28,6 +28,13 @@ import { SiteReader, type SquarespacePageData } from '../../services/site-reader
 import { taskIsPageCreation } from './planning.js';
 import { buildTaskDescription, describeTask, diagnoseFailure } from './helpers.js';
 import { getCachedDiscovery, validateTemplateIndex, invalidateTemplateCache } from '../../services/template-discovery.js';
+import {
+  validateOperation,
+  capturePreSnapshot,
+  formatValidationForSupervisor,
+  type ValidationResult,
+  type PreOperationSnapshot,
+} from '../../services/content-validator.js';
 import type { ContentPlan, ContentOperation, SupervisorVerdict } from '../../agents/types.js';
 import type { Task } from '../../models/task.js';
 import type { Conversation } from '../../models/conversation.js';
@@ -314,6 +321,7 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
 
           if (subdomain) {
             const { dashboardEvents } = await import('../../services/dashboard-events.js');
+            const blankApiValidations: ValidationResult[] = [];
 
             for (let i = 0; i < blankApiOps.length; i++) {
               const op = blankApiOps[i];
@@ -358,11 +366,39 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
                 timestamp: new Date().toISOString(),
               });
 
+              // Emit validation result SSE event
+              if (result.validation) {
+                blankApiValidations.push(result.validation);
+                dashboardEvents.emit('dashboard', {
+                  type: 'agent_activity' as const,
+                  data: {
+                    agent: 'content_validator',
+                    status: result.validation.passed ? 'completed' : 'failed',
+                    message: `Validation ${result.validation.passed ? 'passed' : 'FAILED'}: ${result.validation.summary}`,
+                    taskId: primaryTask.id,
+                    detail: {
+                      operationType: result.validation.operationType,
+                      checks: result.validation.checks,
+                    },
+                  },
+                  timestamp: new Date().toISOString(),
+                });
+              }
+
               if (result.success) {
                 logger.info({ heading, blocksAdded: result.blocksAdded }, 'blank_api operation completed');
               } else {
                 logger.warn({ heading, error: result.error }, 'blank_api operation failed');
               }
+            }
+
+            // Log validation summary for blank_api batch
+            if (blankApiValidations.length > 0) {
+              const passedCount = blankApiValidations.filter(v => v.passed).length;
+              logger.info(
+                { total: blankApiValidations.length, passed: passedCount, failed: blankApiValidations.length - passedCount },
+                'blank_api: validation summary',
+              );
             }
           }
 
@@ -867,6 +903,44 @@ async function executeTask(
       timestamp: new Date().toISOString(),
     });
 
+    // ─── Inline Content Validation ─────────────────────────────────────
+    // Quick API-based check that content landed correctly before the full supervisor cycle.
+    let inlineValidations: ValidationResult[] = [];
+    let inlineValidationEvidence = '';
+
+    if (agentResult.success && contentPlan && apiSubdomain && apiPageSectionsId) {
+      try {
+        const valClient = createContentSaveClient(apiSubdomain);
+        for (const op of contentPlan.operations) {
+          const valResult = await validateOperation(op, valClient, apiPageSectionsId);
+          inlineValidations.push(valResult);
+
+          agentEvents.emit('dashboard', {
+            type: 'agent_activity' as const,
+            data: {
+              agent: 'content_validator',
+              status: valResult.passed ? 'completed' : 'failed',
+              message: `Validation ${valResult.passed ? 'passed' : 'FAILED'}: ${valResult.summary}`,
+              taskId: task.id,
+              detail: { operationType: valResult.operationType, checks: valResult.checks },
+            },
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        if (inlineValidations.length > 0) {
+          inlineValidationEvidence = formatValidationForSupervisor(inlineValidations);
+          const passCount = inlineValidations.filter(v => v.passed).length;
+          logger.info(
+            { taskId: task.id, total: inlineValidations.length, passed: passCount, failed: inlineValidations.length - passCount },
+            'Inline content validation completed',
+          );
+        }
+      } catch (err) {
+        logger.warn({ taskId: task.id, error: errMsg(err) }, 'Inline content validation failed (non-fatal)');
+      }
+    }
+
     // ─── Supervisor Verification ────────────────────────────────────────
     let supervisorVerdict: SupervisorVerdict | undefined;
 
@@ -926,6 +1000,7 @@ async function executeTask(
         contentPlan,
         jsonOptions,
         apiOptions,
+        inlineValidationEvidence || undefined,
       );
 
       if (supervisorResult.success && supervisorResult.data) {
@@ -1102,7 +1177,7 @@ async function executeBlankApiOperation(
   page: import('playwright').Page,
   operation: import('../../agents/types.js').ContentOperation,
   subdomain: string,
-): Promise<{ success: boolean; blocksAdded: number; error?: string }> {
+): Promise<{ success: boolean; blocksAdded: number; error?: string; validation?: ValidationResult }> {
   const apiBlocks = operation.content.apiBlocks;
   if (!apiBlocks || apiBlocks.length === 0) {
     return { success: false, blocksAdded: 0, error: 'No apiBlocks provided for blank_api operation' };
@@ -1162,6 +1237,9 @@ async function executeBlankApiOperation(
     }
 
     logger.info({ pageSectionsId, collectionId: ids.collectionId, slug }, 'blank_api: got page IDs');
+
+    // Capture pre-operation snapshot for validation
+    const preSnapshot = await capturePreSnapshot(client, pageSectionsId);
 
     // Step 4: Find the new section (last section)
     const sectionsData = await client.getPageSections(pageSectionsId);
@@ -1248,7 +1326,19 @@ async function executeBlankApiOperation(
       return { success: false, blocksAdded: 0, error: 'All block additions failed (API + UI fallback)' };
     }
 
-    return { success: true, blocksAdded };
+    // Step 8: Post-operation validation — read page state back and verify content landed
+    let validation: ValidationResult | undefined;
+    try {
+      validation = await validateOperation(operation, client, pageSectionsId, preSnapshot);
+      logger.info(
+        { passed: validation.passed, opType: operation.operationType, checks: validation.checks.length },
+        'blank_api: post-operation validation completed',
+      );
+    } catch (err) {
+      logger.warn({ error: errMsg(err) }, 'blank_api: post-operation validation failed (non-fatal)');
+    }
+
+    return { success: true, blocksAdded, validation };
   } catch (err) {
     return { success: false, blocksAdded: 0, error: errMsg(err) };
   }
@@ -2477,6 +2567,25 @@ async function executeBatchedPlan(
       stepsPerOp: Math.round(STEPS_PER_BATCH / BATCH_SIZE),
     }, 'Batch step budget');
 
+    // Prepare for batch validation — extract page IDs and subdomain for API reads
+    const batchSubdomain = page.url().match(/https?:\/\/([a-z0-9-]+)\.squarespace\.com/i)?.[1] ?? null;
+    let batchPageSectionsId: string | null = null;
+    const batchValidations: ValidationResult[] = [];
+
+    if (batchSubdomain) {
+      try {
+        const siteFrame = page.frame({ name: 'sqs-site-frame' });
+        if (siteFrame) {
+          batchPageSectionsId = await siteFrame.evaluate(() => {
+            const article = document.querySelector('article[data-page-sections]');
+            return article?.getAttribute('data-page-sections') ?? null;
+          }).catch(() => null);
+        }
+      } catch {
+        // Non-critical — validation will be skipped
+      }
+    }
+
     // Execute each batch sequentially on the same page
     for (let i = 0; i < batches.length; i++) {
       const batch = batches[i];
@@ -2567,6 +2676,45 @@ async function executeBatchedPlan(
         const interBatchSave = await saveChanges(page);
         logger.info({ interBatchSave, batchNum }, 'Inter-batch save completed');
         await page.waitForTimeout(1000);
+
+        // Post-batch validation: verify batch operations landed correctly
+        if (batchResult.success && batchSubdomain && batchPageSectionsId) {
+          try {
+            const valClient = createContentSaveClient(batchSubdomain);
+            const preSnap = await capturePreSnapshot(valClient, batchPageSectionsId);
+
+            for (const op of batch) {
+              const valResult = await validateOperation(op, valClient, batchPageSectionsId, preSnap);
+              batchValidations.push(valResult);
+
+              batchDashEvents.emit('dashboard', {
+                type: 'agent_activity' as const,
+                data: {
+                  agent: 'content_validator',
+                  status: valResult.passed ? 'completed' : 'failed',
+                  message: `Validation ${valResult.passed ? 'passed' : 'FAILED'}: ${valResult.summary}`,
+                  taskId: task.id,
+                  detail: {
+                    operationType: valResult.operationType,
+                    checks: valResult.checks,
+                    batchNum,
+                  },
+                },
+                timestamp: new Date().toISOString(),
+              });
+            }
+
+            const batchPassCount = batch.length > 0
+              ? batchValidations.slice(-batch.length).filter(v => v.passed).length
+              : 0;
+            logger.info(
+              { batchNum, validated: batch.length, passed: batchPassCount },
+              'Batch post-validation completed',
+            );
+          } catch (err) {
+            logger.warn({ batchNum, error: errMsg(err) }, 'Batch post-validation failed (non-fatal)');
+          }
+        }
       } catch (err) {
         failedBatches++;
         const errorMessage = errMsg(err);
@@ -2586,6 +2734,16 @@ async function executeBatchedPlan(
 
         await sendToTim(`❌ Batch ${batchNum}/${totalBatches}: Error — ${errorMessage}`, conversation.id);
       }
+    }
+
+    // Log overall validation summary for batched execution
+    if (batchValidations.length > 0) {
+      const valPassed = batchValidations.filter(v => v.passed).length;
+      const valFailed = batchValidations.length - valPassed;
+      logger.info(
+        { totalValidations: batchValidations.length, passed: valPassed, failed: valFailed },
+        'Batched plan: validation summary',
+      );
     }
 
     // Safety-net: save all changes after all batches
