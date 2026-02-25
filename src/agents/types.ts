@@ -28,6 +28,7 @@ export interface ContentOperation {
   targetPage: string;
   /** What type of edit */
   operationType:
+    | 'create_page'
     | 'add_section'
     | 'add_block'
     | 'modify_text'
@@ -102,6 +103,13 @@ export interface ContentSpec {
   apiBlocks?: Array<{ html: string; layout?: { columns?: number } }>;
   /** Template index for position-based selection (0-based) */
   templateIndex?: number;
+  /** Structured replacements for template sections (texts, buttons, images, block removals) */
+  replacements?: {
+    texts?: Array<{ searchText: string; newText: string }>;
+    buttons?: Array<{ searchText: string; newLabel?: string; url?: string }>;
+    images?: Array<{ searchText: string; imagePath: string; altText?: string }>;
+    removeBlocks?: string[];
+  };
 }
 
 // ─── Page Structure (from Content Save API, input to Content Strategist) ────
