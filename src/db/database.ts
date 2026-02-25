@@ -196,6 +196,20 @@ function migrate(db: Database.Database): void {
   // Phase 12 migrations — Original message for planning detection
   addColumnIfMissing(db, 'conversations', 'original_message', 'TEXT');
 
+  // Phase 13 migrations — Dynamic template discovery cache
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS template_cache (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      categories_json TEXT NOT NULL,
+      discovered_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_template_cache_site ON template_cache(site_id);
+    CREATE INDEX IF NOT EXISTS idx_template_cache_expires ON template_cache(expires_at);
+  `);
+
   logger.debug('Database migrations applied');
 }
 
