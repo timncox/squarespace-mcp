@@ -111,6 +111,12 @@ export interface ContentSpec {
       startY?: number;
       endY?: number;
     };
+    formatting?: {
+      tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p';
+      alignment?: 'left' | 'center' | 'right';
+      bold?: boolean;
+      italic?: boolean;
+    };
     /** Structured content for rich HTML generation via buildRichHtml() */
     richContent?: Array<{
       text: string;

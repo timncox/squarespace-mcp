@@ -1266,6 +1266,7 @@ async function executeBlankApiOperation(
         sectionIndex,
         blockHtml,
         block.layout,
+        block.formatting,
       );
 
       if (result.success) {
