@@ -2098,6 +2098,12 @@ export class ContentSaveClient {
       startY?: number;
       endY?: number;
     },
+    formatting?: {
+      tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p';
+      alignment?: 'left' | 'center' | 'right';
+      bold?: boolean;
+      italic?: boolean;
+    },
   ): Promise<TextBlockAddResult> {
     try {
       // Step 1: GET current sections
@@ -2172,7 +2178,7 @@ export class ContentSaveClient {
 
       // Step 4: Generate block ID and create GridContent
       const blockId = ContentSaveClient.generateBlockId();
-      const formattedHtml = this.formatHtml(html);
+      const formattedHtml = this.formatHtml(html, formatting);
 
       // zIndex: stack above existing blocks (each new block gets a higher z)
       const maxZ = gridContents.reduce((max, gc) => {
@@ -2386,14 +2392,54 @@ export class ContentSaveClient {
     return null;
   }
 
+  /** Formatting options for text block HTML generation */
+  static readonly FormattingDefaults = {
+    tag: 'p' as const,
+    alignment: undefined as 'left' | 'center' | 'right' | undefined,
+    bold: false,
+    italic: false,
+    className: undefined as string | undefined,
+  };
+
   /**
    * Format HTML for Squarespace text blocks.
-   * If the input is plain text (no HTML tags), wrap it in Squarespace's
-   * standard paragraph format.
+   * If the input already contains HTML tags (starts with `<`), pass it through unchanged.
+   * Otherwise, wrap plain text in the appropriate tag with optional formatting.
+   *
+   * @param input     The text or HTML content
+   * @param formatting  Optional formatting options (tag, alignment, bold, italic, className)
    */
-  private formatHtml(input: string): string {
-    if (input.includes('<')) return input;
-    return `<p class="" style="white-space:pre-wrap;">${input}</p>`;
+  formatHtml(input: string, formatting?: {
+    tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p';
+    alignment?: 'left' | 'center' | 'right';
+    bold?: boolean;
+    italic?: boolean;
+    className?: string;
+  }): string {
+    // If input is already HTML, pass through without re-wrapping
+    if (input.trimStart().startsWith('<')) return input;
+
+    // Build the tag and style attributes
+    const tag = formatting?.tag ?? 'p';
+    const className = formatting?.className ?? '';
+
+    const styles: string[] = ['white-space:pre-wrap'];
+    if (formatting?.alignment) {
+      styles.push(`text-align:${formatting.alignment}`);
+    }
+    const styleAttr = styles.join(';');
+
+    // Wrap text content with inline formatting tags
+    // Apply italic first (inner), then bold (outer) so <strong><em>text</em></strong>
+    let textContent = input;
+    if (formatting?.italic) {
+      textContent = `<em>${textContent}</em>`;
+    }
+    if (formatting?.bold) {
+      textContent = `<strong>${textContent}</strong>`;
+    }
+
+    return `<${tag} class="${className}" style="${styleAttr};">${textContent}</${tag}>`;
   }
 
   private stripHtml(html: string): string {
