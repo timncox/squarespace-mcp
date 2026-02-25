@@ -356,7 +356,7 @@ Squarespace's admin panel hides many buttons and controls by default — they on
 8. **Don't wander into Design/Style panels.** If you see options like "Fit", "Fill", "Background", "Colors", "Height" — you're in a design panel, NOT a content editor. Close it immediately (press Escape or click the X) and use "Edit Section" → "ADD BLOCK" instead.
 9. **Don't spend more than 3 steps without visible progress.** If nothing has changed in 3 steps, you're likely clicking the wrong things. Stop, re-read the task, and identify the correct interaction path.
 10. **Can't find a button? HOVER first.** Many Squarespace controls are hidden until hover. Use the "hover" action on nearby text/headers before concluding a button doesn't exist. Always take a screenshot after hovering to see what appeared.
-11. **Don't accidentally edit the footer.** If the page state shows a footer WARNING, use the "exitFooter" action IMMEDIATELY. Do not try to interact with anything while in footer mode. The exitFooter action will escape and scroll you back to the page content area.
+11. **Footer handling depends on the task.** If the task is about editing footer content (hours, contact info, address, phone, footer text), STAY in footer edit mode — you can use "editTextBlock" to edit footer text blocks (it has a footer-aware API path). If the task is NOT about footer content and the page state shows a footer WARNING, use the "exitFooter" action IMMEDIATELY.
 12. **Empty page workflow.** After creating a new page, click "EDIT" to enter edit mode. You will see "Add Page Content" with a blue "ADD SECTION" button in the CENTER. Click that button WITHOUT scrolling down first. Then browse the section template categories (Intro, About, Contact, Team, FAQs, etc.) for a pre-built layout. Only use "+ Add Blank" if no template fits.
 13. **PREFER templates over blank.** When adding sections OR pages, always browse the template categories first. Templates come with pre-arranged layouts (headings, text, buttons, images) that you can edit — much faster than building from scratch with blank sections and manual blocks.`,
   },
@@ -365,27 +365,29 @@ Squarespace's admin panel hides many buttons and controls by default — they on
     category: 'editor_workflow',
     minHighConfToReduce: 5,
     removable: true,
-    reduced: 'CRITICAL: Page content is ABOVE the footer. If page state says "WARNING: You are editing the SITE FOOTER", use exitFooter action IMMEDIATELY. Never click ADD SECTION when in footer mode.',
+    reduced: 'CRITICAL: Page content is ABOVE the footer. If the task is NOT about footer content and page state says "WARNING: You are editing the SITE FOOTER", use exitFooter action IMMEDIATELY. If the task IS about footer content (hours, contact info, address), stay in footer mode and use editTextBlock — it has a footer-aware API path.',
     full: `### Page Content vs Footer — CRITICAL DISTINCTION
 
 Squarespace pages have TWO distinct editable areas. You MUST check the page state before every action.
 
-1. **Page Content** (where you should be working):
+1. **Page Content** (where you should be working for most tasks):
    - Page state shows the page name (e.g. "Coding Projects") and "Page - Published"
    - Empty pages show "Add Page Content" with a blue "ADD SECTION" button
    - The "ADD SECTION" button in the page content area adds sections to THIS PAGE
 
-2. **Site Footer** (DO NOT edit unless explicitly asked):
+2. **Site Footer** (edit only when the task explicitly asks for footer changes):
    - Page state shows "Editing Site Footer" and "Global"
    - The "ADD SECTION" button in footer mode adds sections to the GLOBAL FOOTER
    - Has social media icons — if you see social icons, you may be in the footer
 
-**RULE: If the page state includes a footer WARNING, your ONLY next action must be "exitFooter".**
+**RULE FOR NON-FOOTER TASKS: If the page state includes a footer WARNING and the task is NOT about footer content, your ONLY next action must be "exitFooter".**
 Do NOT try to click anything, add sections, or interact with content while in footer mode.
 The exitFooter action will press Escape and scroll you back to the page content area.
 
+**RULE FOR FOOTER TASKS: If the task asks to edit footer content (hours, contact info, address, phone, footer text), STAY in footer edit mode.** Use "editTextBlock" to edit footer text — it automatically tries the Footer Content Save API, which can read and write footer blocks via the API. This is the fastest and most reliable way to edit footer text.
+
 **The #1 cause of failure on empty pages:**
-When you see "Add Page Content" with the ADD SECTION button, you must click that button (NOT scroll down). If you accidentally scroll down and click in the purple footer area, you will enter footer edit mode. Use exitFooter immediately if this happens.
+When you see "Add Page Content" with the ADD SECTION button, you must click that button (NOT scroll down). If you accidentally scroll down and click in the purple footer area, you will enter footer edit mode. Use exitFooter immediately if this happens (unless the task is about footer content).
 
 **After creating a new page, the correct workflow is:**
 1. Click the page name in the Pages sidebar to preview it
@@ -582,7 +584,7 @@ Respond with a JSON object containing:
 | findText | text | Check if text exists on the page |
 | saveChanges | (none) | Save/Done in the editor (if no button found, changes were likely auto-saved) |
 | exitFooter | (none) | IMMEDIATELY use this if you see "Editing Site Footer" or "Global" in the top bar. Exits footer and scrolls to page content. |
-| editTextBlock | searchText, newText | **PREFERRED for editing text.** Automatically tries a fast Content Save API path first (~500ms) before falling back to the 10-step UI automation (find text → click section → EDIT CONTENT → inline edit → select all → type → verify). If the API succeeds, the result says "via Content Save API" — trust this and move on. searchText = current text to find, newText = replacement text. **Also handles empty/placeholder text blocks** — if searchText is "Write here" or similar placeholder text, it will find the empty text block by its CSS class rather than DOM text. |
+| editTextBlock | searchText, newText | **PREFERRED for editing text (including footer text).** Automatically tries a fast Content Save API path first (~500ms), then tries the Footer Content Save API if the text is in the footer, before falling back to the 10-step UI automation. If the API succeeds, the result says "via Content Save API" — trust this and move on. searchText = current text to find, newText = replacement text. **Also handles empty/placeholder text blocks** — if searchText is "Write here" or similar placeholder text, it will find the empty text block by its CSS class rather than DOM text. **Footer support**: When editing footer text (hours, contact info, etc.), this action automatically detects that the text is in the footer and uses the footer-specific API endpoint. |
 | formatTextBlock | searchText, formatLevel?, bold?, italic?, alignment?, fontSize? | **PREFERRED for formatting text.** Finds a text block by text, enters inline edit mode, selects all text, and applies formatting via the toolbar. searchText = text to find. formatLevel = "heading1"-"heading4", "paragraph1"-"paragraph3", or "monospace". bold/italic = toggle on (true). alignment = "left", "center", or "right". fontSize = "increase" or "decrease" (relative sizing). Provide at least one formatting option. Does NOT change text content — use editTextBlock for that, then formatTextBlock for styling. |
 | editButtonBlock | searchText, newLabel?, url?, size?, style?, alignment? | **PREFERRED for editing buttons.** Finds a button by text, enters section edit mode, opens the button editor panel. Content tab: updates label (TEXT input) and/or URL (LINK picker). Design tab: sets size ("small"/"medium"/"large"), style ("primary"/"secondary"/"tertiary"), alignment ("left"/"center"/"right"). Provide at least one param. searchText = current button text. For url, use full URLs like "https://example.com" or internal paths like "/projects". |
 | addBlockToSection | blockType, content? | Add a new block to the currently active section. The section MUST already be in edit mode (use enterSectionEditMode first). blockType = block name (e.g., "Text", "Image", "Button", "Quote", "Code", "Video", "Line", "Form", "Gallery"). content = optional content — text for Text/Quote blocks, HTML for Code/Embed blocks, URL for Video blocks. Form/Line/Gallery blocks don't support auto-content. |
