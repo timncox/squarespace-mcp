@@ -27,7 +27,8 @@ import { extractLearnings } from '../../agents/learning-agent.js';
 import { SiteReader, type SquarespacePageData } from '../../services/site-reader.js';
 import { taskIsPageCreation } from './planning.js';
 import { buildTaskDescription, describeTask, diagnoseFailure } from './helpers.js';
-import type { ContentPlan, SupervisorVerdict } from '../../agents/types.js';
+import { getCachedDiscovery, validateTemplateIndex, invalidateTemplateCache } from '../../services/template-discovery.js';
+import type { ContentPlan, ContentOperation, SupervisorVerdict } from '../../agents/types.js';
 import type { Task } from '../../models/task.js';
 import type { Conversation } from '../../models/conversation.js';
 
@@ -182,6 +183,14 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
     }
   }
 
+  // ── Template Index Validation ─────────────────────────────────────────────
+  // If we have cached template discovery data, validate that template indexes
+  // in the plan still match expectations. Stale indexes are logged as warnings
+  // to help diagnose template drift issues.
+  if (plan) {
+    validatePlanTemplateIndexes(plan);
+  }
+
   // ── Batching Gate (checked FIRST) ──────────────────────────────────────
   // If the plan has many operations (e.g., 8 project cards), split into
   // batches instead of sending everything to the agent at once.
@@ -293,8 +302,114 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
 
       // If no operations remain, we're done
       if (plan.operations.length === 0) {
+        for (const taskId of conversation.taskIds) {
+          updateTaskStatus(taskId, 'done');
+        }
         updateConversationStatus(conversation.id, 'completed');
         await sendToTim('All done! Content added via API.', conversation.id);
+        return;
+      }
+    }
+  }
+
+  // ── Template operations: execute directly via handleAddSectionFromTemplate ──
+  // Skip if the plan includes a create_page operation — same reasoning as blank_api.
+  if (plan) {
+    const hasPageCreationForTemplate = plan.operations.some(op =>
+      (op.operationType as string) === 'create_page' || op.targetPage === 'new',
+    );
+    const templateOps = hasPageCreationForTemplate
+      ? []  // defer to browser agent — page must be created first
+      : plan.operations.filter(op =>
+          op.content.contentStrategy === 'template' &&
+          op.content.replacements &&
+          op.content.templateCategory,
+        );
+
+    if (templateOps.length > 0) {
+      const templateBrowserManager = getBrowserManager({ headless: true });
+      const templateSessionId = `template-${conversation.id}`;
+      const templateSession = await templateBrowserManager.createSession(templateSessionId);
+      const succeededOps = new Set<import('../../agents/types.js').ContentOperation>();
+
+      try {
+        await ensureLoggedIn(templateSession);
+        const page = await templateSession.getPage();
+
+        const { discoverSites } = await import('../../automation/site-discovery.js');
+        await discoverSites(page);
+
+        const primaryTask = getTask(conversation.taskIds[0]);
+        if (primaryTask) {
+          const client = await resolveSite(primaryTask.siteId, page);
+          await navigateToSite(page, client);
+
+          if (primaryTask.targetPage) {
+            await navigateToPage(page, client, primaryTask.targetPage);
+            await enterEditMode(page);
+          }
+
+          const { dashboardEvents } = await import('../../services/dashboard-events.js');
+
+          for (let i = 0; i < templateOps.length; i++) {
+            const op = templateOps[i];
+            const heading = op.content.heading ?? `Template ${i + 1}`;
+
+            dashboardEvents.emit('dashboard', {
+              type: 'agent_activity' as const,
+              data: {
+                agent: 'browser_agent',
+                status: 'started',
+                message: `template: Adding "${heading}" (${i + 1}/${templateOps.length})`,
+                taskId: primaryTask.id,
+              },
+              timestamp: new Date().toISOString(),
+            });
+
+            const result = await executeTemplateOperation(page, op);
+
+            dashboardEvents.emit('dashboard', {
+              type: 'agent_activity' as const,
+              data: {
+                agent: 'browser_agent',
+                status: result.success ? 'completed' : 'failed',
+                message: result.success
+                  ? `template: Added "${heading}"`
+                  : `template: Failed — ${result.error}`,
+                taskId: primaryTask.id,
+              },
+              timestamp: new Date().toISOString(),
+            });
+
+            if (result.success) {
+              succeededOps.add(op);
+              logger.info({ heading }, 'template operation completed');
+            } else {
+              logger.warn({ heading, error: result.error }, 'template operation failed — will fall through to browser agent');
+            }
+          }
+
+          // Save after all template operations
+          await saveChanges(page);
+        }
+      } catch (err) {
+        logger.error({ error: errMsg(err) }, 'Failed to execute template operations');
+      } finally {
+        await templateSession.close();
+      }
+
+      // Remove only SUCCEEDED template ops from the plan — failed ops fall through to browser agent
+      if (succeededOps.size > 0) {
+        plan.operations = plan.operations.filter(op => !succeededOps.has(op));
+      }
+
+      // If no operations remain, we're done
+      if (plan.operations.length === 0) {
+        for (const taskId of conversation.taskIds) {
+          updateTaskStatus(taskId, 'done');
+        }
+        updateConversationStatus(conversation.id, 'completed');
+        await sendToTim('All done! Content added via template fast path.', conversation.id);
         return;
       }
     }
@@ -1028,6 +1143,25 @@ async function executeBlankApiOperation(
       }
     }
 
+    // Step 6b: Apply section styling if specified (non-blocking)
+    const { sectionPadding, blockSpacing, sectionTheme } = operation.content;
+    if (sectionPadding || blockSpacing || sectionTheme) {
+      try {
+        const { handleEditSectionStyle } = await import('../../automation/actions/section-management-handlers.js');
+        const heading = operation.content.heading ?? 'blank section';
+        await handleEditSectionStyle(page, {
+          action: 'editSectionStyle',
+          searchText: heading,
+          sectionTheme,
+          sectionPadding,
+          blockSpacing,
+        });
+        logger.info({ sectionTheme, sectionPadding, blockSpacing }, 'blank_api: section styling applied');
+      } catch (styleErr) {
+        logger.warn({ error: errMsg(styleErr) }, 'blank_api: section styling failed (non-blocking)');
+      }
+    }
+
     // Step 7: Reload the page to show changes
     await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
     await page.waitForTimeout(2000);
@@ -1039,6 +1173,182 @@ async function executeBlankApiOperation(
     return { success: true, blocksAdded };
   } catch (err) {
     return { success: false, blocksAdded: 0, error: errMsg(err) };
+  }
+}
+
+// ─── Template Operation Execution ────────────────────────────────────────────
+
+/**
+ * Execute a template operation: add template section, save, then replace
+ * placeholder content via Content Save API.
+ *
+ * Flow:
+ * 1. Add template section via handleAddSection (UI — picks category + template)
+ * 2. Save editor state (so Content Save API has the new section)
+ * 3. Replace placeholder texts/buttons via Content Save API (fast, reliable)
+ * 4. Apply section styling if specified
+ *
+ * This is the "template fast path" — ~10s vs ~60s through the browser agent.
+ * Modeled after executeBlankApiOperation's save-first pattern.
+ */
+async function executeTemplateOperation(
+  page: import('playwright').Page,
+  operation: import('../../agents/types.js').ContentOperation,
+): Promise<{ success: boolean; error?: string }> {
+  const { content } = operation;
+  const category = content.templateCategory;
+  const templateName = content.templateName;
+  const templateIndex = content.templateIndex;
+  const replacements = content.replacements;
+
+  if (!category) {
+    return { success: false, error: 'No templateCategory provided for template operation' };
+  }
+
+  try {
+    // Step 1: Add the template section via UI (no replacements yet)
+    const { handleAddSection } = await import('../../automation/actions/section-management-handlers.js');
+    const addResult = await handleAddSection(page, {
+      action: 'addSection',
+      category,
+      template: templateName ?? category,
+      templateIndex,
+    });
+
+    if (!addResult.success) {
+      return { success: false, error: `Failed to add template section: ${addResult.message}` };
+    }
+
+    logger.info({ category, templateName, templateIndex }, 'template: section added successfully');
+
+    // Step 2: Save editor state so Content Save API has the new section data.
+    // Without this, the API returns stale data and can't find the new section's blocks.
+    const { saveChanges: editorSave } = await import('../../automation/editor-actions.js');
+    const saveResult = await editorSave(page);
+    logger.info({ saveResult: saveResult.message }, 'template: saved editor state after adding section');
+    await page.waitForTimeout(2000);
+
+    // Re-enter edit mode if save exited it
+    if (saveResult.message?.includes('Done')) {
+      logger.info('template: save clicked Done — re-entering edit mode');
+      const { enterEditMode: reEnterEditMode } = await import('../../automation/site-navigator.js');
+      await reEnterEditMode(page);
+      await page.waitForTimeout(1500);
+    }
+
+    // Step 3: Replace placeholder content via Content Save API
+    if (replacements && (replacements.texts?.length || replacements.buttons?.length || replacements.removeBlocks?.length)) {
+      // Extract page IDs for Content Save API
+      const siteFrame = page.frame({ name: 'sqs-site-frame' });
+      const pageSectionsId = siteFrame
+        ? await siteFrame.evaluate(() => {
+            const article = document.querySelector('article[data-page-sections]');
+            return article?.getAttribute('data-page-sections') ?? null;
+          }).catch(() => null)
+        : null;
+
+      const subdomain = page.url().match(/https?:\/\/([a-z0-9-]+)\.squarespace\.com/i)?.[1];
+
+      if (pageSectionsId && subdomain) {
+        const client = createContentSaveClient(subdomain);
+        const pageUrl = page.url();
+        const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
+        const slug = slugMatch?.[1] ?? '';
+        const ids = await client.getPageIds(slug);
+
+        if (ids) {
+          // Find the last section (the one we just added)
+          const sectionsData = await client.getPageSections(pageSectionsId);
+          const sectionIndex = sectionsData.sections.length - 1;
+
+          if (sectionIndex >= 0) {
+            let apiReplacements = 0;
+            let apiFailed = 0;
+
+            // 3a. Replace text blocks
+            if (replacements.texts) {
+              for (const textRep of replacements.texts) {
+                const findResult = await client.updateTextBlock(pageSectionsId, ids.collectionId, textRep.searchText, textRep.newText);
+
+                if (findResult.success) {
+                  apiReplacements++;
+                  logger.info({ searchText: textRep.searchText.substring(0, 30) }, 'template: text replaced via API');
+                } else {
+                  apiFailed++;
+                  logger.warn({ searchText: textRep.searchText.substring(0, 30), error: findResult.error }, 'template: text replacement failed via API');
+                }
+              }
+            }
+
+            // 3b. Remove unwanted blocks
+            if (replacements.removeBlocks) {
+              for (const blockText of replacements.removeBlocks) {
+                const removeResult = await client.removeBlock(pageSectionsId, ids.collectionId, blockText);
+                if (removeResult.success) {
+                  apiReplacements++;
+                  logger.info({ searchText: blockText.substring(0, 30) }, 'template: block removed via API');
+                } else {
+                  apiFailed++;
+                  logger.warn({ searchText: blockText.substring(0, 30) }, 'template: block removal failed via API');
+                }
+              }
+            }
+
+            logger.info({ apiReplacements, apiFailed }, 'template: API replacements completed');
+          }
+        }
+      } else {
+        logger.warn('template: could not extract page IDs for Content Save API — replacements skipped');
+      }
+    }
+
+    // Step 3b: Handle image replacements via UI (Content Save API doesn't handle image uploads)
+    if (replacements?.images?.length) {
+      // Re-enter edit mode for the new section
+      const { handleEnterSectionEditMode } = await import('../../automation/actions/section-management-handlers.js');
+      await handleEnterSectionEditMode(page, { action: 'enterSectionEditMode', sectionIndex: 'last' });
+      await page.waitForTimeout(1000);
+
+      const { handleReplaceImage } = await import('../../automation/actions/image-handlers.js');
+      for (const imgRep of replacements.images) {
+        const result = await handleReplaceImage(page, {
+          action: 'replaceImage',
+          searchText: imgRep.searchText,
+          imagePath: imgRep.imagePath,
+          altText: imgRep.altText,
+        });
+        if (result.success) {
+          logger.info({ searchText: imgRep.searchText.substring(0, 30) }, 'template: image replaced');
+        } else {
+          logger.warn({ searchText: imgRep.searchText.substring(0, 30), error: result.message }, 'template: image replacement failed');
+        }
+      }
+    }
+
+    // Step 4: Apply section styling if specified
+    if (content.sectionPadding || content.blockSpacing || content.sectionTheme ||
+        content.sectionHeight || content.contentWidth || content.verticalAlignment) {
+      try {
+        const { handleEditSectionStyle } = await import('../../automation/actions/section-management-handlers.js');
+        const heading = content.heading ?? category;
+        await handleEditSectionStyle(page, {
+          action: 'editSectionStyle',
+          searchText: heading,
+          sectionTheme: content.sectionTheme,
+          sectionHeight: content.sectionHeight,
+          contentWidth: content.contentWidth,
+          verticalAlignment: content.verticalAlignment,
+          sectionPadding: content.sectionPadding,
+          blockSpacing: content.blockSpacing,
+        });
+      } catch (styleErr) {
+        logger.warn({ error: errMsg(styleErr) }, 'template: section styling failed (non-blocking)');
+      }
+    }
+
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: errMsg(err) };
   }
 }
 
@@ -1333,8 +1643,10 @@ async function executeBatchedPlan(
           await sendToTim(`⚠️ Batch ${batchNum}/${totalBatches}: Had issues, continuing...`, conversation.id);
         }
 
-        // Brief pause between batches to let the editor settle
-        await page.waitForTimeout(2000);
+        // Save editor state between batches so next batch's API fast paths work
+        const interBatchSave = await saveChanges(page);
+        logger.info({ interBatchSave, batchNum }, 'Inter-batch save completed');
+        await page.waitForTimeout(1000);
       } catch (err) {
         failedBatches++;
         const errorMessage = errMsg(err);
@@ -1499,6 +1811,62 @@ function buildBatchInstruction(
     `\n\nIMPORTANT: After completing these ${batch.length} steps, STOP. Do not attempt additional operations. ` +
     `Scroll down slightly so the next batch can continue adding content below.`
   );
+}
+
+// ─── Template Index Validation ──────────────────────────────────────────────
+
+/**
+ * Validate template indexes in a plan against cached discovery data.
+ * Logs warnings for stale or mismatched indexes but does not block execution
+ * (the browser agent has its own post-add verification).
+ */
+function validatePlanTemplateIndexes(plan: ContentPlan): void {
+  const templateOps = plan.operations.filter(
+    (op: ContentOperation) => op.content.templateCategory && op.content.templateIndex !== undefined,
+  );
+
+  if (templateOps.length === 0) return;
+
+  // Group operations by siteId to minimize cache lookups
+  const siteIds = [...new Set(templateOps.map((op: ContentOperation) => op.siteId))];
+
+  for (const siteId of siteIds) {
+    const discovery = getCachedDiscovery(siteId);
+    if (!discovery) {
+      logger.info(
+        { siteId },
+        'Template validation: no cached discovery data, skipping validation (will use static catalog)',
+      );
+      continue;
+    }
+
+    const siteOps = templateOps.filter((op: ContentOperation) => op.siteId === siteId);
+    for (const op of siteOps) {
+      const result = validateTemplateIndex(
+        discovery,
+        op.content.templateCategory!,
+        op.content.templateIndex!,
+        op.content.templateName,
+      );
+
+      if (!result.valid) {
+        logger.warn(
+          {
+            siteId,
+            category: op.content.templateCategory,
+            templateIndex: op.content.templateIndex,
+            templateName: op.content.templateName,
+            reason: result.reason,
+          },
+          'Template validation: index may be stale — invalidating cache for rediscovery',
+        );
+        // Invalidate the cache so next pipeline run will rediscover
+        invalidateTemplateCache(siteId);
+        // Only invalidate once per site
+        break;
+      }
+    }
+  }
 }
 
 // ─── URL Helpers ─────────────────────────────────────────────────────────────

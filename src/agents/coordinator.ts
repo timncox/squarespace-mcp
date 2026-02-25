@@ -17,7 +17,8 @@ import { runSiteAnalystAgent } from './site-analyst-agent.js';
 import { runContentStrategistAgent } from './content-strategist-agent.js';
 import { getBrowserManager } from '../automation/browser-manager.js';
 import { ensureLoggedIn } from '../automation/squarespace-auth.js';
-import { resolveSite, navigateToSite, navigateToPage } from '../automation/site-navigator.js';
+import { resolveSite, navigateToSite, navigateToPage, enterEditMode } from '../automation/site-navigator.js';
+import { getOrDiscoverTemplates, getCachedDiscovery, type TemplateDiscoveryResult } from '../services/template-discovery.js';
 import { sendToTim } from '../services/whatsapp.js';
 import { logger } from '../utils/logger.js';
 import { join } from 'path';
@@ -167,6 +168,7 @@ export async function runContentPipeline(
 
   let siteAnalysis: SiteAnalysis | undefined;
   let pageStructures: Record<string, PageStructure> | undefined;
+  let discoveredTemplates: TemplateDiscoveryResult | undefined;
   try {
     const browserManager = getBrowserManager({ headless: true });
     await ensureLoggedIn(browserManager);
@@ -235,6 +237,39 @@ export async function runContentPipeline(
       logger.warn({ error: errMsg(err) }, 'Content pipeline: page structure fetch failed, continuing without');
     }
 
+    // ── Step 2c: Template Discovery (reuse browser session) ─────────────
+    // Discover available templates while the browser is still open.
+    // Uses cache (7-day TTL) to avoid re-probing on every pipeline run.
+    try {
+      dashboardEvents.emit('dashboard', {
+        type: 'agent_activity' as const,
+        data: { agent: 'template_discovery', status: 'started', message: 'Discovering available section templates...' },
+        timestamp: new Date().toISOString(),
+      });
+
+      // Enter edit mode for template discovery (picker requires edit mode)
+      await enterEditMode(page);
+      discoveredTemplates = await getOrDiscoverTemplates(page, siteId);
+
+      const totalTemplates = discoveredTemplates.categories.reduce((sum, c) => sum + c.templates.length, 0);
+      dashboardEvents.emit('dashboard', {
+        type: 'agent_activity' as const,
+        data: {
+          agent: 'template_discovery',
+          status: 'completed',
+          message: `Discovered ${totalTemplates} templates across ${discoveredTemplates.categories.length} categories`,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      logger.warn({ error: errMsg(err) }, 'Content pipeline: template discovery failed, falling back to static catalog');
+      dashboardEvents.emit('dashboard', {
+        type: 'agent_activity' as const,
+        data: { agent: 'template_discovery', status: 'failed', message: 'Template discovery failed, using static catalog' },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     // Close the browser — the editor agent will open its own session later
     await browserManager.close();
   } catch (err) {
@@ -249,7 +284,7 @@ export async function runContentPipeline(
     timestamp: new Date().toISOString(),
   });
 
-  const strategyResult = await runContentStrategistAgent(tasks, research, siteAnalysis, undefined, undefined, undefined, pageStructures);
+  const strategyResult = await runContentStrategistAgent(tasks, research, siteAnalysis, undefined, undefined, discoveredTemplates, pageStructures);
 
   if (!strategyResult.success || !strategyResult.data) {
     throw new Error(`Content strategist failed: ${strategyResult.error ?? 'Unknown error'}`);
@@ -313,10 +348,23 @@ export async function reviseContentPlan(
   research?: ResearchResult,
   siteAnalysis?: SiteAnalysis,
   conversationId?: string,
+  discoveredTemplates?: TemplateDiscoveryResult,
 ): Promise<ContentPlan> {
   logger.info({ feedback: feedback.substring(0, 100) }, 'Content pipeline: revising plan');
 
   await sendToTim('✏️ Revising the plan...', conversationId);
+
+  // If no discovered templates provided, try loading from cache for the primary site
+  let templates = discoveredTemplates;
+  if (!templates && tasks.length > 0 && tasks[0].siteId) {
+    try {
+      const cached = getCachedDiscovery(tasks[0].siteId);
+      if (cached) {
+        templates = cached;
+        logger.info({ siteId: tasks[0].siteId }, 'Content pipeline: loaded cached template discovery for revision');
+      }
+    } catch { /* Cache not available */ }
+  }
 
   const result = await runContentStrategistAgent(
     tasks,
@@ -324,6 +372,7 @@ export async function reviseContentPlan(
     siteAnalysis,
     feedback,
     previousPlan,
+    templates,
   );
 
   if (!result.success || !result.data) {

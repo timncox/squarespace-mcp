@@ -19,6 +19,8 @@ import type {
   PageStructure,
 } from './types.js';
 import type { TemplateCatalog } from '../config/section-templates-types.js';
+import type { TemplateDiscoveryResult } from '../services/template-discovery.js';
+import { formatDiscoveredTemplatesForPrompt } from '../services/template-discovery.js';
 import { getRelevantLearnings, type Learning } from '../db/learnings.js';
 import { logger } from '../utils/logger.js';
 import { getAnthropicClient } from '../utils/anthropic-client.js';
@@ -35,6 +37,25 @@ function loadCatalog(): TemplateCatalog {
   const raw = readFileSync(catalogPath, 'utf-8');
   _catalogCache = JSON.parse(raw) as TemplateCatalog;
   return _catalogCache;
+}
+
+/**
+ * Choose the best template catalog source for the prompt.
+ * Uses dynamically discovered templates when available, otherwise
+ * falls back to the static section-templates.json catalog.
+ */
+function formatTemplateCatalogSection(discoveredTemplates?: TemplateDiscoveryResult): string {
+  if (discoveredTemplates && discoveredTemplates.categories.length > 0) {
+    logger.info(
+      { categoryCount: discoveredTemplates.categories.length, discoveredAt: discoveredTemplates.discoveredAt },
+      'Content strategist: using dynamically discovered templates',
+    );
+    return formatDiscoveredTemplatesForPrompt(discoveredTemplates);
+  }
+
+  // Fall back to static catalog
+  logger.info('Content strategist: using static template catalog (no discovery data available)');
+  return formatCatalogForPrompt();
 }
 
 /**
@@ -120,7 +141,7 @@ function formatCatalogForPrompt(): string {
  * @param siteAnalysis — Site visual analysis from the Site Analyst Agent
  * @param revisionFeedback — Tim's feedback if this is a revision (optional)
  * @param previousPlan — The previous plan being revised (optional)
- * @param learningsOverride — Override for learnings (used internally, optional)
+ * @param discoveredTemplates — Dynamic template discovery result (optional, falls back to static catalog)
  * @param pageStructures — Actual page section/block data from Content Save API (optional)
  */
 export async function runContentStrategistAgent(
@@ -129,7 +150,7 @@ export async function runContentStrategistAgent(
   siteAnalysis: SiteAnalysis | undefined,
   revisionFeedback?: string,
   previousPlan?: ContentPlan,
-  learningsOverride?: unknown,
+  discoveredTemplates?: TemplateDiscoveryResult,
   pageStructures?: Record<string, PageStructure>,
 ): Promise<AgentResult<ContentPlan>> {
   const start = Date.now();
@@ -142,7 +163,7 @@ export async function runContentStrategistAgent(
       logger.info({ count: learnings.length, siteId: primaryTask?.siteId }, 'Content strategist: injecting learned patterns');
     }
 
-    const prompt = buildStrategyPrompt(tasks, research, siteAnalysis, revisionFeedback, previousPlan, learnings, pageStructures);
+    const prompt = buildStrategyPrompt(tasks, research, siteAnalysis, revisionFeedback, previousPlan, learnings, discoveredTemplates, pageStructures);
 
     const response = await getAnthropicClient().messages.create({
       model: MODEL_SONNET,
@@ -192,6 +213,7 @@ function buildStrategyPrompt(
   revisionFeedback?: string,
   previousPlan?: ContentPlan,
   learnings?: Learning[],
+  discoveredTemplates?: TemplateDiscoveryResult,
   pageStructures?: Record<string, PageStructure>,
 ): string {
   const parts: string[] = [];
@@ -371,7 +393,7 @@ Your editorInstruction fields are executed by a browser automation agent. Use th
 5. Only use "+ Add Blank" when no template matches the content type
 6. **templateIndex** (0-based): If provided in the instruction, pass it to addSection/addSectionFromTemplate for reliable position-based selection instead of text matching.
 
-${formatCatalogForPrompt()}
+${formatTemplateCatalogSection(discoveredTemplates)}
 
 **IMPORTANT:** Always include \`templateIndex\` (0-based position in the category grid, left-to-right, top-to-bottom) when you know it. The browser agent will click by position rather than name, avoiding mismatches.
 
