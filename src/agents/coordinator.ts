@@ -10,7 +10,7 @@
 import type { Page } from 'playwright';
 import type { Task } from '../models/task.js';
 import type { Conversation } from '../models/conversation.js';
-import type { ContentPlan, ContentOperation, ResearchResult, SiteAnalysis } from './types.js';
+import type { ContentPlan, ContentOperation, ResearchResult, SiteAnalysis, PageStructure, BlockSummary, SectionSummary } from './types.js';
 import { runResearchAgent } from './research-agent.js';
 import { visitProjectUrls } from './url-researcher.js';
 import { runSiteAnalystAgent } from './site-analyst-agent.js';
@@ -166,6 +166,7 @@ export async function runContentPipeline(
   });
 
   let siteAnalysis: SiteAnalysis | undefined;
+  let pageStructures: Record<string, PageStructure> | undefined;
   try {
     const browserManager = getBrowserManager({ headless: true });
     await ensureLoggedIn(browserManager);
@@ -211,6 +212,29 @@ export async function runContentPipeline(
       });
     }
 
+    // ── Step 2b: Fetch page structure via Content Save API ──────────────
+    // While the browser is still open on the target page, extract the actual
+    // section/block JSON for the content strategist. This gives the strategist
+    // precise knowledge of existing content instead of guessing from a screenshot.
+    try {
+      const structure = await fetchPageStructure(page, siteId);
+      if (structure) {
+        const key = `${siteId}:${targetPage}`;
+        pageStructures = { [key]: structure };
+        logger.info(
+          { key, sectionCount: structure.sectionCount },
+          'Content pipeline: page structure fetched',
+        );
+        dashboardEvents.emit('dashboard', {
+          type: 'agent_activity' as const,
+          data: { agent: 'page_structure', status: 'completed', message: `Page structure: ${structure.sectionCount} sections, ${structure.sections.reduce((s, sec) => s + sec.blockCount, 0)} blocks` },
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      logger.warn({ error: errMsg(err) }, 'Content pipeline: page structure fetch failed, continuing without');
+    }
+
     // Close the browser — the editor agent will open its own session later
     await browserManager.close();
   } catch (err) {
@@ -225,7 +249,7 @@ export async function runContentPipeline(
     timestamp: new Date().toISOString(),
   });
 
-  const strategyResult = await runContentStrategistAgent(tasks, research, siteAnalysis);
+  const strategyResult = await runContentStrategistAgent(tasks, research, siteAnalysis, undefined, undefined, undefined, pageStructures);
 
   if (!strategyResult.success || !strategyResult.data) {
     throw new Error(`Content strategist failed: ${strategyResult.error ?? 'Unknown error'}`);
@@ -307,6 +331,199 @@ export async function reviseContentPlan(
   }
 
   return result.data;
+}
+
+// ─── Page Structure Fetching ─────────────────────────────────────────────────
+
+/**
+ * Fetch page structure data via the Content Save API for the content strategist.
+ *
+ * Extracts the pageSectionsId from the browser page DOM (the `data-page-sections`
+ * attribute on the `<article>` element), then calls `getPageSections()` to get
+ * the actual section/block JSON. Returns a clean summary.
+ *
+ * Must be called while the browser is on the target page (admin panel with
+ * sqs-site-frame iframe visible).
+ *
+ * @param page — Playwright page currently viewing the target page
+ * @param siteId — Site subdomain (e.g., "smyth-tavern")
+ * @returns PageStructure summary, or null if API call fails
+ */
+export async function fetchPageStructure(
+  page: import('playwright').Page,
+  siteId: string,
+): Promise<PageStructure | null> {
+  try {
+    // Pre-flight: check session cookie health
+    const { ContentSaveClient } = await import('../services/content-save.js');
+    const health = ContentSaveClient.checkSessionHealth();
+    if (!health.exists || !health.hasCrumb) {
+      logger.warn(
+        { exists: health.exists, hasCrumb: health.hasCrumb, ageHours: Math.round(health.ageHours) },
+        'Page structure: session not healthy, skipping API fetch',
+      );
+      return null;
+    }
+
+    // Extract pageSectionsId from the editor DOM (sqs-site-frame iframe)
+    const siteFrame = page.frame({ name: 'sqs-site-frame' });
+    if (!siteFrame) {
+      // Fallback: try the main frame (some admin views render the page directly)
+      const pageSectionsId = await page.evaluate(() => {
+        const article = document.querySelector('article[data-page-sections]');
+        return article?.getAttribute('data-page-sections') ?? null;
+      }).catch(() => null);
+
+      if (!pageSectionsId) {
+        logger.debug('Page structure: no sqs-site-frame and no data-page-sections in main frame');
+        return null;
+      }
+
+      return await fetchAndSummarize(siteId, pageSectionsId);
+    }
+
+    const pageSectionsId = await siteFrame.evaluate(() => {
+      const article = document.querySelector('article[data-page-sections]');
+      return article?.getAttribute('data-page-sections') ?? null;
+    }).catch(() => null);
+
+    if (!pageSectionsId) {
+      logger.debug('Page structure: could not find data-page-sections attribute in iframe');
+      return null;
+    }
+
+    return await fetchAndSummarize(siteId, pageSectionsId);
+  } catch (err) {
+    logger.warn({ error: errMsg(err), siteId }, 'Page structure: failed to fetch');
+    return null;
+  }
+}
+
+/**
+ * Internal helper: create a ContentSaveClient, fetch sections, and summarize.
+ */
+async function fetchAndSummarize(
+  siteId: string,
+  pageSectionsId: string,
+): Promise<PageStructure | null> {
+  const { createContentSaveClient } = await import('../services/content-save.js');
+  const client = createContentSaveClient(siteId);
+  const sectionsData = await client.getPageSections(pageSectionsId);
+
+  if (!sectionsData.sections || sectionsData.sections.length === 0) {
+    logger.info({ siteId, pageSectionsId }, 'Page structure: no sections found');
+    return { sectionCount: 0, sections: [] };
+  }
+
+  const structure = summarizePageSections(sectionsData.sections);
+  logger.info(
+    { siteId, pageSectionsId, sectionCount: structure.sectionCount, totalBlocks: structure.sections.reduce((sum, s) => sum + s.blockCount, 0) },
+    'Page structure: fetched successfully',
+  );
+  return structure;
+}
+
+/**
+ * Convert raw Squarespace page sections data into a clean summary for the
+ * content strategist prompt.
+ *
+ * This is a pure function (no side effects, no API calls) for easy testing.
+ */
+export function summarizePageSections(
+  sections: import('../services/content-save.js').PageSection[],
+): PageStructure {
+  const TEXT_SNIPPET_LENGTH = 100;
+
+  // Block type number → human-readable name
+  const BLOCK_TYPE_NAMES: Record<number, string> = {
+    2: 'text',
+    1337: 'image',
+    46: 'button',
+    44: 'quote',
+    23: 'code',
+    51: 'video',
+    55: 'form',
+    52: 'gallery',
+    54: 'line',
+    42: 'embed',
+    56: 'menu',
+    71: 'summary',
+  };
+
+  const sectionSummaries: SectionSummary[] = sections.map((section, index) => {
+    const blocks: BlockSummary[] = [];
+    const gridContents = section.fluidEngineContext?.gridContents ?? [];
+
+    for (const gc of gridContents) {
+      const blockType = gc.content?.value?.type ?? 0;
+      const typeName = BLOCK_TYPE_NAMES[blockType] ?? `unknown(${blockType})`;
+      const blockValue = gc.content?.value?.value;
+
+      const summary: BlockSummary = { type: typeName };
+
+      if (blockType === 2 && blockValue) {
+        // Text block: extract snippet from HTML source
+        const html = (blockValue as { source?: string; html?: string }).source
+          ?? (blockValue as { html?: string }).html
+          ?? '';
+        const stripped = stripHtml(html);
+        if (stripped) {
+          summary.textSnippet = stripped.length > TEXT_SNIPPET_LENGTH
+            ? stripped.substring(0, TEXT_SNIPPET_LENGTH) + '...'
+            : stripped;
+        }
+      } else if (blockType === 1337 && blockValue) {
+        // Image block: extract alt text / title
+        const imgVal = blockValue as { title?: string; description?: string; altText?: string };
+        summary.imageAlt = imgVal.altText ?? imgVal.title ?? imgVal.description ?? undefined;
+      } else if (blockValue) {
+        // Button or other block with text/label
+        const val = blockValue as { text?: string; label?: string };
+        if (val.label) {
+          summary.buttonLabel = val.label;
+        }
+        if (val.text) {
+          summary.textSnippet = val.text.length > TEXT_SNIPPET_LENGTH
+            ? val.text.substring(0, TEXT_SNIPPET_LENGTH) + '...'
+            : val.text;
+        }
+      }
+
+      blocks.push(summary);
+    }
+
+    return {
+      id: section.id,
+      index,
+      name: section.sectionName ?? `Section ${index + 1}`,
+      blockCount: gridContents.length,
+      blocks,
+    };
+  });
+
+  return {
+    sectionCount: sections.length,
+    sections: sectionSummaries,
+  };
+}
+
+/**
+ * Strip HTML tags to get plain text. Simple regex-based strip (no DOM parser needed).
+ */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<\/(?:p|h[1-6]|div|li|blockquote)>/gi, ' ')  // closing block tags → space
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

@@ -10,7 +10,7 @@ AI agent that edits Squarespace websites based on forwarded client emails and Wh
 npm run dev          # Start dev server (tsx watch)
 npm run build        # TypeScript compile
 npm run start        # Run compiled JS (node dist/src/index.js)
-npm run test         # vitest run (279 tests)
+npm run test         # vitest run (278 tests)
 npm run test:unit    # Parse agent action tests only
 npm run cli          # CLI tool (tsx src/cli.ts)
 npm run setup-gmail  # Gmail OAuth setup
@@ -26,7 +26,7 @@ Entry point: `src/index.ts` — starts Fastify server + Gmail polling loop (60s 
 1. **Email arrives** → Gmail API poll → `email-processor.ts` parses + extracts tasks via Claude
 2. **Tasks created** → `conversation-handler.ts` sends summary to Tim via WhatsApp
 3. **Tim confirms** → conversation state machine routes to handler
-4. **Content pipeline** (for complex tasks): Research Agent → Site Analyst → Content Strategist → ContentPlan
+4. **Content pipeline** (for complex tasks): Research Agent → Site Analyst → Page Structure (API) → Content Strategist → ContentPlan
 5. **Browser agent** executes edits on Squarespace via Playwright
 6. **Supervisor agent** verifies result, retries on failure
 7. **Learning agent** extracts patterns from execution for future runs
@@ -70,7 +70,7 @@ storage/            # Runtime data (uploads/, screenshots/) — not committed
 | `src/agents/coordinator.ts` | Content pipeline orchestrator |
 | `src/agents/supervisor-agent.ts` | Verification + retry logic |
 | `src/agents/learning-agent.ts` | Pattern extraction from executions |
-| `src/agents/content-strategist-agent.ts` | Generates ContentPlan with template indexes + blank_api routing |
+| `src/agents/content-strategist-agent.ts` | Generates ContentPlan with template indexes + blank_api routing + page structure context |
 | `src/agents/types.ts` | Shared agent types (ContentPlan, ContentOperation, ContentSpec, SupervisorVerdict) |
 | `src/config/section-templates.json` | Template catalog (27 templates, 8 categories) with placeholder patterns |
 | `src/services/content-save.ts` | Content Save API client (text/image/block/section manipulation) |
@@ -99,6 +99,14 @@ Support files: `handler-utils.ts` (shared utils), `parse-action.ts` (JSON parser
 `addSection` and `addSectionFromTemplate` support `templateIndex` (0-based) for positional selection in the template grid, which is more reliable than text-based matching. Text-based matching (`:has-text()`) is the fallback.
 
 Post-add verification detects wrong templates (e.g., product/store blocks on non-product sections) and fails fast.
+
+### Page Structure for Content Strategist
+
+During the content pipeline (Step 2b), after the site analyst screenshots the page but before closing the browser, `fetchPageStructure()` in `coordinator.ts` extracts the `data-page-sections` attribute from the editor DOM and calls `ContentSaveClient.getPageSections()` to get the actual section/block JSON. `summarizePageSections()` (a pure, testable function) transforms this into a clean `PageStructure` summary with section names, block types, text snippets (first 100 chars), and image alt texts. This is passed to the content strategist as `pageStructures` (keyed by `siteId:targetPage`).
+
+The strategist prompt renders this under "## Current Page Structure (from API -- precise data)" and instructs the LLM to: reference existing sections by position/content for placement, avoid duplicating existing content, and make precise "add after section N" decisions. Falls back gracefully to screenshot-only analysis if the API call fails (session expired, no iframe, etc.).
+
+Types: `PageStructure`, `SectionSummary`, `BlockSummary` in `src/agents/types.ts`. Tests: `src/agents/__tests__/page-structure.test.ts` (13 tests).
 
 ### Template Catalog & Smart Routing
 
@@ -256,7 +264,7 @@ Upload strategies (fallback chain):
 
 ## Testing
 
-- `vitest` for unit tests — **279 tests** across 7 test files
+- `vitest` for unit tests — **278 tests** across 7 test files
 - Main test suite: `src/automation/__tests__/parse-agent-action.test.ts` (parse tests including templateIndex)
 - `src/services/__tests__/content-save-add-block.test.ts` — addTextBlock tests (block ID generation, layout calculation, backfill)
 - Integration test: `src/automation/__tests__/compound-actions.integration.test.ts` (requires live browser session)
