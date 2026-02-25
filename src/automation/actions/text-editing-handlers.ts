@@ -472,78 +472,140 @@ export async function handleEditTextBlock(
   // ── Step 8: Select all and type new text ─────────────────────────────
   logger.info({ newText: newText.substring(0, 50) }, 'editTextBlock[8/10]: selecting all and typing');
 
-  // For placeholder blocks, ensure focus is in the block before typing
-  if (usingPlaceholderFallback && siteFrame) {
-    await siteFrame.evaluate((selector: string) => {
-      let block: Element | null = null;
-      if (selector.startsWith('#') || selector.startsWith('[')) {
-        block = document.querySelector(selector);
-      }
-      if (block) {
-        // Try to click and focus the deepest editable or text-holding element
-        const targets = [
-          block.querySelector('[contenteditable="true"]'),
-          block.querySelector('p'),
-          block.querySelector('div'),
-          block,
-        ];
-        for (const target of targets) {
-          if (target) {
-            (target as HTMLElement).click();
-            (target as HTMLElement).focus();
-            break;
-          }
-        }
-      }
-    }, editModeSelector).catch(() => {});
-    await page.waitForTimeout(200);
-  }
-
-  // Try keyboard-based replacement first (works when focus is correct)
-  await page.keyboard.press('Meta+a');
-  await page.waitForTimeout(200);
-  await page.keyboard.type(newText, { delay: 20 });
-  await page.waitForTimeout(500);
-
-  // Check if the typing actually worked by looking for the new text in DOM
-  let typingWorked = false;
-  if (siteFrame) {
-    typingWorked = await siteFrame.evaluate((text: string) => {
-      return document.body.innerText.includes(text);
-    }, newText).catch(() => false);
-  }
-
-  // If keyboard typing didn't work (focus was in wrong frame), use direct DOM replacement
-  if (!typingWorked && siteFrame && !usingPlaceholderFallback) {
-    logger.info('editTextBlock[8/10]: keyboard typing failed — using direct DOM replacement');
-    const domReplaced = await siteFrame.evaluate((args: { oldText: string; newText: string }) => {
+  // Detect whether this is a substring edit (searchText is only part of the block).
+  // If so, use surgical DOM replacement FIRST to preserve surrounding content.
+  let usedSurgicalEdit = false;
+  if (!usingPlaceholderFallback && siteFrame) {
+    const blockFullText = await siteFrame.evaluate((search: string) => {
+      const lower = search.toLowerCase();
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       while (walker.nextNode()) {
         const node = walker.currentNode;
-        if (node.textContent && node.textContent.trim().toLowerCase().includes(args.oldText.toLowerCase())) {
+        if (node.textContent && node.textContent.trim().toLowerCase().includes(lower)) {
           const parent = node.parentElement;
           if (!parent) continue;
-          // Find the closest editable block
-          const block = parent.closest('.sqs-block');
+          const block = parent.closest('.sqs-block') || parent.closest('[data-block-id]') || parent.closest('.fe-block');
           if (!block) continue;
-          // Replace the text content of the specific text node
-          node.textContent = node.textContent.replace(
-            new RegExp(args.oldText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
-            args.newText,
-          );
-          // Dispatch an input event so Squarespace picks up the change
-          parent.dispatchEvent(new Event('input', { bubbles: true }));
-          parent.dispatchEvent(new Event('change', { bubbles: true }));
-          return true;
+          return (block as HTMLElement).innerText?.trim() || '';
         }
       }
-      return false;
-    }, { oldText: searchText, newText }).catch(() => false);
+      return null;
+    }, searchText).catch(() => null);
 
-    if (domReplaced) {
-      logger.info('editTextBlock[8/10]: text replaced via direct DOM manipulation');
-    } else {
-      logger.info('editTextBlock[8/10]: direct DOM replacement also failed');
+    // If the block has more content than just the searchText, this is a substring edit
+    if (blockFullText && blockFullText.toLowerCase() !== searchText.toLowerCase()
+        && blockFullText.toLowerCase().includes(searchText.toLowerCase())) {
+      logger.info('editTextBlock[8/10]: detected substring edit — using surgical DOM replacement to preserve surrounding content');
+
+      const surgicalResult = await siteFrame.evaluate((args: { oldText: string; newText: string }) => {
+        const lower = args.oldText.toLowerCase();
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          if (node.textContent && node.textContent.toLowerCase().includes(lower)) {
+            const parent = node.parentElement;
+            if (!parent) continue;
+            const block = parent.closest('.sqs-block') || parent.closest('[data-block-id]');
+            if (!block) continue;
+
+            // Replace just the matched text within the text node, preserving the rest
+            node.textContent = node.textContent.replace(
+              new RegExp(args.oldText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+              args.newText,
+            );
+
+            // Dispatch events so Squarespace picks up the change
+            parent.dispatchEvent(new Event('input', { bubbles: true }));
+            parent.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          }
+        }
+        return false;
+      }, { oldText: searchText, newText }).catch(() => false);
+
+      if (surgicalResult) {
+        logger.info('editTextBlock[8/10]: surgical DOM replacement succeeded — surrounding content preserved');
+        usedSurgicalEdit = true;
+      } else {
+        logger.info('editTextBlock[8/10]: surgical DOM replacement failed, falling back to Select All + type');
+      }
+    }
+  }
+
+  if (!usedSurgicalEdit) {
+    // For placeholder blocks, ensure focus is in the block before typing
+    if (usingPlaceholderFallback && siteFrame) {
+      await siteFrame.evaluate((selector: string) => {
+        let block: Element | null = null;
+        if (selector.startsWith('#') || selector.startsWith('[')) {
+          block = document.querySelector(selector);
+        }
+        if (block) {
+          // Try to click and focus the deepest editable or text-holding element
+          const targets = [
+            block.querySelector('[contenteditable="true"]'),
+            block.querySelector('p'),
+            block.querySelector('div'),
+            block,
+          ];
+          for (const target of targets) {
+            if (target) {
+              (target as HTMLElement).click();
+              (target as HTMLElement).focus();
+              break;
+            }
+          }
+        }
+      }, editModeSelector).catch(() => {});
+      await page.waitForTimeout(200);
+    }
+
+    // Try keyboard-based replacement (Select All + type — replaces entire block)
+    await page.keyboard.press('Meta+a');
+    await page.waitForTimeout(200);
+    await page.keyboard.type(newText, { delay: 20 });
+    await page.waitForTimeout(500);
+
+    // Check if the typing actually worked by looking for the new text in DOM
+    let typingWorked = false;
+    if (siteFrame) {
+      typingWorked = await siteFrame.evaluate((text: string) => {
+        return document.body.innerText.includes(text);
+      }, newText).catch(() => false);
+    }
+
+    // If keyboard typing didn't work (focus was in wrong frame), use direct DOM replacement
+    if (!typingWorked && siteFrame && !usingPlaceholderFallback) {
+      logger.info('editTextBlock[8/10]: keyboard typing failed — using direct DOM replacement');
+      const domReplaced = await siteFrame.evaluate((args: { oldText: string; newText: string }) => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        while (walker.nextNode()) {
+          const node = walker.currentNode;
+          if (node.textContent && node.textContent.trim().toLowerCase().includes(args.oldText.toLowerCase())) {
+            const parent = node.parentElement;
+            if (!parent) continue;
+            // Find the closest editable block
+            const block = parent.closest('.sqs-block');
+            if (!block) continue;
+            // Replace the text content of the specific text node
+            node.textContent = node.textContent.replace(
+              new RegExp(args.oldText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'),
+              args.newText,
+            );
+            // Dispatch an input event so Squarespace picks up the change
+            parent.dispatchEvent(new Event('input', { bubbles: true }));
+            parent.dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+          }
+        }
+        return false;
+      }, { oldText: searchText, newText }).catch(() => false);
+
+      if (domReplaced) {
+        logger.info('editTextBlock[8/10]: text replaced via direct DOM manipulation');
+      } else {
+        logger.info('editTextBlock[8/10]: direct DOM replacement also failed');
+      }
     }
   }
 

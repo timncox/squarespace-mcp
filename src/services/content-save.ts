@@ -224,6 +224,15 @@ export interface TextUpdateResult {
   error?: string;
 }
 
+/** Result of a surgical text patch (substring replacement within a block) */
+export interface TextPatchResult {
+  success: boolean;
+  blockId?: string;
+  patchedSegment?: string;
+  oldText?: string;
+  error?: string;
+}
+
 interface SessionCookie {
   name: string;
   value: string;
@@ -472,6 +481,321 @@ export class ContentSaveClient {
     } catch (err) {
       return { success: false, error: errMsg(err) };
     }
+  }
+
+  /**
+   * Surgical text patch: replace a substring within a text block's HTML,
+   * preserving all surrounding content (other paragraphs, links, formatting).
+   *
+   * Strategy:
+   * 1. GET sections → findTextBlock containing searchText
+   * 2. Split the block's HTML into block-level segments (<p>, <h1>-<h6>, <div>, <li>)
+   * 3. Find which segment contains the searchText (via stripped-text matching)
+   * 4. Replace just the text content within that segment
+   * 5. Reassemble and PUT
+   *
+   * If newText starts with '<', it's inserted as raw HTML replacing the matched segment.
+   * Otherwise the text within the matched tag is replaced, preserving the tag + attributes.
+   */
+  async patchTextBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    newText: string,
+  ): Promise<TextPatchResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the block containing the search text
+      const match = this.findTextBlock(data.sections, searchText);
+      if (!match) {
+        return {
+          success: false,
+          error: `No text block found containing "${searchText}"`,
+        };
+      }
+
+      const { gridContent } = match;
+      const blockValue = gridContent.content.value;
+      const blockId = blockValue.id;
+      const html = blockValue.value?.html ?? blockValue.value?.source ?? '';
+
+      if (!html) {
+        return {
+          success: false,
+          error: `Text block ${blockId} has no HTML content`,
+        };
+      }
+
+      // Step 3: Split HTML into block-level segments and find the one containing searchText
+      const patched = this.patchHtmlSegment(html, searchText, newText);
+
+      if (!patched) {
+        return {
+          success: false,
+          error: `Could not locate "${searchText}" within any HTML segment of block ${blockId}`,
+        };
+      }
+
+      logger.info(
+        {
+          blockId,
+          searchText,
+          newTextLength: newText.length,
+          originalHtmlLength: html.length,
+          patchedHtmlLength: patched.html.length,
+        },
+        'Patching text block (surgical replacement)',
+      );
+
+      // Step 4: Write the patched HTML back
+      if (blockValue.value) {
+        blockValue.value.html = patched.html;
+        blockValue.value.source = patched.html;
+      }
+
+      // Step 5: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return {
+        success: true,
+        blockId,
+        patchedSegment: patched.matchedSegment,
+        oldText: this.stripHtml(html),
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Patch a substring within HTML by splitting into block-level segments,
+   * finding the segment containing searchText, and replacing within it.
+   *
+   * Returns null if searchText is not found in any segment.
+   */
+  patchHtmlSegment(
+    html: string,
+    searchText: string,
+    newText: string,
+  ): { html: string; matchedSegment: string } | null {
+    // Split HTML into block-level segments, keeping the tags intact.
+    // We match opening tag + content + closing tag for block-level elements.
+    const blockTagPattern = /<(p|h[1-6]|div|li)(\s[^>]*)?>[\s\S]*?<\/\1>/gi;
+    const segments: Array<{ fullMatch: string; start: number; end: number }> = [];
+
+    let segMatch: RegExpExecArray | null;
+    while ((segMatch = blockTagPattern.exec(html)) !== null) {
+      segments.push({
+        fullMatch: segMatch[0],
+        start: segMatch.index,
+        end: segMatch.index + segMatch[0].length,
+      });
+    }
+
+    // If no block-level segments found, treat the entire HTML as one segment
+    if (segments.length === 0) {
+      const stripped = this.stripHtml(html);
+      if (!stripped.toLowerCase().includes(searchText.toLowerCase())) {
+        return null;
+      }
+      // Replace within the whole HTML
+      const patched = this.replaceTextInHtml(html, searchText, newText);
+      return patched ? { html: patched, matchedSegment: html } : null;
+    }
+
+    // Find which segment contains the searchText (via stripped text matching)
+    const needle = searchText.toLowerCase();
+    for (const seg of segments) {
+      const strippedSeg = this.stripHtml(seg.fullMatch);
+      if (strippedSeg.toLowerCase().includes(needle)) {
+        // Found the segment — replace the text within it
+        const patchedSegment = this.replaceTextInHtml(seg.fullMatch, searchText, newText);
+        if (!patchedSegment) continue;
+
+        // Reassemble: everything before + patched segment + everything after
+        const patchedHtml = html.substring(0, seg.start) + patchedSegment + html.substring(seg.end);
+        return { html: patchedHtml, matchedSegment: seg.fullMatch };
+      }
+    }
+
+    // Fallback: searchText may span outside block-level tags (e.g., raw text nodes)
+    const stripped = this.stripHtml(html);
+    if (stripped.toLowerCase().includes(needle)) {
+      const patched = this.replaceTextInHtml(html, searchText, newText);
+      return patched ? { html: patched, matchedSegment: html } : null;
+    }
+
+    return null;
+  }
+
+  /**
+   * Replace searchText within an HTML fragment, preserving tags and attributes.
+   *
+   * If newText starts with '<', it replaces the entire matched segment (raw HTML insertion).
+   * Otherwise, performs a text-level replacement within the HTML, preserving all tags.
+   */
+  private replaceTextInHtml(
+    html: string,
+    searchText: string,
+    newText: string,
+  ): string | null {
+    // If newText is raw HTML, replace the entire segment
+    if (newText.trimStart().startsWith('<')) {
+      // Extract the tag from the original segment to check if we should preserve structure
+      const tagMatch = html.match(/^<(p|h[1-6]|div|li)(\s[^>]*)?>/i);
+      if (tagMatch) {
+        // Replacing with raw HTML — insert directly
+        return newText;
+      }
+      return newText;
+    }
+
+    // Text-level replacement: walk through the HTML, find text nodes that match,
+    // and replace just the text content while preserving all HTML tags.
+    //
+    // Strategy: split HTML into tag and text tokens, find which text tokens
+    // contain the searchText (possibly spanning multiple text tokens),
+    // and replace just the matching portion.
+    //
+    // We decode HTML entities in text tokens for matching purposes, but track
+    // character positions in the raw (encoded) text for accurate replacement.
+    const tokens = this.tokenizeHtml(html);
+    const needle = searchText.toLowerCase();
+
+    // Build a "text-only" view with position mapping back to tokens.
+    // We track both the raw text (with entities) and decoded text (for matching).
+    const textParts: Array<{ raw: string; decoded: string; tokenIndex: number }> = [];
+    for (let i = 0; i < tokens.length; i++) {
+      if (!tokens[i].isTag) {
+        textParts.push({
+          raw: tokens[i].value,
+          decoded: this.decodeEntities(tokens[i].value),
+          tokenIndex: i,
+        });
+      }
+    }
+
+    // Concatenate decoded text parts and find the searchText in the decoded string
+    const fullDecodedText = textParts.map(tp => tp.decoded).join('');
+    const matchIndex = fullDecodedText.toLowerCase().indexOf(needle);
+    if (matchIndex === -1) return null;
+
+    const matchEnd = matchIndex + searchText.length;
+
+    // Map the match back to the individual text tokens using decoded positions,
+    // but replace in the raw token values.
+    // We need to map decoded positions to raw positions within each token.
+    let decodedCharPos = 0;
+    for (const tp of textParts) {
+      const decodedTokenStart = decodedCharPos;
+      const decodedTokenEnd = decodedCharPos + tp.decoded.length;
+
+      if (decodedTokenEnd > matchIndex && decodedTokenStart < matchEnd) {
+        // This text token overlaps with the match (in decoded space)
+        const decodedReplaceStart = Math.max(0, matchIndex - decodedTokenStart);
+        const decodedReplaceEnd = Math.min(tp.decoded.length, matchEnd - decodedTokenStart);
+
+        // Map decoded positions to raw positions
+        const rawReplaceStart = this.decodedToRawOffset(tp.raw, decodedReplaceStart);
+        const rawReplaceEnd = this.decodedToRawOffset(tp.raw, decodedReplaceEnd);
+
+        const before = tp.raw.substring(0, rawReplaceStart);
+        const after = tp.raw.substring(rawReplaceEnd);
+
+        // Only insert newText in the first overlapping token
+        if (decodedTokenStart <= matchIndex) {
+          tokens[tp.tokenIndex].value = before + newText + after;
+        } else {
+          // Subsequent overlapping tokens: remove the matched portion
+          tokens[tp.tokenIndex].value = after;
+        }
+      }
+
+      decodedCharPos = decodedTokenEnd;
+    }
+
+    return tokens.map(t => t.value).join('');
+  }
+
+  /**
+   * Tokenize HTML into alternating tag and text tokens.
+   * Tags include their < and > delimiters; text is everything between tags.
+   */
+  private tokenizeHtml(html: string): Array<{ value: string; isTag: boolean }> {
+    const tokens: Array<{ value: string; isTag: boolean }> = [];
+    const tagRegex = /<[^>]+>/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+
+    while ((match = tagRegex.exec(html)) !== null) {
+      // Text before this tag
+      if (match.index > lastIndex) {
+        tokens.push({ value: html.substring(lastIndex, match.index), isTag: false });
+      }
+      // The tag itself
+      tokens.push({ value: match[0], isTag: true });
+      lastIndex = match.index + match[0].length;
+    }
+
+    // Trailing text after the last tag
+    if (lastIndex < html.length) {
+      tokens.push({ value: html.substring(lastIndex), isTag: false });
+    }
+
+    return tokens;
+  }
+
+  /**
+   * Decode common HTML entities in a text string.
+   * Same entities as stripHtml but without tag removal (for text tokens).
+   */
+  private decodeEntities(text: string): string {
+    return text
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'");
+  }
+
+  /**
+   * Map a character offset in decoded text back to the corresponding offset
+   * in the raw (entity-encoded) text.
+   *
+   * Walks through the raw text, decoding entities as encountered, counting
+   * decoded characters until the target offset is reached, then returns
+   * the corresponding raw position.
+   */
+  private decodedToRawOffset(raw: string, decodedOffset: number): number {
+    const entityPattern = /&(?:nbsp|amp|lt|gt|quot|apos|#39);/g;
+    let decodedPos = 0;
+    let rawPos = 0;
+
+    while (decodedPos < decodedOffset && rawPos < raw.length) {
+      // Check if current position starts an entity
+      entityPattern.lastIndex = rawPos;
+      const entityMatch = entityPattern.exec(raw);
+
+      if (entityMatch && entityMatch.index === rawPos) {
+        // Entity at current position — counts as 1 decoded char
+        decodedPos++;
+        rawPos = entityMatch.index + entityMatch[0].length;
+      } else {
+        // Regular character
+        decodedPos++;
+        rawPos++;
+      }
+    }
+
+    return rawPos;
   }
 
   /**

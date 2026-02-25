@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { logger } from '../../utils/logger.js';
 import { errMsg } from '../../utils/errors.js';
 import { createMediaUploadClient } from '../../services/media-upload.js';
-import { createContentSaveClient, ContentSaveClient, type BlockMoveResult, type BlockResizeResult, type BlockRemoveResult, type SectionMoveResult, type ImageBlockUpdateResult, type TextBlockAddResult } from '../../services/content-save.js';
+import { createContentSaveClient, ContentSaveClient, type BlockMoveResult, type BlockResizeResult, type BlockRemoveResult, type SectionMoveResult, type ImageBlockUpdateResult, type TextBlockAddResult, type TextPatchResult } from '../../services/content-save.js';
 import type { ActionResult } from './types.js';
 
 /**
@@ -143,6 +143,59 @@ export async function tryContentSaveApi(
       return null;
     }
 
+    // Determine if this is a substring edit or a full block replacement.
+    // First, peek at the block's full text to compare with searchText.
+    const sections = await client.getPageSections(pageSectionsId);
+    const blockMatch = client.findBlock(sections.sections, searchText);
+
+    if (!blockMatch) {
+      logger.debug({ searchText }, 'tryContentSaveApi: no block found matching searchText');
+      return null;
+    }
+
+    const blockHtml = blockMatch.gridContent.content.value.value?.html
+      ?? blockMatch.gridContent.content.value.value?.source ?? '';
+    const blockPlainText = blockHtml
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+      .replace(/\s+/g, ' ').trim();
+    const searchNormalized = searchText.replace(/\s+/g, ' ').trim();
+
+    // Substring detection: if searchText is significantly shorter than the block's
+    // full text, this is a surgical edit — use patchTextBlock instead.
+    const isSubstring = blockPlainText.toLowerCase() !== searchNormalized.toLowerCase()
+      && blockPlainText.toLowerCase().includes(searchNormalized.toLowerCase());
+
+    if (isSubstring) {
+      logger.info(
+        { searchText, blockTextLength: blockPlainText.length },
+        'Content Save API: detected substring edit — using patchTextBlock',
+      );
+
+      const patchResult: TextPatchResult = await client.patchTextBlock(
+        pageSectionsId,
+        ids.collectionId,
+        searchText,
+        newText,
+      );
+
+      if (patchResult.success) {
+        logger.info(
+          { blockId: patchResult.blockId, searchText, newTextLength: newText.length },
+          'Content Save API: text block patched (surgical edit)',
+        );
+        return {
+          success: true,
+          message: `editTextBlock: Surgically patched text via Content Save API (block ${patchResult.blockId}). Replaced "${searchText}" with "${newText.substring(0, 60)}". Surrounding content preserved. Reload the page to see the change.`,
+        };
+      }
+
+      logger.warn({ error: patchResult.error, searchText }, 'Content Save API: patch failed, falling back');
+      return null;
+    }
+
+    // Full block replacement — use existing updateTextBlock
     // Wrap newText in <p> tags if it's plain text (no HTML tags)
     const newHtml = newText.includes('<') ? newText : `<p>${newText}</p>`;
 
