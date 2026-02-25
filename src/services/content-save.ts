@@ -1248,7 +1248,7 @@ export class ContentSaveClient {
     collectionId: string,
     sectionIndex: number,
     html: string,
-    layout?: { columns?: number },
+    layout?: { columns?: number; startX?: number; endX?: number; startY?: number; endY?: number },
   ): Promise<TextBlockAddResult> {
     try {
       // Step 1: GET current sections
@@ -1282,22 +1282,39 @@ export class ContentSaveClient {
         }
       }
 
-      // Step 3: Calculate position (below existing blocks)
-      let maxY = 0;
-      let maxMobileY = 0;
-      for (const gc of gridContents) {
-        const endY = gc.layout?.desktop?.end?.y ?? 0;
-        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
-        if (endY > maxY) maxY = endY;
-        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      // Step 3: Calculate position
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null && layout?.startY != null && layout?.endY != null) {
+        // Explicit grid coordinates provided (e.g., from layout preset resolution)
+        startX = layout.startX;
+        endX = layout.endX;
+        startY = layout.startY;
+        endY = layout.endY;
+      } else {
+        // Default: full width, 3 rows tall, below existing content
+        let maxY = 0;
+        for (const gc of gridContents) {
+          const gcEndY = gc.layout?.desktop?.end?.y ?? 0;
+          if (gcEndY > maxY) maxY = gcEndY;
+        }
+
+        const cols = layout?.columns ?? maxColumns;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+        startY = maxY;
+        endY = startY + 3; // default 3 rows
       }
 
-      // Default layout: full width, 3 rows tall, below existing content
-      const cols = layout?.columns ?? maxColumns;
-      const startX = 1;
-      const endX = Math.min(startX + cols, maxColumns + 1);
-      const startY = maxY;
-      const endY = startY + 3; // default 3 rows
+      // Calculate mobile Y position (always stacked below existing mobile blocks)
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
 
       // Step 4: Generate block ID and create GridContent
       const blockId = ContentSaveClient.generateBlockId();
