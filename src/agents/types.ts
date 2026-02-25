@@ -100,7 +100,19 @@ export interface ContentSpec {
   /** Content strategy for this operation */
   contentStrategy?: 'template' | 'blank_api' | 'manual';
   /** For blank_api strategy: text blocks to add via Content Save API */
-  apiBlocks?: Array<{ html: string; layout?: { columns?: number } }>;
+  apiBlocks?: Array<{
+    html: string;
+    layout?: { columns?: number };
+    /** Structured content for rich HTML generation via buildRichHtml() */
+    richContent?: Array<{
+      text: string;
+      tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p' | 'li';
+      style?: Record<string, string>;
+      bold?: boolean;
+      italic?: boolean;
+      link?: { href: string; target?: string };
+    }>;
+  }>;
   /** Template index for position-based selection (0-based) */
   templateIndex?: number;
   /** Structured replacements for template sections (texts, buttons, images, block removals) */
