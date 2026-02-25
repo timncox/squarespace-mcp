@@ -16,8 +16,11 @@ import type {
   ContentOperation,
   ResearchResult,
   SiteAnalysis,
+  PageStructure,
 } from './types.js';
 import type { TemplateCatalog } from '../config/section-templates-types.js';
+import type { TemplateDiscoveryResult } from '../services/template-discovery.js';
+import { formatDiscoveredTemplatesForPrompt } from '../services/template-discovery.js';
 import { getRelevantLearnings, type Learning } from '../db/learnings.js';
 import { logger } from '../utils/logger.js';
 import { getAnthropicClient } from '../utils/anthropic-client.js';
@@ -34,6 +37,25 @@ function loadCatalog(): TemplateCatalog {
   const raw = readFileSync(catalogPath, 'utf-8');
   _catalogCache = JSON.parse(raw) as TemplateCatalog;
   return _catalogCache;
+}
+
+/**
+ * Choose the best template catalog source for the prompt.
+ * Uses dynamically discovered templates when available, otherwise
+ * falls back to the static section-templates.json catalog.
+ */
+function formatTemplateCatalogSection(discoveredTemplates?: TemplateDiscoveryResult): string {
+  if (discoveredTemplates && discoveredTemplates.categories.length > 0) {
+    logger.info(
+      { categoryCount: discoveredTemplates.categories.length, discoveredAt: discoveredTemplates.discoveredAt },
+      'Content strategist: using dynamically discovered templates',
+    );
+    return formatDiscoveredTemplatesForPrompt(discoveredTemplates);
+  }
+
+  // Fall back to static catalog
+  logger.info('Content strategist: using static template catalog (no discovery data available)');
+  return formatCatalogForPrompt();
 }
 
 /**
@@ -119,6 +141,8 @@ function formatCatalogForPrompt(): string {
  * @param siteAnalysis — Site visual analysis from the Site Analyst Agent
  * @param revisionFeedback — Tim's feedback if this is a revision (optional)
  * @param previousPlan — The previous plan being revised (optional)
+ * @param discoveredTemplates — Dynamic template discovery result (optional, falls back to static catalog)
+ * @param pageStructures — Actual page section/block data from Content Save API (optional)
  */
 export async function runContentStrategistAgent(
   tasks: Task[],
@@ -126,6 +150,8 @@ export async function runContentStrategistAgent(
   siteAnalysis: SiteAnalysis | undefined,
   revisionFeedback?: string,
   previousPlan?: ContentPlan,
+  discoveredTemplates?: TemplateDiscoveryResult,
+  pageStructures?: Record<string, PageStructure>,
 ): Promise<AgentResult<ContentPlan>> {
   const start = Date.now();
 
@@ -137,7 +163,7 @@ export async function runContentStrategistAgent(
       logger.info({ count: learnings.length, siteId: primaryTask?.siteId }, 'Content strategist: injecting learned patterns');
     }
 
-    const prompt = buildStrategyPrompt(tasks, research, siteAnalysis, revisionFeedback, previousPlan, learnings);
+    const prompt = buildStrategyPrompt(tasks, research, siteAnalysis, revisionFeedback, previousPlan, learnings, discoveredTemplates, pageStructures);
 
     const response = await getAnthropicClient().messages.create({
       model: MODEL_SONNET,
@@ -187,6 +213,8 @@ function buildStrategyPrompt(
   revisionFeedback?: string,
   previousPlan?: ContentPlan,
   learnings?: Learning[],
+  discoveredTemplates?: TemplateDiscoveryResult,
+  pageStructures?: Record<string, PageStructure>,
 ): string {
   const parts: string[] = [];
 
@@ -203,8 +231,50 @@ The content you write will be typed VERBATIM into the Squarespace website editor
     parts.push('');
   }
 
-  // Research findings
-  if (research && research.findings.length > 0) {
+  // Research findings — prefer synthesis (structured) over raw findings
+  if (research?.synthesis) {
+    const syn = research.synthesis;
+
+    parts.push('## Research Synthesis\n');
+
+    if (syn.keyFacts.length > 0) {
+      parts.push('### Key Facts (verified from sources)\n');
+      for (const fact of syn.keyFacts) {
+        parts.push(`- ${fact}`);
+      }
+      parts.push('');
+    }
+
+    if (syn.contentSuggestions.length > 0) {
+      parts.push('### Content Suggestions\n');
+      for (const suggestion of syn.contentSuggestions) {
+        parts.push(`- ${suggestion}`);
+      }
+      parts.push('');
+    }
+
+    if (syn.toneGuidance) {
+      parts.push(`### Tone Guidance\n${syn.toneGuidance}\n`);
+    }
+
+    if (syn.sources.length > 0) {
+      parts.push('### Sources (ranked by relevance)\n');
+      const highSources = syn.sources.filter(s => s.relevance === 'high');
+      const medSources = syn.sources.filter(s => s.relevance === 'medium');
+      if (highSources.length > 0) {
+        for (const s of highSources) {
+          parts.push(`- **[HIGH]** ${s.url} — ${s.summary}`);
+        }
+      }
+      if (medSources.length > 0) {
+        for (const s of medSources.slice(0, 3)) {
+          parts.push(`- [medium] ${s.url} — ${s.summary}`);
+        }
+      }
+      parts.push('');
+    }
+  } else if (research && research.findings.length > 0) {
+    // Fallback: raw findings (no synthesis available)
     parts.push('## Research Findings\n');
     for (const finding of research.findings) {
       parts.push(`- ${finding}`);
@@ -213,6 +283,27 @@ The content you write will be typed VERBATIM into the Squarespace website editor
       parts.push(`\nSources: ${research.sources.slice(0, 3).join(', ')}`);
     }
     parts.push('');
+  }
+
+  // Structured page data (from URL extraction)
+  if (research?.structuredPages && research.structuredPages.length > 0) {
+    parts.push('## Extracted Page Data\n');
+    for (const page of research.structuredPages) {
+      parts.push(`### ${page.title || page.url}\n`);
+      if (page.headings.length > 0) {
+        parts.push(`Headings: ${page.headings.slice(0, 5).join(' > ')}`);
+      }
+      if (page.keyContent.length > 0) {
+        parts.push('Key content:');
+        for (const content of page.keyContent.slice(0, 3)) {
+          parts.push(`  - ${content.substring(0, 200)}`);
+        }
+      }
+      if (page.lists.length > 0) {
+        parts.push(`Lists found: ${page.lists.length} (items: ${page.lists.map(l => l.slice(0, 3).join(', ')).join(' | ')})`);
+      }
+      parts.push('');
+    }
   }
 
   // Site analysis
@@ -227,6 +318,42 @@ The content you write will be typed VERBATIM into the Squarespace website editor
       parts.push(`Visual notes: ${siteAnalysis.visualNotes}`);
     }
     parts.push('');
+  }
+
+  // Page structure data (from Content Save API — precise section/block info)
+  if (pageStructures && Object.keys(pageStructures).length > 0) {
+    parts.push('## Current Page Structure (from API — precise data)\n');
+    parts.push('This is the EXACT structure of the page as returned by the Squarespace API. Use this data to:');
+    parts.push('- Reference existing sections by their position and content when specifying placement');
+    parts.push('- Know exactly how many sections exist and what they contain');
+    parts.push('- Avoid duplicating content that already exists on the page');
+    parts.push('- Make precise "add after section N" placement decisions\n');
+
+    for (const [key, structure] of Object.entries(pageStructures)) {
+      parts.push(`### Page: ${key}`);
+      parts.push(`Total sections: ${structure.sectionCount}\n`);
+
+      if (structure.sections.length === 0) {
+        parts.push('*Page is empty — no sections found.*\n');
+        continue;
+      }
+
+      for (const section of structure.sections) {
+        parts.push(`**Section ${section.index + 1}** (id: ${section.id}, name: "${section.name}", ${section.blockCount} block${section.blockCount !== 1 ? 's' : ''})`);
+
+        if (section.blocks.length > 0) {
+          for (const block of section.blocks) {
+            const details: string[] = [`  - [${block.type}]`];
+            if (block.textSnippet) details.push(`"${block.textSnippet}"`);
+            if (block.imageAlt) details.push(`alt="${block.imageAlt}"`);
+            if (block.buttonLabel) details.push(`button="${block.buttonLabel}"`);
+            if (block.buttonUrl) details.push(`url="${block.buttonUrl}"`);
+            parts.push(details.join(' '));
+          }
+        }
+        parts.push('');
+      }
+    }
   }
 
   // Learned editor patterns (from past executions)
@@ -266,7 +393,7 @@ Your editorInstruction fields are executed by a browser automation agent. Use th
 5. Only use "+ Add Blank" when no template matches the content type
 6. **templateIndex** (0-based): If provided in the instruction, pass it to addSection/addSectionFromTemplate for reliable position-based selection instead of text matching.
 
-${formatCatalogForPrompt()}
+${formatTemplateCatalogSection(discoveredTemplates)}
 
 **IMPORTANT:** Always include \`templateIndex\` (0-based position in the category grid, left-to-right, top-to-bottom) when you know it. The browser agent will click by position rather than name, avoiding mismatches.
 
@@ -424,7 +551,8 @@ IMPORTANT:
 - If the task involves an image change but no image file is available, describe the ideal image and note that the owner should provide one, or suggest using a stock photo.
 - When an image file path is provided in the content spec (imagePath), include it in the addSectionFromTemplate replacements.images array. If adding an image to a blank section, use the "addImageBlock" compound action.
 - For button URLs, use a reasonable default (e.g., the business's booking platform) or note that the owner should confirm the URL.
-- Each operation's editorInstruction should be self-contained — assume the agent starts in edit mode on the correct page.`);
+- Each operation's editorInstruction should be self-contained — assume the agent starts in edit mode on the correct page.
+- **When page structure data is available** (see "Current Page Structure" section above), use it to make precise placement decisions. Reference sections by their position number and content (e.g., "After section 3 which contains the About text" rather than "Below the about section"). This prevents misplacement.`);
 
   return parts.join('\n');
 }

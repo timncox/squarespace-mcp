@@ -94,6 +94,7 @@ export async function superviseBrowserResult(
   contentPlan?: ContentPlan,
   jsonOptions?: SupervisorJsonOptions,
   apiOptions?: SupervisorApiOptions,
+  validationEvidence?: string,
 ): Promise<AgentResult<SupervisorResult>> {
   const start = Date.now();
   let totalInputTokens = 0;
@@ -195,12 +196,14 @@ export async function superviseBrowserResult(
     );
 
     // Use plan-aware verification when a content plan is provided (stricter checklist)
-    // Include DOM + JSON evidence for more reliable verification
+    // Include DOM + JSON + inline validation evidence for more reliable verification
     const domEvidenceText = domEvidence ? formatDomEvidenceForPrompt(domEvidence) : '';
     const jsonEvidenceText = jsonEvidence?.available ? formatJsonEvidenceForPrompt(jsonEvidence) : '';
+    const validationText = validationEvidence ?? '';
+    const combinedEvidenceText = [jsonEvidenceText, validationText].filter(Boolean).join('\n\n');
     const verificationPrompt = contentPlan
-      ? buildPlanAwareVerificationPrompt(taskDescription, agentResult.summary, contentPlan, domEvidenceText, jsonEvidenceText)
-      : buildVerificationPrompt(taskDescription, agentResult.summary, jsonEvidenceText);
+      ? buildPlanAwareVerificationPrompt(taskDescription, agentResult.summary, contentPlan, domEvidenceText, combinedEvidenceText)
+      : buildVerificationPrompt(taskDescription, agentResult.summary, combinedEvidenceText);
 
     const verifyResponse = await getAnthropicClient().messages.create({
       model: MODEL_SONNET,

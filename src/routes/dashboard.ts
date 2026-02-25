@@ -6,6 +6,15 @@ import { getAllActiveLearnings } from '../db/learnings.js';
 import { getAgentEventsByTask, getRecentAgentEvents } from '../db/agent-events.js';
 import { getMessagesByConversation, getRecentMessages } from '../db/whatsapp-messages.js';
 import { getActiveConversation, getActiveConversations, getInteractiveConversations, getConversation } from '../db/conversations.js';
+import {
+  getOperationsByConversation,
+  getOperationsByTask,
+  getOperationById,
+  updateOperationStatus,
+  getPlanOperationSummary,
+  type PlanOperation,
+  type PlanOperationSummary,
+} from '../db/plan-operations.js';
 import { handleIncomingMessage } from '../services/conversation-handler.js';
 import { executionQueue } from '../services/execution-queue.js';
 import { dashboardEvents } from '../services/dashboard-events.js';
@@ -321,7 +330,7 @@ function renderTasksPage(tasks: Task[], stats: TaskStats, statusFilter: string):
     </div>`;
 }
 
-function renderTaskDetailPage(task: Task, auditEntries: AuditEntry[]): string {
+function renderTaskDetailPage(task: Task, auditEntries: AuditEntry[], operations: PlanOperation[] = []): string {
   const desc = task.description || task.taskType;
 
   const detailGrid = `
@@ -542,6 +551,21 @@ function renderTaskDetailPage(task: Task, auditEntries: AuditEntry[]): string {
                 setTimeout(function() { location.reload(); }, 2000);
               }
             }
+
+            // Operation status updates (plan operations granular tracking)
+            if (evt.type === 'operation_update' && evt.data) {
+              var opData = evt.data;
+              var opCell = document.getElementById('op-status-' + opData.operationId);
+              if (opCell) {
+                var opColors = { pending: '#eab308', executing: '#8b5cf6', succeeded: '#22c55e', failed: '#ef4444', skipped: '#6b7280' };
+                var opColor = opColors[opData.status] || '#6b7280';
+                var opBadge = '<span class="badge" style="background:' + opColor + '">' + opData.status + '</span>';
+                if (opData.status === 'failed' && opData.errorMessage) {
+                  opBadge += '<div class="small" style="color:#ef4444; margin-top:0.25rem;">' + String(opData.errorMessage).substring(0, 100) + '</div>';
+                }
+                opCell.innerHTML = opBadge;
+              }
+            }
           } catch (_) {}
         };
 
@@ -638,7 +662,127 @@ function renderTaskDetailPage(task: Task, auditEntries: AuditEntry[]): string {
       ${task.status === 'failed' ? `<form method="POST" action="/dashboard/tasks/${escapeHtml(task.id)}/retry" style="display:inline"><button type="submit" class="btn btn-primary">Retry Task</button></form>` : ''}
     </div>`;
 
-  return `${actions}${detailGrid}${descCard}${progressCard}${errorCard}${screenshotCard}${auditHtml}`;
+  // Operations card — shows granular per-operation tracking
+  const operationsCard = operations.length > 0
+    ? renderOperationsCard(operations, task.id)
+    : '';
+
+  return `${actions}${detailGrid}${descCard}${progressCard}${operationsCard}${errorCard}${screenshotCard}${auditHtml}`;
+}
+
+function operationStatusBadge(status: string): string {
+  const colors: Record<string, string> = {
+    pending: '#eab308',
+    executing: '#8b5cf6',
+    succeeded: '#22c55e',
+    failed: '#ef4444',
+    skipped: '#6b7280',
+  };
+  const color = colors[status] || '#6b7280';
+  return `<span class="badge" style="background:${color}">${escapeHtml(status)}</span>`;
+}
+
+function renderOperationsCard(operations: PlanOperation[], taskId: string): string {
+  const succeeded = operations.filter((o) => o.status === 'succeeded').length;
+  const failed = operations.filter((o) => o.status === 'failed').length;
+  const pending = operations.filter((o) => o.status === 'pending').length;
+  const executing = operations.filter((o) => o.status === 'executing').length;
+  const total = operations.length;
+
+  const summaryLine = `<div style="display:flex; gap:1rem; margin-bottom:0.75rem; font-size:0.85rem;">
+    <span style="color:#94a3b8">${total} operations</span>
+    ${succeeded > 0 ? `<span style="color:#22c55e">${succeeded} succeeded</span>` : ''}
+    ${failed > 0 ? `<span style="color:#ef4444">${failed} failed</span>` : ''}
+    ${executing > 0 ? `<span style="color:#8b5cf6">${executing} executing</span>` : ''}
+    ${pending > 0 ? `<span style="color:#eab308">${pending} pending</span>` : ''}
+  </div>`;
+
+  const rows = operations
+    .map((op) => {
+      const timing = op.startedAt && op.completedAt
+        ? `${Math.round((new Date(op.completedAt).getTime() - new Date(op.startedAt).getTime()) / 1000)}s`
+        : op.startedAt
+          ? 'running...'
+          : '-';
+
+      const errorCell = op.errorMessage
+        ? `<div class="small" style="color:#ef4444; margin-top:0.25rem; max-width:300px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escapeHtml(op.errorMessage)}">${escapeHtml(op.errorMessage.slice(0, 100))}</div>`
+        : '';
+
+      const retryBtn = op.status === 'failed'
+        ? `<form method="POST" action="/dashboard/tasks/${escapeHtml(taskId)}/operations/${escapeHtml(op.id)}/retry" style="display:inline; margin-left:0.5rem;">
+            <button type="submit" class="btn btn-ghost" style="font-size:0.7rem; padding:0.15rem 0.4rem;">Retry</button>
+          </form>`
+        : '';
+
+      return `
+        <tr data-op-id="${escapeHtml(op.id)}">
+          <td class="small">${op.operationIndex + 1}</td>
+          <td><code class="small">${escapeHtml(op.operationType)}</code></td>
+          <td class="small">${escapeHtml(op.targetPage || '-')}</td>
+          <td class="small">${escapeHtml(op.contentStrategy || '-')}</td>
+          <td id="op-status-${escapeHtml(op.id)}">${operationStatusBadge(op.status)}${retryBtn}</td>
+          <td class="small muted">${timing}</td>
+          <td>${errorCell}</td>
+        </tr>`;
+    })
+    .join('');
+
+  const hasFailedOps = failed > 0;
+  const retryAllBtn = hasFailedOps
+    ? `<form method="POST" action="/dashboard/tasks/${escapeHtml(taskId)}/operations/retry-failed" style="display:inline; margin-left:0.5rem;">
+        <button type="submit" class="btn btn-primary" style="font-size:0.8rem;">Retry Failed (${failed})</button>
+      </form>`
+    : '';
+
+  const liveScript = `
+    <script>
+    (function() {
+      var opTaskId = '${escapeHtml(taskId)}';
+      function handleOpUpdate(evt) {
+        if (evt.type !== 'operation_update') return;
+        var d = evt.data;
+        var cell = document.getElementById('op-status-' + d.operationId);
+        if (!cell) return;
+        var colors = { pending: '#eab308', executing: '#8b5cf6', succeeded: '#22c55e', failed: '#ef4444', skipped: '#6b7280' };
+        var color = colors[d.status] || '#6b7280';
+        var badge = '<span class="badge" style="background:' + color + '">' + d.status + '</span>';
+        if (d.status === 'failed' && d.errorMessage) {
+          badge += '<div class="small" style="color:#ef4444; margin-top:0.25rem;">' + d.errorMessage.substring(0, 100) + '</div>';
+        }
+        cell.innerHTML = badge;
+      }
+      // Hook into existing SSE connection
+      var origHandler = window.__opUpdateHandler;
+      window.__opUpdateHandler = handleOpUpdate;
+    })();
+    </script>`;
+
+  return `
+    <div class="card" id="operations-card">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.5rem;">
+        <h2 style="margin:0">Plan Operations</h2>
+        ${retryAllBtn}
+      </div>
+      ${summaryLine}
+      <div style="overflow-x:auto;">
+        <table style="width:100%; font-size:0.85rem;">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Type</th>
+              <th>Page</th>
+              <th>Strategy</th>
+              <th>Status</th>
+              <th>Time</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+    ${liveScript}`;
 }
 
 function renderClientsPage(clients: ClientSummary[]): string {
@@ -1284,7 +1428,9 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(404).type('text/html').send(layout('Not Found', 'tasks', '<div class="empty-state"><p>Task not found</p></div>'));
     }
     const auditEntries = getAuditLog(id);
-    const html = layout(`Task ${id.slice(0, 8)}`, 'tasks', renderTaskDetailPage(task, auditEntries));
+    // Look up plan operations associated with this task
+    const operations = getOperationsByTask(id);
+    const html = layout(`Task ${id.slice(0, 8)}`, 'tasks', renderTaskDetailPage(task, auditEntries, operations));
     return reply.type('text/html').send(html);
   });
 
@@ -1302,6 +1448,83 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     updateTaskStatus(id, 'pending', undefined);
     logger.info({ taskId: id }, 'Task re-queued from dashboard');
     return reply.redirect(`/dashboard/tasks/${id}`);
+  });
+
+  // ─── Plan Operations API ──────────────────────────────────────────────────
+
+  // Get operations for a task as JSON
+  app.get('/dashboard/tasks/:id/operations', async (
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const { id } = request.params;
+    const operations = getOperationsByTask(id);
+    return reply.send(operations);
+  });
+
+  // Retry a single failed operation
+  app.post('/dashboard/tasks/:id/operations/:opId/retry', async (
+    request: FastifyRequest<{ Params: { id: string; opId: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const { id: taskId, opId } = request.params;
+    const task = getTask(taskId);
+    if (!task) {
+      return reply.status(404).send({ error: 'Task not found' });
+    }
+
+    const op = getOperationById(opId);
+    if (!op) {
+      return reply.status(404).send({ error: 'Operation not found' });
+    }
+
+    if (op.status !== 'failed') {
+      return reply.redirect(`/dashboard/tasks/${taskId}`);
+    }
+
+    // Reset operation to pending — it will be picked up on the next retry
+    updateOperationStatus(opId, 'pending');
+    logger.info({ taskId, operationId: opId, operationType: op.operationType }, 'Single operation re-queued from dashboard');
+
+    // Also reset the task to pending so the execution pipeline re-runs
+    if (task.status === 'done' || task.status === 'failed') {
+      updateTaskStatus(taskId, 'pending', undefined);
+    }
+
+    return reply.redirect(`/dashboard/tasks/${taskId}`);
+  });
+
+  // Retry all failed operations for a task
+  app.post('/dashboard/tasks/:id/operations/retry-failed', async (
+    request: FastifyRequest<{ Params: { id: string } }>,
+    reply: FastifyReply,
+  ) => {
+    const { id: taskId } = request.params;
+    const task = getTask(taskId);
+    if (!task) {
+      return reply.status(404).send({ error: 'Task not found' });
+    }
+
+    const allOps = getOperationsByTask(taskId);
+    const failedOps = allOps.filter((o) => o.status === 'failed');
+
+    if (failedOps.length === 0) {
+      return reply.redirect(`/dashboard/tasks/${taskId}`);
+    }
+
+    // Reset all failed operations to pending
+    for (const op of failedOps) {
+      updateOperationStatus(op.id, 'pending');
+    }
+
+    logger.info({ taskId, failedCount: failedOps.length }, 'All failed operations re-queued from dashboard');
+
+    // Also reset the task to pending
+    if (task.status === 'done' || task.status === 'failed') {
+      updateTaskStatus(taskId, 'pending', undefined);
+    }
+
+    return reply.redirect(`/dashboard/tasks/${taskId}`);
   });
 
   // Clients page

@@ -207,8 +207,8 @@ describe('ContentSaveClient — addTextBlock', () => {
       const gridContents = putBody.sections[0].fluidEngineContext.gridContents;
       expect(gridContents).toHaveLength(3); // 2 existing + 1 new
       const newBlock = gridContents[2];
-      expect(newBlock.layout.desktop.start.y).toBe(6);
-      expect(newBlock.layout.desktop.end.y).toBe(9); // 6 + 3 rows
+      expect(newBlock.layout.desktop.start.y).toBe(8); // 6 + 2 gap rows
+      expect(newBlock.layout.desktop.end.y).toBe(11); // 8 + 3 row height
 
       fetchSpy.mockRestore();
     });
@@ -422,6 +422,134 @@ describe('ContentSaveClient — addTextBlock', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('403');
+
+      fetchSpy.mockRestore();
+    });
+
+    it('first block has no gap (gapRows defaults to 0)', async () => {
+      const sections = makeSections(); // empty — no existing blocks
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock('psid-1', 'cid-1', 0, '<p>First block</p>');
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+      expect(newBlock.layout.desktop.start.y).toBe(0); // no gap for first block
+      expect(newBlock.layout.desktop.end.y).toBe(3);   // default 3 rows
+
+      fetchSpy.mockRestore();
+    });
+
+    it('non-first block gets 2-row gap by default', async () => {
+      const existingBlocks = [
+        makeBlockWithLayout('b1', '<p>Existing</p>', { x: 1, y: 0 }, { x: 25, y: 4 }),
+      ];
+      const sections = makeSections(...existingBlocks);
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock('psid-1', 'cid-1', 0, '<p>Second</p>');
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[1];
+      expect(newBlock.layout.desktop.start.y).toBe(6); // 4 + 2 gap
+      expect(newBlock.layout.desktop.end.y).toBe(9);   // 6 + 3 rows
+
+      fetchSpy.mockRestore();
+    });
+
+    it('respects custom gapRows', async () => {
+      const existingBlocks = [
+        makeBlockWithLayout('b1', '<p>Existing</p>', { x: 1, y: 0 }, { x: 25, y: 3 }),
+      ];
+      const sections = makeSections(...existingBlocks);
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock('psid-1', 'cid-1', 0, '<p>Custom gap</p>', { gapRows: 5 });
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[1];
+      expect(newBlock.layout.desktop.start.y).toBe(8); // 3 + 5 gap
+      expect(newBlock.layout.desktop.end.y).toBe(11);  // 8 + 3 default height
+
+      fetchSpy.mockRestore();
+    });
+
+    it('respects custom rowHeight', async () => {
+      const sections = makeSections();
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock('psid-1', 'cid-1', 0, '<p>Tall block</p>', { rowHeight: 6 });
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+      expect(newBlock.layout.desktop.start.y).toBe(0);
+      expect(newBlock.layout.desktop.end.y).toBe(6); // 0 + 6 row height
+
+      fetchSpy.mockRestore();
+    });
+
+    it('explicit gapRows=0 overrides default gap for non-first block', async () => {
+      const existingBlocks = [
+        makeBlockWithLayout('b1', '<p>Existing</p>', { x: 1, y: 0 }, { x: 25, y: 3 }),
+      ];
+      const sections = makeSections(...existingBlocks);
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock('psid-1', 'cid-1', 0, '<p>Tight</p>', { gapRows: 0 });
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[1];
+      expect(newBlock.layout.desktop.start.y).toBe(3); // 3 + 0 gap (no gap)
+      expect(newBlock.layout.desktop.end.y).toBe(6);   // 3 + 3 height
+
+      fetchSpy.mockRestore();
+    });
+
+    it('applies gapRows and rowHeight to mobile layout too', async () => {
+      const block = makeBlockWithLayout('b1', '<p>Existing</p>', { x: 1, y: 0 }, { x: 25, y: 4 });
+      // Also set mobile layout
+      block.layout!.mobile = { start: { x: 1, y: 0 }, end: { x: 9, y: 5 } };
+      const existingBlocks = [block];
+      const sections = makeSections(...existingBlocks);
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock('psid-1', 'cid-1', 0, '<p>Mobile test</p>', { rowHeight: 4, gapRows: 1 });
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const newBlock = putBody.sections[0].fluidEngineContext.gridContents[1];
+      // Mobile: maxMobileY=5, gap=1, height=4
+      expect(newBlock.layout.mobile.start.y).toBe(6);  // 5 + 1 gap
+      expect(newBlock.layout.mobile.end.y).toBe(10);    // 6 + 4 height
 
       fetchSpy.mockRestore();
     });
