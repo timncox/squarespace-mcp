@@ -270,8 +270,11 @@ export async function executeBrowserTask(
       // 3.5 Auto-escape footer: if page state detects we're in the footer,
       // exit immediately WITHOUT burning a Claude API call. This saves tokens
       // and prevents the agent from wasting steps trying to work in the footer.
+      // EXCEPTION: If the task description mentions footer-related keywords,
+      // the user wants to edit the footer — do NOT auto-escape.
       // Guard: only auto-escape up to 2 times to avoid infinite loops.
-      if (pageState.isEditingFooter && footerEscapeCount < 2) {
+      const isFooterTask = /\b(footer|site footer|hours|opening hours|business hours|contact info|address|phone number)\b/i.test(taskDescription);
+      if (pageState.isEditingFooter && !isFooterTask && footerEscapeCount < 2) {
         footerEscapeCount++;
         logger.warn({ step: stepNum, escapeAttempt: footerEscapeCount }, 'Auto-escaping footer edit mode');
         await page.keyboard.press('Escape');

@@ -93,6 +93,25 @@ export interface ImageBlockUpdateResult {
   error?: string;
 }
 
+/** Result of a footer text update operation */
+export interface FooterTextUpdateResult {
+  success: boolean;
+  blockId?: string;
+  oldText?: string;
+  newHtml?: string;
+  error?: string;
+}
+
+/** The site header/footer configuration from GET /api/site-header-footer */
+export interface HeaderFooterConfig {
+  footer?: {
+    pageSectionsId?: string;
+    [key: string]: unknown;
+  };
+  header?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 /** Result of adding a text block to a section */
 export interface TextBlockAddResult {
   success: boolean;
@@ -1057,6 +1076,327 @@ export class ContentSaveClient {
         sectionName,
         oldIndex: sectionIndex,
         newIndex,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Footer API Methods ─────────────────────────────────────────────────
+
+  /**
+   * GET the site header/footer configuration.
+   * Counterpart to the existing saveHeaderFooter() PUT method.
+   *
+   * The response typically contains the full header+footer config, including
+   * footer.pageSectionsId which can be used with getPageSections() to fetch
+   * the actual footer section/block data.
+   *
+   * Endpoint: GET /api/site-header-footer
+   */
+  async getHeaderFooter(): Promise<{ success: boolean; config?: HeaderFooterConfig; error?: string }> {
+    this.ensureCookies();
+
+    const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
+    const url = `${siteUrl}/api/site-header-footer`;
+
+    logger.info({ siteSubdomain: this.siteSubdomain }, 'Fetching site header/footer config');
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return {
+          success: false,
+          error: `${response.status} ${response.statusText}: ${body}`,
+        };
+      }
+
+      const data = (await response.json()) as HeaderFooterConfig;
+      logger.info(
+        {
+          hasFooter: !!data.footer,
+          hasHeader: !!data.header,
+          footerPageSectionsId: data.footer?.pageSectionsId,
+          topLevelKeys: Object.keys(data),
+        },
+        'Site header/footer config fetched',
+      );
+
+      return { success: true, config: data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Get the footer's page sections data.
+   *
+   * The footer stores its sections using the same page-sections format as
+   * regular pages. This method:
+   * 1. GETs /api/site-header-footer to find the footer's pageSectionsId
+   * 2. GETs /api/page-sections/{footerPageSectionsId} to fetch the actual data
+   *
+   * Returns the same PageSection[] format as getPageSections() so existing
+   * block-finding and text-updating logic can be reused.
+   */
+  async getFooterSections(): Promise<{
+    success: boolean;
+    sections?: PageSection[];
+    pageSectionsId?: string;
+    collectionId?: string;
+    error?: string;
+  }> {
+    try {
+      // Step 1: Get footer config to find pageSectionsId
+      const configResult = await this.getHeaderFooter();
+      if (!configResult.success || !configResult.config) {
+        return { success: false, error: configResult.error ?? 'Failed to get header/footer config' };
+      }
+
+      const config = configResult.config;
+
+      // The footer's pageSectionsId may be at:
+      // - config.footer.pageSectionsId (most likely)
+      // - config.footerPageSectionsId (alternate)
+      // - config.footer.id (alternate)
+      const footerPsId =
+        config.footer?.pageSectionsId ??
+        (config as Record<string, unknown>).footerPageSectionsId as string | undefined ??
+        config.footer?.id as string | undefined;
+
+      if (!footerPsId || typeof footerPsId !== 'string') {
+        // If no pageSectionsId found, the footer config itself might contain
+        // sections directly (some Squarespace versions embed them)
+        const embeddedSections = config.footer?.sections as PageSection[] | undefined;
+        if (embeddedSections && Array.isArray(embeddedSections)) {
+          logger.info(
+            { sectionsCount: embeddedSections.length },
+            'Found embedded footer sections in header-footer config',
+          );
+          return { success: true, sections: embeddedSections };
+        }
+
+        return {
+          success: false,
+          error: 'Footer pageSectionsId not found in header-footer config. ' +
+            `Available keys: ${JSON.stringify(Object.keys(config))}` +
+            (config.footer ? `, footer keys: ${JSON.stringify(Object.keys(config.footer))}` : ''),
+        };
+      }
+
+      logger.info({ footerPsId }, 'Found footer pageSectionsId — fetching sections');
+
+      // Step 2: Fetch the actual footer sections using the page-sections API
+      const data = await this.getPageSections(footerPsId);
+
+      // Try to extract collectionId from the response
+      const collectionId = data.collectionId ?? (data as Record<string, unknown>).websiteId as string | undefined;
+
+      return {
+        success: true,
+        sections: data.sections,
+        pageSectionsId: footerPsId,
+        collectionId: collectionId ?? undefined,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update a text block within the footer (full replacement).
+   *
+   * Combines getFooterSections() + findTextBlock() + savePageSections()
+   * to do a complete read-modify-write on the footer content.
+   *
+   * @param searchText  Text to search for in the footer (case-insensitive)
+   * @param newText     New text/HTML for the block (plain text auto-wrapped in <p>)
+   */
+  async updateFooterTextBlock(
+    searchText: string,
+    newText: string,
+  ): Promise<FooterTextUpdateResult> {
+    try {
+      // Step 1: Get footer sections + IDs
+      const footerResult = await this.getFooterSections();
+      if (!footerResult.success || !footerResult.sections) {
+        return { success: false, error: footerResult.error ?? 'Failed to get footer sections' };
+      }
+
+      const { sections, pageSectionsId, collectionId } = footerResult;
+
+      if (!pageSectionsId) {
+        return { success: false, error: 'Footer pageSectionsId not available — cannot save changes' };
+      }
+
+      // Step 2: Find the text block
+      const match = this.findTextBlock(sections, searchText);
+      if (!match) {
+        return {
+          success: false,
+          error: `No text block found in the footer containing "${searchText}"`,
+        };
+      }
+
+      const { gridContent, sectionIndex, blockIndex } = match;
+      const blockValue = gridContent.content.value;
+      const oldHtml = blockValue.value?.html ?? '';
+      const blockId = blockValue.id;
+
+      logger.info(
+        { blockId, sectionIndex, blockIndex, searchText },
+        'Found footer text block, updating content',
+      );
+
+      // Step 3: Replace the HTML
+      const formattedHtml = this.formatHtml(newText.includes('<') ? newText : newText);
+      const newHtml = newText.includes('<') ? newText : `<p class="" style="white-space:pre-wrap;">${newText}</p>`;
+      if (blockValue.value) {
+        blockValue.value.html = newHtml;
+        blockValue.value.source = newHtml;
+      }
+
+      // Step 4: Save — we need collectionId for the save endpoint
+      // If we don't have a collectionId, try to get it from GetCollections
+      let saveCollectionId = collectionId;
+      if (!saveCollectionId) {
+        // For footer, the collectionId might not be needed — try using the websiteId
+        // or fall back to getting it from the GetCollections API
+        const configResult = await this.getHeaderFooter();
+        if (configResult.config) {
+          saveCollectionId = (configResult.config as Record<string, unknown>).websiteId as string | undefined;
+        }
+      }
+
+      if (!saveCollectionId) {
+        // Last resort: use a dummy collection ID — some Squarespace endpoints
+        // accept the pageSectionsId as collectionId for footer saves
+        saveCollectionId = pageSectionsId;
+      }
+
+      const saveResult = await this.savePageSections(pageSectionsId, saveCollectionId, sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return {
+        success: true,
+        blockId,
+        oldText: this.stripHtml(oldHtml),
+        newHtml,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Surgical find-and-replace within a footer text block.
+   *
+   * Unlike updateFooterTextBlock (which replaces the entire block),
+   * this method finds a substring within the block's HTML and replaces
+   * only that portion, preserving all other content.
+   *
+   * @param searchText  Text to find inside a footer block (case-insensitive)
+   * @param newText     Replacement text for the matched portion
+   */
+  async patchFooterTextBlock(
+    searchText: string,
+    newText: string,
+  ): Promise<FooterTextUpdateResult> {
+    try {
+      // Step 1: Get footer sections + IDs
+      const footerResult = await this.getFooterSections();
+      if (!footerResult.success || !footerResult.sections) {
+        return { success: false, error: footerResult.error ?? 'Failed to get footer sections' };
+      }
+
+      const { sections, pageSectionsId, collectionId } = footerResult;
+
+      if (!pageSectionsId) {
+        return { success: false, error: 'Footer pageSectionsId not available — cannot save changes' };
+      }
+
+      // Step 2: Find the text block containing the search text
+      const match = this.findTextBlock(sections, searchText);
+      if (!match) {
+        return {
+          success: false,
+          error: `No text block found in the footer containing "${searchText}"`,
+        };
+      }
+
+      const { gridContent, sectionIndex, blockIndex } = match;
+      const blockValue = gridContent.content.value;
+      const oldHtml = blockValue.value?.html ?? '';
+      const blockId = blockValue.id;
+
+      // Step 3: Do a surgical replacement in the HTML
+      // Find the searchText in the stripped HTML to confirm it exists
+      const strippedOld = this.stripHtml(oldHtml).toLowerCase();
+      const needle = searchText.toLowerCase();
+      if (!strippedOld.includes(needle)) {
+        return {
+          success: false,
+          error: `Text "${searchText}" found in block ${blockId} metadata but not in stripped HTML`,
+        };
+      }
+
+      // Replace in the raw HTML — try exact match first, then case-insensitive
+      let patchedHtml = oldHtml;
+      if (patchedHtml.includes(searchText)) {
+        patchedHtml = patchedHtml.replace(searchText, newText);
+      } else {
+        // Case-insensitive replacement in HTML (careful to preserve tags)
+        const regex = new RegExp(searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        patchedHtml = patchedHtml.replace(regex, newText);
+      }
+
+      if (patchedHtml === oldHtml) {
+        return {
+          success: false,
+          error: `Could not replace "${searchText}" in HTML of block ${blockId}. The text may span HTML tags.`,
+        };
+      }
+
+      logger.info(
+        { blockId, sectionIndex, blockIndex, searchText, newText },
+        'Patching footer text block (surgical replacement)',
+      );
+
+      if (blockValue.value) {
+        blockValue.value.html = patchedHtml;
+        blockValue.value.source = patchedHtml;
+      }
+
+      // Step 4: Save
+      let saveCollectionId = collectionId;
+      if (!saveCollectionId) {
+        const configResult = await this.getHeaderFooter();
+        if (configResult.config) {
+          saveCollectionId = (configResult.config as Record<string, unknown>).websiteId as string | undefined;
+        }
+      }
+      if (!saveCollectionId) {
+        saveCollectionId = pageSectionsId;
+      }
+
+      const saveResult = await this.savePageSections(pageSectionsId, saveCollectionId, sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return {
+        success: true,
+        blockId,
+        oldText: this.stripHtml(oldHtml),
+        newHtml: patchedHtml,
       };
     } catch (err) {
       return { success: false, error: errMsg(err) };
