@@ -21,6 +21,7 @@ import type {
 import type { TemplateCatalog } from '../config/section-templates-types.js';
 import type { TemplateDiscoveryResult } from '../services/template-discovery.js';
 import { formatDiscoveredTemplatesForPrompt } from '../services/template-discovery.js';
+import { formatPresetsForPrompt } from '../config/layout-presets.js';
 import { getRelevantLearnings, type Learning } from '../db/learnings.js';
 import { logger } from '../utils/logger.js';
 import { getAnthropicClient } from '../utils/anthropic-client.js';
@@ -470,6 +471,9 @@ This is a SINGLE compound action — write it as ONE step, not separate steps.
 - Block editors auto-save when you click away
 `);
 
+  // Layout presets for blank_api sections
+  parts.push(`\n${formatPresetsForPrompt()}\n`);
+
   // Output format
   parts.push(`## Output Format
 
@@ -540,6 +544,22 @@ Each apiBlock can include an optional \`formatting\` object to control HTML rend
 
 When \`formatting\` is provided, pass PLAIN TEXT in the \`html\` field (no HTML tags). The formatting options will be applied automatically to produce the correct HTML.
 When \`formatting\` is NOT provided, you can pass raw HTML directly in the \`html\` field (e.g., \`"<h2>Heading</h2>"\`) — it will be used as-is.
+
+Blank+API example with layout preset (multi-column):
+{
+  "operationType": "add_section",
+  "placement": "New section for skills overview",
+  "content": {
+    "heading": "Skills",
+    "contentStrategy": "blank_api",
+    "layoutPreset": "two-column",
+    "apiBlocks": [
+      { "html": "<h3>Technical Skills</h3><p>JavaScript, TypeScript, React, Node.js</p>" },
+      { "html": "<h3>Soft Skills</h3><p>Leadership, Communication, Project Management</p>" }
+    ]
+  },
+  "editorInstruction": "Add a blank section with two-column layout, then populate with text blocks via API. This operation uses the blank_api strategy with a layout preset — the execution pipeline handles it automatically."
+}
 
 Fallback example (blank section when no template fits):
 {
@@ -665,6 +685,7 @@ function parseContentSpec(raw: Record<string, unknown> | undefined): ContentOper
     contentStrategy: (raw.contentStrategy as ContentOperation['content']['contentStrategy']) ?? undefined,
     apiBlocks: Array.isArray(raw.apiBlocks) ? (raw.apiBlocks as ContentOperation['content']['apiBlocks']) : undefined,
     templateIndex: typeof raw.templateIndex === 'number' ? raw.templateIndex : undefined,
+    layoutPreset: typeof raw.layoutPreset === 'string' ? raw.layoutPreset : undefined,
   };
 }
 

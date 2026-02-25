@@ -1183,6 +1183,33 @@ async function executeBlankApiOperation(
     return { success: false, blocksAdded: 0, error: 'No apiBlocks provided for blank_api operation' };
   }
 
+  // Resolve layout preset into per-block grid coordinates
+  if (operation.content.layoutPreset) {
+    const { resolveLayoutPreset } = await import('../../config/layout-presets.js');
+    const slots = resolveLayoutPreset(operation.content.layoutPreset, apiBlocks.length);
+    if (slots) {
+      logger.info(
+        { preset: operation.content.layoutPreset, blockCount: apiBlocks.length, slotCount: slots.length },
+        'blank_api: resolved layout preset into grid slots',
+      );
+      for (let i = 0; i < apiBlocks.length && i < slots.length; i++) {
+        const slot = slots[i];
+        apiBlocks[i].layout = {
+          ...apiBlocks[i].layout,
+          startX: slot.startX,
+          endX: slot.endX,
+          startY: slot.startY,
+          endY: slot.endY,
+        };
+      }
+    } else {
+      logger.warn(
+        { preset: operation.content.layoutPreset },
+        'blank_api: unknown layout preset — falling back to default stacked layout',
+      );
+    }
+  }
+
   try {
     // Step 1: Add a blank section via direct handler call (no browser agent overhead)
     const { handleAddSection } = await import('../../automation/actions/section-management-handlers.js');
