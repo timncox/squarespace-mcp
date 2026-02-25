@@ -28,6 +28,7 @@ export interface ContentOperation {
   targetPage: string;
   /** What type of edit */
   operationType:
+    | 'create_page'
     | 'add_section'
     | 'add_block'
     | 'modify_text'
@@ -102,6 +103,51 @@ export interface ContentSpec {
   apiBlocks?: Array<{ html: string; layout?: { columns?: number } }>;
   /** Template index for position-based selection (0-based) */
   templateIndex?: number;
+  /** Structured replacements for template sections (texts, buttons, images, block removals) */
+  replacements?: {
+    texts?: Array<{ searchText: string; newText: string }>;
+    buttons?: Array<{ searchText: string; newLabel?: string; url?: string }>;
+    images?: Array<{ searchText: string; imagePath: string; altText?: string }>;
+    removeBlocks?: string[];
+  };
+}
+
+// ─── Page Structure (from Content Save API, input to Content Strategist) ────
+
+/** Summary of a single block within a section */
+export interface BlockSummary {
+  /** Block type (e.g., "text", "image", "button", "code", "quote") */
+  type: string;
+  /** First 100 chars of text content (stripped HTML) */
+  textSnippet?: string;
+  /** Image alt text or title */
+  imageAlt?: string;
+  /** Button label */
+  buttonLabel?: string;
+  /** Button URL */
+  buttonUrl?: string;
+}
+
+/** Summary of a single section on the page */
+export interface SectionSummary {
+  /** Section ID from Squarespace */
+  id: string;
+  /** 0-based position on the page */
+  index: number;
+  /** Section name (from Squarespace metadata) */
+  name: string;
+  /** Number of blocks in this section */
+  blockCount: number;
+  /** Summary of blocks in this section */
+  blocks: BlockSummary[];
+}
+
+/** Full page structure summary for a single page */
+export interface PageStructure {
+  /** Total number of sections on the page */
+  sectionCount: number;
+  /** Ordered list of section summaries */
+  sections: SectionSummary[];
 }
 
 // ─── Research Agent Output ──────────────────────────────────────────────────
@@ -115,6 +161,40 @@ export interface ResearchResult {
   sources: string[];
   /** Raw search snippets passed to the content strategist for context */
   rawSnippets: string[];
+  /** Synthesized research output (replaces raw snippets for strategist consumption) */
+  synthesis?: ResearchSynthesis;
+  /** Structured data extracted from URLs in the task description */
+  structuredPages?: StructuredPageData[];
+}
+
+// ─── Research Synthesis (produced by synthesis step) ────────────────────────
+
+export interface ResearchSynthesis {
+  /** Key facts extracted and verified from multiple sources */
+  keyFacts: string[];
+  /** Suggested content angles and copy ideas for the strategist */
+  contentSuggestions: string[];
+  /** Tone and voice guidance derived from research context */
+  toneGuidance: string;
+  /** Sources ranked by relevance to the task */
+  sources: Array<{ url: string; relevance: 'high' | 'medium' | 'low'; summary: string }>;
+}
+
+// ─── Structured Page Data (extracted from URLs) ─────────────────────────────
+
+export interface StructuredPageData {
+  /** The URL that was visited */
+  url: string;
+  /** Page title (from <title> or <h1>) */
+  title: string;
+  /** Headings hierarchy (h1-h3) found on the page */
+  headings: string[];
+  /** Key content paragraphs extracted from the page */
+  keyContent: string[];
+  /** Images found on the page */
+  images: Array<{ src: string; alt: string }>;
+  /** Lists found on the page (each inner array is one list's items) */
+  lists: string[][];
 }
 
 // ─── Site Analyst Agent Output ──────────────────────────────────────────────

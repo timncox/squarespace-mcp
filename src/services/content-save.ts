@@ -1248,7 +1248,7 @@ export class ContentSaveClient {
     collectionId: string,
     sectionIndex: number,
     html: string,
-    layout?: { columns?: number },
+    layout?: { columns?: number; rowHeight?: number; gapRows?: number },
   ): Promise<TextBlockAddResult> {
     try {
       // Step 1: GET current sections
@@ -1292,12 +1292,14 @@ export class ContentSaveClient {
         if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
       }
 
-      // Default layout: full width, 3 rows tall, below existing content
+      // Default layout: full width, variable height, with gap between blocks
       const cols = layout?.columns ?? maxColumns;
       const startX = 1;
       const endX = Math.min(startX + cols, maxColumns + 1);
-      const startY = maxY;
-      const endY = startY + 3; // default 3 rows
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+      const rowHeight = layout?.rowHeight ?? 3;
+      const startY = maxY + gapRows;
+      const endY = startY + rowHeight;
 
       // Step 4: Generate block ID and create GridContent
       const blockId = ContentSaveClient.generateBlockId();
@@ -1313,7 +1315,7 @@ export class ContentSaveClient {
 
       const newBlock: GridContent = {
         layout: {
-          mobile: { start: { x: 1, y: maxMobileY }, end: { x: 9, y: maxMobileY + 3 }, visible: true, verticalAlignment: 'top', zIndex },
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
           desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
         },
         content: {

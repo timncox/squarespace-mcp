@@ -8,6 +8,7 @@ import {
   hoverBetweenSectionsInIframe,
   cdpHoverAtSectionBoundary,
   forceClickHiddenAddSection,
+  saveChanges,
 } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
 import { isFluidEngineActive, clickEditorButton, trySectionMoveApi } from './handler-utils.js';
@@ -27,6 +28,7 @@ import { handleRemoveBlock } from './block-management-handlers.js';
  * 2. If a category is specified, click the category tab
  * 3. If a template is specified, search/click the template
  * 4. Wait for the new section to load
+ * 5. Save editor state so Content Save API can see the new section
  */
 export async function handleAddSection(
   page: Page,
@@ -48,7 +50,7 @@ export async function handleAddSection(
   // In Squarespace, the ADD SECTION button only appears on hover between
   // sections. We need to: scroll to the bottom, hover the gaps between
   // sections to reveal the button, then click it.
-  logger.info('addSection[1/4]: clicking ADD SECTION');
+  logger.info('addSection[1/5]: clicking ADD SECTION');
 
   const addSectionSelectors = [
     'button:has-text("ADD SECTION")',
@@ -70,7 +72,7 @@ export async function handleAddSection(
         const visible = await btn.isVisible({ timeout: 1500 }).catch(() => false);
         if (visible) {
           await btn.click({ timeout: 3000 });
-          logger.info({ selector }, 'addSection[1/4]: clicked ADD SECTION');
+          logger.info({ selector }, 'addSection[1/5]: clicked ADD SECTION');
           return true;
         }
       } catch { /* Try next */ }
@@ -85,7 +87,7 @@ export async function handleAddSection(
     const iframeBox = await iframeBtn.boundingBox().catch(() => null);
     if (iframeBox) {
       await page.mouse.click(iframeBox.x + iframeBox.width / 2, iframeBox.y + iframeBox.height / 2);
-      logger.info('addSection[1/4]: clicked ADD SECTION inside iframe (empty page)');
+      logger.info('addSection[1/5]: clicked ADD SECTION inside iframe (empty page)');
       addSectionClicked = true;
     }
   }
@@ -97,7 +99,7 @@ export async function handleAddSection(
   // Sends 20+ mouseMoved events via Chrome DevTools Protocol, simulating
   // the mouse crossing from inside a section to its bottom edge.
   if (!addSectionClicked) {
-    logger.info('addSection[1/4]: CDP realistic mouse trajectory at section boundary');
+    logger.info('addSection[1/5]: CDP realistic mouse trajectory at section boundary');
     const cdpResult = await cdpHoverAtSectionBoundary(page);
     if (cdpResult.success) {
       await page.waitForTimeout(500);
@@ -107,7 +109,7 @@ export async function handleAddSection(
 
   // Strategy C: iframe-aware hover at section boundaries
   if (!addSectionClicked) {
-    logger.info('addSection[1/4]: iframe-aware hover at section boundaries');
+    logger.info('addSection[1/5]: iframe-aware hover at section boundaries');
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(500);
     const hoverResult = await hoverBetweenSectionsInIframe(page);
@@ -120,7 +122,7 @@ export async function handleAddSection(
   // Squarespace keeps the button in the DOM but hides it with CSS.
   // This finds it, forces it visible, and clicks it.
   if (!addSectionClicked) {
-    logger.info('addSection[1/4]: force-reveal hidden ADD SECTION button');
+    logger.info('addSection[1/5]: force-reveal hidden ADD SECTION button');
     const forceResult = await forceClickHiddenAddSection(page);
     if (forceResult.success) {
       addSectionClicked = true;
@@ -175,7 +177,7 @@ export async function handleAddSection(
 
   // ── Step 2: Click category tab (if specified) ───────────────────────
   if (category) {
-    logger.info({ category }, 'addSection[2/4]: clicking category');
+    logger.info({ category }, 'addSection[2/5]: clicking category');
     const categorySelectors = [
       `button:has-text("${category}")`,
       `[role="tab"]:has-text("${category}")`,
@@ -188,7 +190,7 @@ export async function handleAddSection(
         const visible = await el.isVisible({ timeout: 3000 }).catch(() => false);
         if (visible) {
           await el.click({ timeout: 3000 });
-          logger.info({ selector, category }, 'addSection[2/4]: clicked category');
+          logger.info({ selector, category }, 'addSection[2/5]: clicked category');
           break;
         }
       } catch { /* Try next */ }
@@ -198,7 +200,7 @@ export async function handleAddSection(
 
   // ── Step 3: Click template (if specified) ───────────────────────────
   if (template || templateIndex !== undefined) {
-    logger.info({ template, templateIndex }, 'addSection[3/4]: selecting template');
+    logger.info({ template, templateIndex }, 'addSection[3/5]: selecting template');
 
     let templateClicked = false;
 
@@ -206,7 +208,7 @@ export async function handleAddSection(
     // Squarespace renders templates as clickable cards/thumbnails inside the
     // section picker panel. Clicking by index avoids all text-matching issues.
     if (templateIndex !== undefined && templateIndex >= 0) {
-      logger.info({ templateIndex }, 'addSection[3/4]: Strategy A — clicking template by index');
+      logger.info({ templateIndex }, 'addSection[3/5]: Strategy A — clicking template by index');
       await page.waitForTimeout(800); // Let templates render after category click
 
       // Squarespace template cards are typically buttons or clickable divs
@@ -232,7 +234,7 @@ export async function handleAddSection(
             if (visible) {
               await targetCard.click({ timeout: 3000 });
               templateClicked = true;
-              logger.info({ selector, templateIndex, totalCards: count }, 'addSection[3/4]: clicked template card by index');
+              logger.info({ selector, templateIndex, totalCards: count }, 'addSection[3/5]: clicked template card by index');
               break;
             }
           }
@@ -262,7 +264,7 @@ export async function handleAddSection(
                 const target = thumbs.nth(templateIndex);
                 await target.click({ timeout: 3000 });
                 templateClicked = true;
-                logger.info({ panelSel, templateIndex, thumbCount }, 'addSection[3/4]: clicked template thumbnail by index');
+                logger.info({ panelSel, templateIndex, thumbCount }, 'addSection[3/5]: clicked template thumbnail by index');
                 break;
               }
             }
@@ -271,13 +273,13 @@ export async function handleAddSection(
       }
 
       if (!templateClicked) {
-        logger.warn({ templateIndex }, 'addSection[3/4]: index-based selection failed — falling back to text search');
+        logger.warn({ templateIndex }, 'addSection[3/5]: index-based selection failed — falling back to text search');
       }
     }
 
     // Strategy B: Text-based search (fallback or when no index provided)
     if (!templateClicked && template) {
-      logger.info({ template }, 'addSection[3/4]: Strategy B — text-based template search');
+      logger.info({ template }, 'addSection[3/5]: Strategy B — text-based template search');
 
       // Try searching for the template
       const searchSelectors = [
@@ -314,21 +316,21 @@ export async function handleAddSection(
           if (visible) {
             await el.click({ timeout: 3000 });
             templateClicked = true;
-            logger.info({ selector, template }, 'addSection[3/4]: clicked template by text');
+            logger.info({ selector, template }, 'addSection[3/5]: clicked template by text');
             break;
           }
         } catch { /* Try next */ }
       }
 
       if (!templateClicked && !searched) {
-        logger.warn({ template }, 'addSection[3/4]: template not found — a blank section may have been added');
+        logger.warn({ template }, 'addSection[3/5]: template not found — a blank section may have been added');
       }
     }
     await page.waitForTimeout(1500);
   }
 
   // ── Step 4: Wait for section to load and check edit mode ────────────
-  logger.info('addSection[4/4]: waiting for section to load');
+  logger.info('addSection[4/5]: waiting for section to load');
   await page.waitForTimeout(3000);
 
   // Check if we're already in section edit mode (Squarespace sometimes auto-enters)
@@ -385,9 +387,20 @@ export async function handleAddSection(
     }
   }
 
+  // ── Step 5: Save editor state so Content Save API can see the new section
+  logger.info('addSection[5/5]: saving editor state');
+  const saveResult = await saveChanges(page);
+  logger.info({ saveResult }, 'addSection[5/5]: editor state saved');
+
+  // saveChanges may exit edit mode (returns message containing "Done")
+  const saveExitedEditMode = saveResult.message.includes('Done');
+  if (saveExitedEditMode) {
+    logger.info('addSection[5/5]: save exited edit mode — subsequent actions may need to re-enter');
+  }
+
   return {
     success: true,
-    message: `addSection: Added new section${category ? ` (category: "${category}")` : ''}${template ? ` (template: "${template}")` : ''}.${editModeHint}${newSectionInfo}`,
+    message: `addSection: Added new section${category ? ` (category: "${category}")` : ''}${template ? ` (template: "${template}")` : ''}.${saveExitedEditMode ? ' Note: save exited edit mode — use enterSectionEditMode to re-enter.' : ''}${editModeHint}${newSectionInfo}`,
   };
 }
 

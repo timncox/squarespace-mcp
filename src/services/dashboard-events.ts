@@ -14,7 +14,7 @@
 import { EventEmitter } from 'events';
 
 export interface DashboardEvent {
-  type: 'message' | 'buttons' | 'image' | 'task_update' | 'conversation_update' | 'agent_step' | 'agent_activity';
+  type: 'message' | 'buttons' | 'image' | 'task_update' | 'conversation_update' | 'agent_step' | 'agent_activity' | 'operation_update';
   data: Record<string, unknown>;
   timestamp: string;
 }

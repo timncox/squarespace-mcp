@@ -10,14 +10,15 @@
 import type { Page } from 'playwright';
 import type { Task } from '../models/task.js';
 import type { Conversation } from '../models/conversation.js';
-import type { ContentPlan, ContentOperation, ResearchResult, SiteAnalysis } from './types.js';
+import type { ContentPlan, ContentOperation, ResearchResult, SiteAnalysis, PageStructure, BlockSummary, SectionSummary } from './types.js';
 import { runResearchAgent } from './research-agent.js';
 import { visitProjectUrls } from './url-researcher.js';
 import { runSiteAnalystAgent } from './site-analyst-agent.js';
 import { runContentStrategistAgent } from './content-strategist-agent.js';
 import { getBrowserManager } from '../automation/browser-manager.js';
 import { ensureLoggedIn } from '../automation/squarespace-auth.js';
-import { resolveSite, navigateToSite, navigateToPage } from '../automation/site-navigator.js';
+import { resolveSite, navigateToSite, navigateToPage, enterEditMode } from '../automation/site-navigator.js';
+import { getOrDiscoverTemplates, getCachedDiscovery, type TemplateDiscoveryResult } from '../services/template-discovery.js';
 import { sendToTim } from '../services/whatsapp.js';
 import { logger } from '../utils/logger.js';
 import { join } from 'path';
@@ -123,13 +124,25 @@ export async function runContentPipeline(
       const researchResult = await runResearchAgent(taskDescription, siteName);
       if (researchResult.success && researchResult.data) {
         research = researchResult.data;
+        const hasSynthesis = !!research.synthesis;
+        const structuredPageCount = research.structuredPages?.length ?? 0;
         logger.info(
-          { findings: research.findings.length, sources: research.sources.length },
+          {
+            findings: research.findings.length,
+            sources: research.sources.length,
+            hasSynthesis,
+            keyFacts: research.synthesis?.keyFacts.length ?? 0,
+            structuredPages: structuredPageCount,
+          },
           'Content pipeline: research complete',
         );
+        const synthDetail = hasSynthesis
+          ? `, ${research.synthesis!.keyFacts.length} key facts, ${research.synthesis!.contentSuggestions.length} content suggestions`
+          : '';
+        const pageDetail = structuredPageCount > 0 ? `, ${structuredPageCount} pages analyzed` : '';
         dashboardEvents.emit('dashboard', {
           type: 'agent_activity' as const,
-          data: { agent: 'research', status: 'completed', message: `Found ${research.findings.length} findings from ${research.sources.length} sources` },
+          data: { agent: 'research', status: 'completed', message: `Found ${research.findings.length} findings from ${research.sources.length} sources${synthDetail}${pageDetail}` },
           timestamp: new Date().toISOString(),
         });
       } else {
@@ -154,6 +167,8 @@ export async function runContentPipeline(
   });
 
   let siteAnalysis: SiteAnalysis | undefined;
+  let pageStructures: Record<string, PageStructure> | undefined;
+  let discoveredTemplates: TemplateDiscoveryResult | undefined;
   try {
     const browserManager = getBrowserManager({ headless: true });
     await ensureLoggedIn(browserManager);
@@ -199,6 +214,62 @@ export async function runContentPipeline(
       });
     }
 
+    // ── Step 2b: Fetch page structure via Content Save API ──────────────
+    // While the browser is still open on the target page, extract the actual
+    // section/block JSON for the content strategist. This gives the strategist
+    // precise knowledge of existing content instead of guessing from a screenshot.
+    try {
+      const structure = await fetchPageStructure(page, siteId);
+      if (structure) {
+        const key = `${siteId}:${targetPage}`;
+        pageStructures = { [key]: structure };
+        logger.info(
+          { key, sectionCount: structure.sectionCount },
+          'Content pipeline: page structure fetched',
+        );
+        dashboardEvents.emit('dashboard', {
+          type: 'agent_activity' as const,
+          data: { agent: 'page_structure', status: 'completed', message: `Page structure: ${structure.sectionCount} sections, ${structure.sections.reduce((s, sec) => s + sec.blockCount, 0)} blocks` },
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      logger.warn({ error: errMsg(err) }, 'Content pipeline: page structure fetch failed, continuing without');
+    }
+
+    // ── Step 2c: Template Discovery (reuse browser session) ─────────────
+    // Discover available templates while the browser is still open.
+    // Uses cache (7-day TTL) to avoid re-probing on every pipeline run.
+    try {
+      dashboardEvents.emit('dashboard', {
+        type: 'agent_activity' as const,
+        data: { agent: 'template_discovery', status: 'started', message: 'Discovering available section templates...' },
+        timestamp: new Date().toISOString(),
+      });
+
+      // Enter edit mode for template discovery (picker requires edit mode)
+      await enterEditMode(page);
+      discoveredTemplates = await getOrDiscoverTemplates(page, siteId);
+
+      const totalTemplates = discoveredTemplates.categories.reduce((sum, c) => sum + c.templates.length, 0);
+      dashboardEvents.emit('dashboard', {
+        type: 'agent_activity' as const,
+        data: {
+          agent: 'template_discovery',
+          status: 'completed',
+          message: `Discovered ${totalTemplates} templates across ${discoveredTemplates.categories.length} categories`,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      logger.warn({ error: errMsg(err) }, 'Content pipeline: template discovery failed, falling back to static catalog');
+      dashboardEvents.emit('dashboard', {
+        type: 'agent_activity' as const,
+        data: { agent: 'template_discovery', status: 'failed', message: 'Template discovery failed, using static catalog' },
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     // Close the browser — the editor agent will open its own session later
     await browserManager.close();
   } catch (err) {
@@ -213,7 +284,7 @@ export async function runContentPipeline(
     timestamp: new Date().toISOString(),
   });
 
-  const strategyResult = await runContentStrategistAgent(tasks, research, siteAnalysis);
+  const strategyResult = await runContentStrategistAgent(tasks, research, siteAnalysis, undefined, undefined, discoveredTemplates, pageStructures);
 
   if (!strategyResult.success || !strategyResult.data) {
     throw new Error(`Content strategist failed: ${strategyResult.error ?? 'Unknown error'}`);
@@ -277,10 +348,23 @@ export async function reviseContentPlan(
   research?: ResearchResult,
   siteAnalysis?: SiteAnalysis,
   conversationId?: string,
+  discoveredTemplates?: TemplateDiscoveryResult,
 ): Promise<ContentPlan> {
   logger.info({ feedback: feedback.substring(0, 100) }, 'Content pipeline: revising plan');
 
   await sendToTim('✏️ Revising the plan...', conversationId);
+
+  // If no discovered templates provided, try loading from cache for the primary site
+  let templates = discoveredTemplates;
+  if (!templates && tasks.length > 0 && tasks[0].siteId) {
+    try {
+      const cached = getCachedDiscovery(tasks[0].siteId);
+      if (cached) {
+        templates = cached;
+        logger.info({ siteId: tasks[0].siteId }, 'Content pipeline: loaded cached template discovery for revision');
+      }
+    } catch { /* Cache not available */ }
+  }
 
   const result = await runContentStrategistAgent(
     tasks,
@@ -288,6 +372,7 @@ export async function reviseContentPlan(
     siteAnalysis,
     feedback,
     previousPlan,
+    templates,
   );
 
   if (!result.success || !result.data) {
@@ -295,6 +380,199 @@ export async function reviseContentPlan(
   }
 
   return result.data;
+}
+
+// ─── Page Structure Fetching ─────────────────────────────────────────────────
+
+/**
+ * Fetch page structure data via the Content Save API for the content strategist.
+ *
+ * Extracts the pageSectionsId from the browser page DOM (the `data-page-sections`
+ * attribute on the `<article>` element), then calls `getPageSections()` to get
+ * the actual section/block JSON. Returns a clean summary.
+ *
+ * Must be called while the browser is on the target page (admin panel with
+ * sqs-site-frame iframe visible).
+ *
+ * @param page — Playwright page currently viewing the target page
+ * @param siteId — Site subdomain (e.g., "smyth-tavern")
+ * @returns PageStructure summary, or null if API call fails
+ */
+export async function fetchPageStructure(
+  page: import('playwright').Page,
+  siteId: string,
+): Promise<PageStructure | null> {
+  try {
+    // Pre-flight: check session cookie health
+    const { ContentSaveClient } = await import('../services/content-save.js');
+    const health = ContentSaveClient.checkSessionHealth();
+    if (!health.exists || !health.hasCrumb) {
+      logger.warn(
+        { exists: health.exists, hasCrumb: health.hasCrumb, ageHours: Math.round(health.ageHours) },
+        'Page structure: session not healthy, skipping API fetch',
+      );
+      return null;
+    }
+
+    // Extract pageSectionsId from the editor DOM (sqs-site-frame iframe)
+    const siteFrame = page.frame({ name: 'sqs-site-frame' });
+    if (!siteFrame) {
+      // Fallback: try the main frame (some admin views render the page directly)
+      const pageSectionsId = await page.evaluate(() => {
+        const article = document.querySelector('article[data-page-sections]');
+        return article?.getAttribute('data-page-sections') ?? null;
+      }).catch(() => null);
+
+      if (!pageSectionsId) {
+        logger.debug('Page structure: no sqs-site-frame and no data-page-sections in main frame');
+        return null;
+      }
+
+      return await fetchAndSummarize(siteId, pageSectionsId);
+    }
+
+    const pageSectionsId = await siteFrame.evaluate(() => {
+      const article = document.querySelector('article[data-page-sections]');
+      return article?.getAttribute('data-page-sections') ?? null;
+    }).catch(() => null);
+
+    if (!pageSectionsId) {
+      logger.debug('Page structure: could not find data-page-sections attribute in iframe');
+      return null;
+    }
+
+    return await fetchAndSummarize(siteId, pageSectionsId);
+  } catch (err) {
+    logger.warn({ error: errMsg(err), siteId }, 'Page structure: failed to fetch');
+    return null;
+  }
+}
+
+/**
+ * Internal helper: create a ContentSaveClient, fetch sections, and summarize.
+ */
+async function fetchAndSummarize(
+  siteId: string,
+  pageSectionsId: string,
+): Promise<PageStructure | null> {
+  const { createContentSaveClient } = await import('../services/content-save.js');
+  const client = createContentSaveClient(siteId);
+  const sectionsData = await client.getPageSections(pageSectionsId);
+
+  if (!sectionsData.sections || sectionsData.sections.length === 0) {
+    logger.info({ siteId, pageSectionsId }, 'Page structure: no sections found');
+    return { sectionCount: 0, sections: [] };
+  }
+
+  const structure = summarizePageSections(sectionsData.sections);
+  logger.info(
+    { siteId, pageSectionsId, sectionCount: structure.sectionCount, totalBlocks: structure.sections.reduce((sum, s) => sum + s.blockCount, 0) },
+    'Page structure: fetched successfully',
+  );
+  return structure;
+}
+
+/**
+ * Convert raw Squarespace page sections data into a clean summary for the
+ * content strategist prompt.
+ *
+ * This is a pure function (no side effects, no API calls) for easy testing.
+ */
+export function summarizePageSections(
+  sections: import('../services/content-save.js').PageSection[],
+): PageStructure {
+  const TEXT_SNIPPET_LENGTH = 100;
+
+  // Block type number → human-readable name
+  const BLOCK_TYPE_NAMES: Record<number, string> = {
+    2: 'text',
+    1337: 'image',
+    46: 'button',
+    44: 'quote',
+    23: 'code',
+    51: 'video',
+    55: 'form',
+    52: 'gallery',
+    54: 'line',
+    42: 'embed',
+    56: 'menu',
+    71: 'summary',
+  };
+
+  const sectionSummaries: SectionSummary[] = sections.map((section, index) => {
+    const blocks: BlockSummary[] = [];
+    const gridContents = section.fluidEngineContext?.gridContents ?? [];
+
+    for (const gc of gridContents) {
+      const blockType = gc.content?.value?.type ?? 0;
+      const typeName = BLOCK_TYPE_NAMES[blockType] ?? `unknown(${blockType})`;
+      const blockValue = gc.content?.value?.value;
+
+      const summary: BlockSummary = { type: typeName };
+
+      if (blockType === 2 && blockValue) {
+        // Text block: extract snippet from HTML source
+        const html = (blockValue as { source?: string; html?: string }).source
+          ?? (blockValue as { html?: string }).html
+          ?? '';
+        const stripped = stripHtml(html);
+        if (stripped) {
+          summary.textSnippet = stripped.length > TEXT_SNIPPET_LENGTH
+            ? stripped.substring(0, TEXT_SNIPPET_LENGTH) + '...'
+            : stripped;
+        }
+      } else if (blockType === 1337 && blockValue) {
+        // Image block: extract alt text / title
+        const imgVal = blockValue as { title?: string; description?: string; altText?: string };
+        summary.imageAlt = imgVal.altText ?? imgVal.title ?? imgVal.description ?? undefined;
+      } else if (blockValue) {
+        // Button or other block with text/label
+        const val = blockValue as { text?: string; label?: string };
+        if (val.label) {
+          summary.buttonLabel = val.label;
+        }
+        if (val.text) {
+          summary.textSnippet = val.text.length > TEXT_SNIPPET_LENGTH
+            ? val.text.substring(0, TEXT_SNIPPET_LENGTH) + '...'
+            : val.text;
+        }
+      }
+
+      blocks.push(summary);
+    }
+
+    return {
+      id: section.id,
+      index,
+      name: section.sectionName ?? `Section ${index + 1}`,
+      blockCount: gridContents.length,
+      blocks,
+    };
+  });
+
+  return {
+    sectionCount: sections.length,
+    sections: sectionSummaries,
+  };
+}
+
+/**
+ * Strip HTML tags to get plain text. Simple regex-based strip (no DOM parser needed).
+ */
+function stripHtml(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<\/(?:p|h[1-6]|div|li|blockquote)>/gi, ' ')  // closing block tags → space
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
