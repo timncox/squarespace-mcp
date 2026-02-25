@@ -1248,7 +1248,15 @@ export class ContentSaveClient {
     collectionId: string,
     sectionIndex: number,
     html: string,
-    layout?: { columns?: number },
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    },
   ): Promise<TextBlockAddResult> {
     try {
       // Step 1: GET current sections
@@ -1282,22 +1290,44 @@ export class ContentSaveClient {
         }
       }
 
-      // Step 3: Calculate position (below existing blocks)
+      // Step 3: Calculate position
       let maxY = 0;
       let maxMobileY = 0;
       for (const gc of gridContents) {
-        const endY = gc.layout?.desktop?.end?.y ?? 0;
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
         const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
-        if (endY > maxY) maxY = endY;
+        if (endYVal > maxY) maxY = endYVal;
         if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
       }
 
-      // Default layout: full width, 3 rows tall, below existing content
-      const cols = layout?.columns ?? maxColumns;
-      const startX = 1;
-      const endX = Math.min(startX + cols, maxColumns + 1);
-      const startY = maxY;
-      const endY = startY + 3; // default 3 rows
+      const rowHeight = layout?.rowHeight ?? 3;
+      const gapRows = layout?.gapRows ?? 0;
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        // Explicit X coordinates: use them with boundary clamping
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        // Auto X: full width or custom column count
+        const cols = layout?.columns ?? maxColumns;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        // Explicit Y coordinates: use them with boundary clamping
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        // Auto Y: stack below existing blocks
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
 
       // Step 4: Generate block ID and create GridContent
       const blockId = ContentSaveClient.generateBlockId();
