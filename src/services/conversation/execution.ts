@@ -22,7 +22,7 @@ import { saveChanges } from '../../automation/editor-actions.js';
 import { executeBrowserTask } from '../../automation/browser-agent.js';
 import { removeContent } from '../../automation/actions/remove-content.js';
 import { superviseBrowserResult, isSupervisorEnabled, type SupervisorJsonOptions, type SupervisorApiOptions } from '../../agents/supervisor-agent.js';
-import { createContentSaveClient, type PageSection } from '../../services/content-save.js';
+import { createContentSaveClient, ContentSaveClient, type PageSection } from '../../services/content-save.js';
 import { extractLearnings } from '../../agents/learning-agent.js';
 import { SiteReader, type SquarespacePageData } from '../../services/site-reader.js';
 import { taskIsPageCreation } from './planning.js';
@@ -1255,11 +1255,16 @@ async function executeBlankApiOperation(
     let apiFailed = false;
 
     for (const block of apiBlocks) {
+      // If richContent is provided, build HTML from structured elements
+      const blockHtml = block.richContent
+        ? ContentSaveClient.buildRichHtml(block.richContent)
+        : block.html;
+
       const result = await client.addTextBlock(
         pageSectionsId,
         ids.collectionId,
         sectionIndex,
-        block.html,
+        blockHtml,
         block.layout,
       );
 
