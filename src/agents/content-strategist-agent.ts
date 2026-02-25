@@ -394,13 +394,25 @@ Blank+API example (text-heavy content — no browser agent needed):
     "heading": "Work Experience",
     "contentStrategy": "blank_api",
     "apiBlocks": [
-      { "html": "<h2>Work Experience</h2>" },
-      { "html": "<h3>Senior Developer — Acme Corp (2020-2024)</h3><p>Led frontend architecture redesign...</p>" },
-      { "html": "<h3>Developer — StartupCo (2017-2020)</h3><p>Built React applications...</p>" }
+      { "html": "Work Experience", "formatting": { "tag": "h2", "alignment": "center" } },
+      { "html": "Senior Developer — Acme Corp (2020-2024)", "formatting": { "tag": "h3" } },
+      { "html": "Led frontend architecture redesign, migrating from legacy jQuery to React.", "formatting": { "tag": "p" } },
+      { "html": "Developer — StartupCo (2017-2020)", "formatting": { "tag": "h3" } },
+      { "html": "Built React applications for e-commerce clients.", "formatting": { "tag": "p" } }
     ]
   },
   "editorInstruction": "Add a blank section, then populate with text blocks via API. This operation uses the blank_api strategy — the execution pipeline handles it automatically."
 }
+
+**apiBlocks formatting options** (for blank_api strategy):
+Each apiBlock can include an optional \`formatting\` object to control HTML rendering:
+- \`tag\`: HTML tag — "h1", "h2", "h3", "h4", or "p" (default: "p"). Use "h2" for section headings, "h3" for sub-headings.
+- \`alignment\`: Text alignment — "left", "center", or "right". Adds \`text-align\` CSS to the block.
+- \`bold\`: If true, wraps text content in \`<strong>\` tags.
+- \`italic\`: If true, wraps text content in \`<em>\` tags.
+
+When \`formatting\` is provided, pass PLAIN TEXT in the \`html\` field (no HTML tags). The formatting options will be applied automatically to produce the correct HTML.
+When \`formatting\` is NOT provided, you can pass raw HTML directly in the \`html\` field (e.g., \`"<h2>Heading</h2>"\`) — it will be used as-is.
 
 Fallback example (blank section when no template fits):
 {

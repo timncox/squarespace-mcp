@@ -99,7 +99,16 @@ export interface ContentSpec {
   /** Content strategy for this operation */
   contentStrategy?: 'template' | 'blank_api' | 'manual';
   /** For blank_api strategy: text blocks to add via Content Save API */
-  apiBlocks?: Array<{ html: string; layout?: { columns?: number } }>;
+  apiBlocks?: Array<{
+    html: string;
+    layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number };
+    formatting?: {
+      tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p';
+      alignment?: 'left' | 'center' | 'right';
+      bold?: boolean;
+      italic?: boolean;
+    };
+  }>;
   /** Template index for position-based selection (0-based) */
   templateIndex?: number;
 }
