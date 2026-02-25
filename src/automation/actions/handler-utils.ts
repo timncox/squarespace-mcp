@@ -652,3 +652,76 @@ export async function tryCustomCssApi(
     return null;
   }
 }
+
+/**
+ * Attempt to update a text block in the site FOOTER via the Content Save API.
+ *
+ * The footer uses a separate data store from page sections — the normal
+ * `tryContentSaveApi` (which reads pageSectionsId from the page DOM) cannot
+ * find footer blocks. This helper uses `getFooterSections()` which reads the
+ * footer's pageSectionsId from `/api/site-header-footer`.
+ *
+ * Returns an ActionResult on success, null on failure. Never throws.
+ *
+ * @param page        Playwright page (used only to extract the subdomain)
+ * @param searchText  Text to find in the footer (case-insensitive)
+ * @param newText     Replacement text (plain text or HTML)
+ * @param surgical    If true, does a substring replacement (patchFooterTextBlock)
+ *                    instead of a full block replacement (updateFooterTextBlock)
+ */
+export async function tryFooterContentSaveApi(
+  page: Page,
+  searchText: string,
+  newText: string,
+  surgical: boolean = true,
+): Promise<ActionResult | null> {
+  const subdomain = extractSubdomain(page);
+  if (!subdomain) {
+    logger.debug('tryFooterContentSaveApi: could not extract subdomain from URL');
+    return null;
+  }
+
+  try {
+    const client = createContentSaveClient(subdomain);
+
+    // Use surgical (patch) by default — preserves other content in the block.
+    // Fall back to full replacement if surgical fails.
+    const result = surgical
+      ? await client.patchFooterTextBlock(searchText, newText)
+      : await client.updateFooterTextBlock(searchText, newText);
+
+    if (result.success) {
+      const mode = surgical ? 'patched' : 'replaced';
+      logger.info(
+        { blockId: result.blockId, searchText, mode },
+        `Footer Content Save API: text block ${mode} successfully`,
+      );
+      return {
+        success: true,
+        message: `editTextBlock: Updated footer text via Content Save API (block ${result.blockId}, ${mode}). Old: "${result.oldText}". Reload the page to see the change in the editor.`,
+      };
+    }
+
+    // If surgical failed, try full replacement as fallback
+    if (surgical) {
+      logger.info({ error: result.error }, 'Footer patch failed — trying full replacement');
+      const fullResult = await client.updateFooterTextBlock(searchText, newText);
+      if (fullResult.success) {
+        logger.info(
+          { blockId: fullResult.blockId, searchText },
+          'Footer Content Save API: text block replaced (fallback from patch)',
+        );
+        return {
+          success: true,
+          message: `editTextBlock: Updated footer text via Content Save API (block ${fullResult.blockId}, full replacement). Old: "${fullResult.oldText}". Reload the page to see the change in the editor.`,
+        };
+      }
+    }
+
+    logger.warn({ error: result.error, searchText }, 'Footer Content Save API: update failed');
+    return null;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'Footer Content Save API failed');
+    return null;
+  }
+}
