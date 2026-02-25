@@ -123,13 +123,25 @@ export async function runContentPipeline(
       const researchResult = await runResearchAgent(taskDescription, siteName);
       if (researchResult.success && researchResult.data) {
         research = researchResult.data;
+        const hasSynthesis = !!research.synthesis;
+        const structuredPageCount = research.structuredPages?.length ?? 0;
         logger.info(
-          { findings: research.findings.length, sources: research.sources.length },
+          {
+            findings: research.findings.length,
+            sources: research.sources.length,
+            hasSynthesis,
+            keyFacts: research.synthesis?.keyFacts.length ?? 0,
+            structuredPages: structuredPageCount,
+          },
           'Content pipeline: research complete',
         );
+        const synthDetail = hasSynthesis
+          ? `, ${research.synthesis!.keyFacts.length} key facts, ${research.synthesis!.contentSuggestions.length} content suggestions`
+          : '';
+        const pageDetail = structuredPageCount > 0 ? `, ${structuredPageCount} pages analyzed` : '';
         dashboardEvents.emit('dashboard', {
           type: 'agent_activity' as const,
-          data: { agent: 'research', status: 'completed', message: `Found ${research.findings.length} findings from ${research.sources.length} sources` },
+          data: { agent: 'research', status: 'completed', message: `Found ${research.findings.length} findings from ${research.sources.length} sources${synthDetail}${pageDetail}` },
           timestamp: new Date().toISOString(),
         });
       } else {
