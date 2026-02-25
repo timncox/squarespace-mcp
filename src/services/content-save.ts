@@ -37,6 +37,17 @@ const BLOCK_TYPE_IMAGE = 1337;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
+/** Element descriptor for buildRichHtml() */
+export interface RichHtmlElement {
+  text: string;
+  tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p' | 'li';
+  style?: Record<string, string>;
+  bold?: boolean;
+  italic?: boolean;
+  link?: { href: string; target?: string };
+  className?: string;
+}
+
 /** Grid coordinate (column/row position) */
 export interface GridCoord { x: number; y: number }
 
@@ -449,6 +460,74 @@ export class ContentSaveClient {
         blockId,
         oldText: this.stripHtml(oldHtml),
         newHtml: formattedHtml,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Replace a text block's entire HTML with pre-formatted content.
+   *
+   * Unlike `updateTextBlock()` which runs the input through `formatHtml()`,
+   * this method sets the source/html directly — useful when the caller has
+   * already built rich HTML via `buildRichHtml()`.
+   *
+   * Same read-modify-write flow as `updateTextBlock()`.
+   */
+  async updateTextBlockHtml(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    rawHtml: string,
+  ): Promise<TextUpdateResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the block with matching text
+      const match = this.findTextBlock(data.sections, searchText);
+      if (!match) {
+        return {
+          success: false,
+          error: `No text block found containing "${searchText}"`,
+        };
+      }
+
+      const { gridContent, sectionIndex, blockIndex } = match;
+      const blockValue = gridContent.content.value;
+      const oldHtml = blockValue.value?.html ?? '';
+      const blockId = blockValue.id;
+
+      logger.info(
+        {
+          blockId,
+          sectionIndex,
+          blockIndex,
+          oldHtmlLength: oldHtml.length,
+          newHtmlLength: rawHtml.length,
+        },
+        'Found text block, updating content (raw HTML mode)',
+      );
+
+      // Step 3: Replace the block's HTML content directly (no formatHtml)
+      if (blockValue.value) {
+        blockValue.value.html = rawHtml;
+        blockValue.value.source = rawHtml;
+      }
+
+      // Step 4: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return {
+        success: true,
+        blockId,
+        oldText: this.stripHtml(oldHtml),
+        newHtml: rawHtml,
       };
     } catch (err) {
       return { success: false, error: errMsg(err) };
@@ -1231,6 +1310,104 @@ export class ContentSaveClient {
    */
   static generateBlockId(): string {
     return randomBytes(10).toString('hex');
+  }
+
+  /**
+   * Build rich HTML from structured content elements.
+   * Produces Squarespace-compatible HTML for text block source/html fields.
+   *
+   * Always includes `style="white-space:pre-wrap;"` (Squarespace requirement).
+   * Consecutive `li` elements are automatically wrapped in `<ul>` containers.
+   *
+   * @example
+   * ContentSaveClient.buildRichHtml([
+   *   { text: 'About Us', tag: 'h2', style: { 'text-align': 'center' } },
+   *   { text: 'We are a family restaurant.', tag: 'p' },
+   *   { text: 'Visit our menu', tag: 'p', link: { href: '/menus' }, bold: true },
+   * ])
+   */
+  static buildRichHtml(elements: RichHtmlElement[]): string {
+    if (!elements || elements.length === 0) return '';
+
+    const parts: string[] = [];
+    let i = 0;
+
+    while (i < elements.length) {
+      const el = elements[i];
+      const tag = el.tag ?? 'p';
+
+      // Group consecutive li elements into a <ul>
+      if (tag === 'li') {
+        const liItems: string[] = [];
+        while (i < elements.length && (elements[i].tag ?? 'p') === 'li') {
+          liItems.push(ContentSaveClient.buildSingleElement(elements[i], 'li'));
+          i++;
+        }
+        parts.push(`<ul>${liItems.join('')}</ul>`);
+      } else {
+        parts.push(ContentSaveClient.buildSingleElement(el, tag));
+        i++;
+      }
+    }
+
+    return parts.join('');
+  }
+
+  /**
+   * Build a single HTML element with Squarespace-compatible attributes.
+   * @internal
+   */
+  private static buildSingleElement(
+    el: RichHtmlElement,
+    tag: string,
+  ): string {
+    // Escape HTML special characters in text content
+    const escapedText = ContentSaveClient.escapeHtml(el.text);
+
+    // Build inner content with formatting wrappers
+    let inner = escapedText;
+
+    // Apply link wrapping (innermost)
+    if (el.link) {
+      const target = el.link.target ? ` target="${el.link.target}"` : '';
+      inner = `<a href="${el.link.href}"${target}>${inner}</a>`;
+    }
+
+    // Apply italic wrapping
+    if (el.italic) {
+      inner = `<em>${inner}</em>`;
+    }
+
+    // Apply bold wrapping (outermost inline)
+    if (el.bold) {
+      inner = `<strong>${inner}</strong>`;
+    }
+
+    // Build style attribute — always include white-space:pre-wrap
+    const styleProps: Record<string, string> = { 'white-space': 'pre-wrap' };
+    if (el.style) {
+      Object.assign(styleProps, el.style);
+    }
+    const styleStr = Object.entries(styleProps)
+      .map(([k, v]) => `${k}:${v}`)
+      .join(';');
+
+    // Build class attribute
+    const classStr = el.className ?? '';
+
+    return `<${tag} class="${classStr}" style="${styleStr};">${inner}</${tag}>`;
+  }
+
+  /**
+   * Escape HTML special characters in text content.
+   * @internal
+   */
+  private static escapeHtml(text: string): string {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   /**
