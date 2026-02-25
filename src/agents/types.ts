@@ -104,6 +104,44 @@ export interface ContentSpec {
   templateIndex?: number;
 }
 
+// ─── Page Structure (from Content Save API, input to Content Strategist) ────
+
+/** Summary of a single block within a section */
+export interface BlockSummary {
+  /** Block type (e.g., "text", "image", "button", "code", "quote") */
+  type: string;
+  /** First 100 chars of text content (stripped HTML) */
+  textSnippet?: string;
+  /** Image alt text or title */
+  imageAlt?: string;
+  /** Button label */
+  buttonLabel?: string;
+  /** Button URL */
+  buttonUrl?: string;
+}
+
+/** Summary of a single section on the page */
+export interface SectionSummary {
+  /** Section ID from Squarespace */
+  id: string;
+  /** 0-based position on the page */
+  index: number;
+  /** Section name (from Squarespace metadata) */
+  name: string;
+  /** Number of blocks in this section */
+  blockCount: number;
+  /** Summary of blocks in this section */
+  blocks: BlockSummary[];
+}
+
+/** Full page structure summary for a single page */
+export interface PageStructure {
+  /** Total number of sections on the page */
+  sectionCount: number;
+  /** Ordered list of section summaries */
+  sections: SectionSummary[];
+}
+
 // ─── Research Agent Output ──────────────────────────────────────────────────
 
 export interface ResearchResult {
