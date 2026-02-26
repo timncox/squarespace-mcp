@@ -233,6 +233,9 @@ function migrate(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_plan_ops_status ON plan_operations(status);
   `);
 
+  // Phase 15 migrations — Multi-image support
+  addColumnIfMissing(db, 'tasks', 'image_paths', 'TEXT');
+
   logger.debug('Database migrations applied');
 }
 

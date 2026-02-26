@@ -12,6 +12,12 @@ import type { ContentOperation } from '../agents/types.js';
 import type { ContentSaveClient, PageSection } from './content-save.js';
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
+import {
+  extractAndValidateLinks,
+  formatLinkValidation,
+  type LinkValidationOptions,
+  type LinkValidationSummary,
+} from './link-validator.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -20,6 +26,8 @@ export interface ValidationResult {
   operationType: string;
   checks: ValidationCheck[];
   summary: string;
+  /** Optional link validation results (only present when link validation is enabled) */
+  linkValidation?: LinkValidationSummary;
 }
 
 export interface ValidationCheck {
@@ -192,13 +200,16 @@ export async function validateOperation(
   client: ContentSaveClient,
   pageSectionsId: string,
   preSnapshot?: PreOperationSnapshot | null,
+  linkValidationOptions?: LinkValidationOptions,
 ): Promise<ValidationResult> {
   const checks: ValidationCheck[] = [];
   const opType = operation.operationType;
+  let postSections: PageSection[] | undefined;
 
   try {
     const data = await client.getPageSections(pageSectionsId);
     const sections = data.sections ?? [];
+    postSections = sections;
 
     switch (opType) {
       case 'add_section':
@@ -219,6 +230,10 @@ export async function validateOperation(
 
       case 'replace_image':
         validateReplaceImage(checks, sections, operation);
+        break;
+
+      case 'add_gallery':
+        validateAddGallery(checks, sections, operation, preSnapshot);
         break;
 
       case 'modify_style':
@@ -244,6 +259,48 @@ export async function validateOperation(
     });
   }
 
+  // ── Link Validation (optional) ─────────────────────────────────────────
+  let linkValidation: LinkValidationSummary | undefined;
+  if (linkValidationOptions && postSections) {
+    try {
+      linkValidation = await extractAndValidateLinks(postSections, linkValidationOptions);
+
+      if (!linkValidation.allPassed) {
+        const brokenLinks = linkValidation.results.filter(
+          (r) => r.status === 'broken' || r.status === 'invalid_email',
+        );
+        for (const broken of brokenLinks) {
+          checks.push({
+            name: 'link_validation',
+            passed: false,
+            expected: `Link "${broken.text}" -> ${broken.href} should resolve`,
+            actual: `${broken.status}: ${broken.error ?? `HTTP ${broken.statusCode}`}`,
+          });
+        }
+      } else if (linkValidation.total > 0) {
+        checks.push({
+          name: 'link_validation',
+          passed: true,
+          expected: 'All links should resolve',
+          actual: `${linkValidation.ok} links validated ok`,
+        });
+      }
+
+      logger.info(
+        {
+          opType,
+          total: linkValidation.total,
+          ok: linkValidation.ok,
+          broken: linkValidation.broken,
+          invalidEmails: linkValidation.invalidEmails,
+        },
+        'content-validator: link validation completed',
+      );
+    } catch (err) {
+      logger.warn({ error: errMsg(err) }, 'content-validator: link validation failed (non-fatal)');
+    }
+  }
+
   const allPassed = checks.length > 0 && checks.every((c) => c.passed);
   const failedChecks = checks.filter((c) => !c.passed);
   const summary = allPassed
@@ -259,7 +316,7 @@ export async function validateOperation(
     logger.info({ opType, checkCount: checks.length }, `content-validator: all checks passed`);
   }
 
-  return { passed: allPassed, operationType: opType, checks, summary };
+  return { passed: allPassed, operationType: opType, checks, summary, linkValidation };
 }
 
 // ── Per-Type Validators ─────────────────────────────────────────────────────
@@ -486,6 +543,63 @@ function validateModifyStyle(
   }
 }
 
+function validateAddGallery(
+  checks: ValidationCheck[],
+  sections: PageSection[],
+  operation: ContentOperation,
+  preSnapshot?: PreOperationSnapshot | null,
+): void {
+  // Check that image blocks were added
+  if (preSnapshot) {
+    const currentTotalBlocks = sections.reduce(
+      (sum, s) => sum + (s.fluidEngineContext?.gridContents?.length ?? 0),
+      0,
+    );
+    const preTotalBlocks = Array.from(preSnapshot.blockCounts.values()).reduce((a, b) => a + b, 0);
+
+    checks.push({
+      name: 'block_count_increased',
+      passed: currentTotalBlocks > preTotalBlocks,
+      expected: `> ${preTotalBlocks} total blocks`,
+      actual: `${currentTotalBlocks} total blocks`,
+    });
+  }
+
+  // Count image blocks (type 1337) across all sections
+  const imageBlocks = extractImageBlocks(sections);
+  const expectedImageCount = operation.content.galleryImageCount ?? operation.content.apiBlocks?.length ?? 0;
+
+  if (expectedImageCount > 0) {
+    checks.push({
+      name: 'gallery_image_count',
+      passed: imageBlocks.length >= expectedImageCount,
+      expected: `>= ${expectedImageCount} image blocks`,
+      actual: `${imageBlocks.length} image blocks found`,
+    });
+  }
+
+  // Check alt text presence on image blocks
+  const imagesWithAlt = imageBlocks.filter(img => img.altText && img.altText.trim().length > 0);
+  const expectedAltCount = operation.content.galleryAltTexts?.length ?? 0;
+
+  if (expectedAltCount > 0) {
+    checks.push({
+      name: 'gallery_alt_text_presence',
+      passed: imagesWithAlt.length >= expectedAltCount,
+      expected: `>= ${expectedAltCount} images with alt text`,
+      actual: `${imagesWithAlt.length} images have alt text`,
+    });
+  } else if (imageBlocks.length > 0) {
+    // Even without expected alt texts, note whether any are present
+    checks.push({
+      name: 'gallery_alt_text_presence',
+      passed: true,
+      expected: 'Image blocks exist',
+      actual: `${imagesWithAlt.length}/${imageBlocks.length} images have alt text`,
+    });
+  }
+}
+
 // ── Block Extraction Helpers ────────────────────────────────────────────────
 
 /** Extract plain text from all text blocks across all sections. */
@@ -567,6 +681,15 @@ export function formatValidationForSupervisor(results: ValidationResult[]): stri
   }
 
   lines.push(`Summary: ${passCount} passed, ${failCount} failed out of ${results.length} operations.`);
+
+  // Append link validation details if any result has them
+  for (const result of results) {
+    if (result.linkValidation && result.linkValidation.total > 0) {
+      lines.push('');
+      lines.push(formatLinkValidation(result.linkValidation));
+      break; // Only include link validation once (links are deduplicated anyway)
+    }
+  }
 
   return lines.join('\n');
 }

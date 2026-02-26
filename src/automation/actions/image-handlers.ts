@@ -2,7 +2,7 @@ import { Page } from 'playwright';
 import { logger } from '../../utils/logger.js';
 import { clickThroughOverlay, findTextOnPage, getSiteFrame } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
-import { validateFileExists, isFluidEngineActive, clickEditorButton, tryMediaApiUpload, tryImageBlockUpdateApi } from './handler-utils.js';
+import { validateFileExists, isFluidEngineActive, clickEditorButton, tryMediaApiUpload, tryImageBlockUpdateApi, extractSubdomain } from './handler-utils.js';
 import type { ActionResult } from './types.js';
 
 // ─── Shared Helper: select image from library picker ─────────────────────
@@ -922,4 +922,242 @@ export async function handleAddImageBlock(
     success: true,
     message: `addImageBlock: Added Image block and uploaded "${imagePath}".${altText && altTextSet ? ` Alt text set to "${altText}".` : ''}${imageFound ? ` Image src: ${imageFound.substring(0, 60)}...` : ''}${warnings.length > 0 ? ' ' + warnings.join(' ') : ''}`,
   };
+}
+
+// ─── Compound Action: addGalleryBlock ─────────────────────────────────────
+
+/**
+ * Compound action: add multiple images as a gallery grid to the current section.
+ *
+ * API fast path (try first):
+ * 1. Extract API context (subdomain, pageSectionsId, collectionId)
+ * 2. Upload all images via MediaUploadClient.uploadImages()
+ * 3. Calculate grid layout based on galleryStyle
+ * 4. Call ContentSaveClient.addImageBlockBatch() with uploaded URLs and grid positions
+ *
+ * UI fallback (if API fails):
+ * 1. For each image, call handleAddImageBlock() sequentially
+ */
+export async function handleAddGalleryBlock(
+  page: Page,
+  action: { action: 'addGalleryBlock'; imagePaths: string[]; altTexts?: string[]; galleryStyle?: 'grid' | 'slideshow' | 'collage' },
+): Promise<ActionResult> {
+  const { imagePaths, altTexts, galleryStyle = 'grid' } = action;
+
+  if (!imagePaths || imagePaths.length === 0) {
+    return {
+      success: false,
+      message: 'addGalleryBlock: No image paths provided. Supply at least one imagePath.',
+    };
+  }
+
+  // Validate all files exist before starting
+  for (const filePath of imagePaths) {
+    const fileError = validateFileExists(filePath, 'addGalleryBlock');
+    if (fileError) return fileError;
+  }
+
+  logger.info(
+    { imageCount: imagePaths.length, galleryStyle },
+    'addGalleryBlock: starting gallery creation',
+  );
+
+  // ── API Fast Path ──────────────────────────────────────────────────────
+  const apiResult = await tryGalleryApi(page, imagePaths, altTexts, galleryStyle);
+  if (apiResult) return apiResult;
+
+  // ── UI Fallback ────────────────────────────────────────────────────────
+  logger.info('addGalleryBlock: API fast path unavailable, falling back to sequential UI uploads');
+
+  let successCount = 0;
+  const warnings: string[] = [];
+
+  for (let i = 0; i < imagePaths.length; i++) {
+    const altText = altTexts?.[i];
+    const result = await handleAddImageBlock(page, {
+      action: 'addImageBlock',
+      imagePath: imagePaths[i],
+      altText,
+    });
+
+    if (result.success) {
+      successCount++;
+    } else {
+      warnings.push(`Image ${i + 1} ("${imagePaths[i]}") failed: ${result.message}`);
+    }
+
+    // Re-enter section edit mode between images since handleAddImageBlock exits it
+    if (i < imagePaths.length - 1) {
+      const fluidActive = await isFluidEngineActive(page, 2000);
+      if (!fluidActive) {
+        // Try re-entering edit mode by clicking Edit Content
+        const clicked = await clickEditorButton(page, /edit content/i, ['[aria-label="Edit Content"]']);
+        if (clicked) {
+          logger.info('addGalleryBlock: re-entered section edit mode between images');
+          await page.waitForTimeout(1000);
+        } else {
+          warnings.push(`Could not re-enter edit mode after image ${i + 1} — remaining images may fail.`);
+        }
+      }
+    }
+  }
+
+  if (successCount === 0) {
+    return {
+      success: false,
+      message: `addGalleryBlock: All ${imagePaths.length} image uploads failed via UI fallback. ${warnings.join(' ')}`,
+    };
+  }
+
+  return {
+    success: true,
+    message: `addGalleryBlock: Added ${successCount}/${imagePaths.length} images via UI fallback (${galleryStyle} layout).${warnings.length > 0 ? ' ' + warnings.join(' ') : ''}`,
+  };
+}
+
+/**
+ * Try adding gallery images via the Content Save API + Media Upload API.
+ * Returns an ActionResult on success, null on failure (caller falls back to UI).
+ */
+async function tryGalleryApi(
+  page: Page,
+  imagePaths: string[],
+  altTexts: string[] | undefined,
+  galleryStyle: 'grid' | 'slideshow' | 'collage',
+): Promise<ActionResult | null> {
+  const subdomain = extractSubdomain(page);
+  if (!subdomain) {
+    logger.debug('tryGalleryApi: could not extract subdomain from URL');
+    return null;
+  }
+
+  const siteFrame = page.frame({ name: 'sqs-site-frame' });
+  if (!siteFrame) {
+    logger.debug('tryGalleryApi: no sqs-site-frame found');
+    return null;
+  }
+
+  const pageSectionsId = await siteFrame.evaluate(() => {
+    const article = document.querySelector('article[data-page-sections]');
+    return article?.getAttribute('data-page-sections') ?? null;
+  }).catch(() => null);
+
+  if (!pageSectionsId) {
+    logger.debug('tryGalleryApi: could not find data-page-sections attribute');
+    return null;
+  }
+
+  try {
+    // Dynamic imports to avoid circular dependencies
+    const { createContentSaveClient } = await import('../../services/content-save.js');
+    const { createMediaUploadClient } = await import('../../services/media-upload.js');
+
+    const client = createContentSaveClient(subdomain);
+    const pageUrl = page.url();
+    const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
+    const slug = slugMatch?.[1] ?? '';
+    const ids = await client.getPageIds(slug);
+
+    if (!ids) {
+      logger.debug({ slug }, 'tryGalleryApi: could not get page IDs');
+      return null;
+    }
+
+    // Step 1: Upload all images via media API
+    logger.info({ count: imagePaths.length }, 'tryGalleryApi: uploading images via media API');
+    const mediaClient = createMediaUploadClient(subdomain);
+    const uploadResults = await mediaClient.uploadImages(imagePaths, 3);
+
+    const successfulUploads = uploadResults.filter(r => r.success && r.assetUrl);
+    if (successfulUploads.length === 0) {
+      logger.warn('tryGalleryApi: all image uploads failed');
+      return null;
+    }
+
+    logger.info(
+      { uploaded: successfulUploads.length, total: imagePaths.length },
+      'tryGalleryApi: images uploaded',
+    );
+
+    // Step 2: Determine the target section (last section on the page)
+    const data = await client.getPageSections(pageSectionsId);
+    const sectionIndex = data.sections.length - 1;
+    if (sectionIndex < 0) {
+      logger.warn('tryGalleryApi: no sections found on page');
+      return null;
+    }
+
+    // Step 3: Calculate grid layout based on galleryStyle
+    const columns = galleryStyle === 'grid'
+      ? (successfulUploads.length <= 4 ? 2 : 3)
+      : 1; // slideshow and collage use full-width stacking
+
+    const maxColumns = 24; // Squarespace Fluid Engine grid width
+    const colWidth = Math.floor(maxColumns / columns);
+
+    const imageSpecs = successfulUploads.map((upload, idx) => {
+      // Find the original index to match altTexts
+      const originalIndex = uploadResults.indexOf(upload);
+      const altText = altTexts?.[originalIndex];
+
+      if (galleryStyle === 'grid') {
+        // Grid layout: arrange in rows of `columns` images
+        const col = idx % columns;
+        const startX = 1 + col * colWidth;
+        const endX = col === columns - 1 ? maxColumns + 1 : startX + colWidth;
+
+        return {
+          assetUrl: upload.assetUrl!,
+          altText,
+          layout: {
+            columns: colWidth,
+            rowHeight: 8,
+            gapRows: 2,
+            startX,
+            endX,
+          },
+        };
+      } else {
+        // Slideshow / collage: full-width stacking
+        return {
+          assetUrl: upload.assetUrl!,
+          altText,
+          layout: {
+            columns: maxColumns,
+            rowHeight: galleryStyle === 'slideshow' ? 10 : 8,
+            gapRows: galleryStyle === 'collage' ? 1 : 2,
+          },
+        };
+      }
+    });
+
+    // Step 4: Add all image blocks in a single batch PUT
+    const batchResult = await client.addImageBlockBatch(
+      pageSectionsId,
+      ids.collectionId,
+      sectionIndex,
+      imageSpecs,
+    );
+
+    if (!batchResult.success) {
+      logger.warn({ error: batchResult.error }, 'tryGalleryApi: batch add failed');
+      return null;
+    }
+
+    const failedCount = imagePaths.length - successfulUploads.length;
+    const failedNote = failedCount > 0 ? ` (${failedCount} upload(s) failed).` : '.';
+
+    logger.info(
+      { blocks: batchResult.blocks.length, sectionIndex, galleryStyle },
+      'tryGalleryApi: gallery created successfully',
+    );
+
+    return {
+      success: true,
+      message: `addGalleryBlock: Added ${batchResult.blocks.length} images as ${galleryStyle} gallery via Content Save API (section index ${sectionIndex})${failedNote} Reload the page to see the change.`,
+    };
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'tryGalleryApi: failed');
+    return null;
+  }
 }

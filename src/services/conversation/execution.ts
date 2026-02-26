@@ -35,7 +35,8 @@ import {
   type ValidationResult,
   type PreOperationSnapshot,
 } from '../../services/content-validator.js';
-import type { ContentPlan, ContentOperation, SupervisorVerdict } from '../../agents/types.js';
+import type { ContentPlan, ContentOperation, SupervisorVerdict, ApiTextBlock } from '../../agents/types.js';
+import { isApiButtonBlock, isApiImageBlock, isApiGalleryBlock } from '../../agents/types.js';
 import type { Task } from '../../models/task.js';
 import type { Conversation } from '../../models/conversation.js';
 import {
@@ -1277,58 +1278,126 @@ async function executeBlankApiOperation(
       return { success: false, blocksAdded: 0, error: 'No sections found after adding blank section' };
     }
 
-    // Step 5: Try adding text blocks via Content Save API (fast path)
+    // Step 5: Try adding blocks via Content Save API (fast path)
     let blocksAdded = 0;
     let apiFailed = false;
 
     for (const block of apiBlocks) {
-      // If richContent is provided, build HTML from structured elements
-      const blockHtml = block.richContent
-        ? ContentSaveClient.buildRichHtml(block.richContent)
-        : block.html;
-
-      const result = await client.addTextBlock(
-        pageSectionsId,
-        ids.collectionId,
-        sectionIndex,
-        blockHtml,
-        block.layout,
-        block.formatting,
-      );
-
-      if (result.success) {
-        blocksAdded++;
-        logger.info(
-          { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
-          'blank_api: text block added via API',
+      if (isApiGalleryBlock(block)) {
+        // Gallery block — batch upload images + add as image blocks in grid layout
+        const galleryResult = await executeGalleryBlock(
+          client, pageSectionsId, ids.collectionId, sectionIndex, subdomain, block,
         );
+        if (galleryResult.success) {
+          blocksAdded += galleryResult.blocksAdded;
+          logger.info(
+            { blocksAdded: galleryResult.blocksAdded, sectionIndex, total: apiBlocks.length },
+            'blank_api: gallery block added via API',
+          );
+        } else {
+          logger.warn(
+            { error: galleryResult.error, sectionIndex },
+            'blank_api: gallery block failed',
+          );
+          // Gallery failures are non-fatal — continue with remaining blocks
+        }
+      } else if (isApiImageBlock(block)) {
+        // Image block — upload image + add via API
+        const imageResult = await executeImageBlock(
+          client, pageSectionsId, ids.collectionId, sectionIndex, subdomain, block,
+        );
+        if (imageResult.success) {
+          blocksAdded++;
+          logger.info(
+            { blockId: imageResult.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
+            'blank_api: image block added via API',
+          );
+        } else {
+          logger.warn(
+            { error: imageResult.error, sectionIndex, imagePath: block.imagePath },
+            'blank_api: image block failed',
+          );
+          // Image failures are non-fatal — continue with remaining blocks
+        }
+      } else if (isApiButtonBlock(block)) {
+        // Button block — use addButtonBlock API
+        const result = await client.addButtonBlock(
+          pageSectionsId,
+          ids.collectionId,
+          sectionIndex,
+          block.label,
+          block.url,
+          block.layout,
+        );
+
+        if (result.success) {
+          blocksAdded++;
+          logger.info(
+            { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length, label: block.label },
+            'blank_api: button block added via API',
+          );
+        } else {
+          logger.warn(
+            { error: result.error, sectionIndex, blockIndex: blocksAdded, label: block.label },
+            'blank_api: addButtonBlock API failed — switching to UI fallback',
+          );
+          apiFailed = true;
+          break;
+        }
       } else {
-        const contentSnippet = block.html.replace(/<[^>]+>/g, '').substring(0, 60);
-        logger.warn(
-          { error: result.error, sectionIndex, blockIndex: blocksAdded, contentSnippet },
-          'blank_api: addTextBlock API failed — switching to UI fallback',
+        // Text block — existing flow
+        const blockHtml = block.richContent
+          ? ContentSaveClient.buildRichHtml(block.richContent)
+          : block.html;
+
+        const result = await client.addTextBlock(
+          pageSectionsId,
+          ids.collectionId,
+          sectionIndex,
+          blockHtml,
+          block.layout,
+          block.formatting,
         );
-        apiFailed = true;
-        break; // Stop API attempts, switch to UI fallback for remaining blocks
+
+        if (result.success) {
+          blocksAdded++;
+          logger.info(
+            { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
+            'blank_api: text block added via API',
+          );
+        } else {
+          const contentSnippet = block.html.replace(/<[^>]+>/g, '').substring(0, 60);
+          logger.warn(
+            { error: result.error, sectionIndex, blockIndex: blocksAdded, contentSnippet },
+            'blank_api: addTextBlock API failed — switching to UI fallback',
+          );
+          apiFailed = true;
+          break; // Stop API attempts, switch to UI fallback for remaining blocks
+        }
       }
     }
 
     // Step 6: Fallback — if API failed, use UI to create blocks + API to fill content.
     // The Squarespace API may reject client-generated block IDs on PUT.
     // Fallback: addBlockToSection (UI creates block with server-side ID) → updateTextBlock (API fills content).
+    // Note: UI fallback only handles text blocks — button/image/gallery blocks have no UI fallback path yet.
     if (apiFailed) {
+      const remainingTextBlocks = apiBlocks.slice(blocksAdded).filter((b): b is ApiTextBlock =>
+        !isApiButtonBlock(b) && !isApiImageBlock(b) && !isApiGalleryBlock(b),
+      );
       logger.info(
-        { apiBlocksAdded: blocksAdded, remaining: apiBlocks.length - blocksAdded },
+        { apiBlocksAdded: blocksAdded, remaining: apiBlocks.length - blocksAdded, textBlocksForFallback: remainingTextBlocks.length },
         'blank_api: switching to UI+API fallback for remaining blocks',
       );
 
-      const remainingBlocks = apiBlocks.slice(blocksAdded);
-      const fallbackResult = await executeBlankApiFallback(
-        page, client, pageSectionsId, ids.collectionId, sectionIndex, remainingBlocks,
-      );
-      blocksAdded += fallbackResult.blocksAdded;
-      if (fallbackResult.errors.length > 0) {
-        logger.warn({ errors: fallbackResult.errors }, 'blank_api: UI fallback had errors');
+      if (remainingTextBlocks.length > 0) {
+        const fallbackResult = await executeBlankApiFallback(
+          page, client, pageSectionsId, ids.collectionId, sectionIndex, remainingTextBlocks,
+        );
+        blocksAdded += fallbackResult.blocksAdded;
+        if (fallbackResult.errors.length > 0) {
+          logger.warn({ errors: fallbackResult.errors }, 'blank_api: UI fallback had errors');
+        }
       }
     }
 
@@ -1565,6 +1634,174 @@ async function executeTemplateOperation(
  * This avoids client-generated block IDs (which may cause 500 errors) by letting
  * Squarespace create blocks through its normal UI flow, then filling content via API.
  */
+// ─── Image & Gallery Block Execution ─────────────────────────────────────
+
+/**
+ * Execute a single image block: upload image via MediaUploadClient, then add
+ * the image block to the section via Content Save API.
+ */
+async function executeImageBlock(
+  client: ReturnType<typeof createContentSaveClient>,
+  pageSectionsId: string,
+  collectionId: string,
+  sectionIndex: number,
+  subdomain: string,
+  block: import('../../agents/types.js').ApiImageBlock,
+): Promise<{ success: boolean; blockId?: string; error?: string }> {
+  try {
+    // Validate image file exists
+    const { existsSync } = await import('fs');
+    if (!existsSync(block.imagePath)) {
+      return { success: false, error: `Image file not found: ${block.imagePath}` };
+    }
+
+    // Upload image via MediaUploadClient (dynamic import to avoid circular deps)
+    const { createMediaUploadClient } = await import('../../services/media-upload.js');
+    const mediaClient = createMediaUploadClient(subdomain);
+    const uploadResult = await mediaClient.uploadImage(block.imagePath);
+
+    if (uploadResult.status !== 'success' || !uploadResult.assetUrl) {
+      return { success: false, error: `Image upload failed: ${uploadResult.failureReason ?? 'no asset URL'}` };
+    }
+
+    logger.info(
+      { imagePath: block.imagePath, assetUrl: uploadResult.assetUrl },
+      'Image uploaded successfully for image block',
+    );
+
+    // Add image block via Content Save API
+    const addResult = await client.addImageBlock(
+      pageSectionsId,
+      collectionId,
+      sectionIndex,
+      uploadResult.assetUrl,
+      {
+        altText: block.altText,
+        title: block.title,
+        layout: block.layout,
+      },
+    );
+
+    if (!addResult.success) {
+      return { success: false, error: `addImageBlock failed: ${addResult.error}` };
+    }
+
+    return { success: true, blockId: addResult.blockId };
+  } catch (err) {
+    return { success: false, error: errMsg(err) };
+  }
+}
+
+/**
+ * Execute a gallery block: batch-upload images via MediaUploadClient, then
+ * add them as image blocks in a grid layout via Content Save API.
+ */
+async function executeGalleryBlock(
+  client: ReturnType<typeof createContentSaveClient>,
+  pageSectionsId: string,
+  collectionId: string,
+  sectionIndex: number,
+  subdomain: string,
+  block: import('../../agents/types.js').ApiGalleryBlock,
+): Promise<{ success: boolean; blocksAdded: number; error?: string }> {
+  if (!block.images || block.images.length === 0) {
+    return { success: false, blocksAdded: 0, error: 'No images provided in gallery block' };
+  }
+
+  try {
+    // Validate all image files exist
+    const { existsSync } = await import('fs');
+    const missingImages = block.images.filter(img => !existsSync(img.imagePath));
+    if (missingImages.length > 0) {
+      logger.warn(
+        { missing: missingImages.map(i => i.imagePath) },
+        'Gallery: some image files not found — will upload available ones',
+      );
+    }
+
+    const validImages = block.images.filter(img => existsSync(img.imagePath));
+    if (validImages.length === 0) {
+      return { success: false, blocksAdded: 0, error: 'No valid image files found for gallery' };
+    }
+
+    // Batch upload images via MediaUploadClient
+    const { createMediaUploadClient } = await import('../../services/media-upload.js');
+    const mediaClient = createMediaUploadClient(subdomain);
+    const uploadResults = await mediaClient.uploadImages(
+      validImages.map(img => img.imagePath),
+      3, // concurrency
+    );
+
+    // Map upload results back to image specs (only successfully uploaded ones)
+    const columns = block.columns ?? 3;
+    const columnWidth = Math.floor(24 / columns);
+    const imageSpecs: Array<{
+      assetUrl: string;
+      altText?: string;
+      title?: string;
+      layout?: { startX: number; endX: number; startY: number; endY: number };
+    }> = [];
+
+    for (let i = 0; i < uploadResults.length; i++) {
+      const uploadResult = uploadResults[i];
+      if (!uploadResult.success || !uploadResult.assetUrl) {
+        logger.warn(
+          { originalPath: uploadResult.originalPath, error: uploadResult.error },
+          'Gallery: image upload failed — skipping this image',
+        );
+        continue;
+      }
+
+      const imgSpec = validImages[i];
+
+      // Calculate grid position for this image
+      const col = imageSpecs.length % columns;
+      const row = Math.floor(imageSpecs.length / columns);
+      const rowHeight = 8; // default image row height
+      const gapRows = 2;  // gap between rows
+
+      const startX = 1 + (col * columnWidth);
+      const endX = Math.min(startX + columnWidth, 25);
+      const startY = row * (rowHeight + gapRows);
+      const endY = startY + rowHeight;
+
+      imageSpecs.push({
+        assetUrl: uploadResult.assetUrl,
+        altText: imgSpec.altText,
+        title: imgSpec.title,
+        layout: { startX, endX, startY, endY },
+      });
+    }
+
+    if (imageSpecs.length === 0) {
+      return { success: false, blocksAdded: 0, error: 'All image uploads failed for gallery' };
+    }
+
+    logger.info(
+      { totalImages: block.images.length, uploaded: imageSpecs.length, columns, galleryStyle: block.galleryStyle },
+      'Gallery: images uploaded, adding to section',
+    );
+
+    // Add all image blocks in a single batch PUT
+    const batchResult = await client.addImageBlockBatch(
+      pageSectionsId,
+      collectionId,
+      sectionIndex,
+      imageSpecs,
+    );
+
+    if (!batchResult.success) {
+      return { success: false, blocksAdded: 0, error: `addImageBlockBatch failed: ${batchResult.error}` };
+    }
+
+    return { success: true, blocksAdded: batchResult.blocks.length };
+  } catch (err) {
+    return { success: false, blocksAdded: 0, error: errMsg(err) };
+  }
+}
+
+// ─── Blank API Fallback ──────────────────────────────────────────────────
+
 async function executeBlankApiFallback(
   page: import('playwright').Page,
   client: ReturnType<typeof createContentSaveClient>,
@@ -2447,42 +2684,108 @@ async function executeContentOnlyBlankApi(
     return { success: false, blocksAdded: 0, error: 'No sections found' };
   }
 
-  // Try adding text blocks via API
+  // Try adding blocks via API (text, button, image, and gallery blocks)
   let blocksAdded = 0;
   let apiFailed = false;
 
   for (const block of apiBlocks) {
-    const result = await apiClient.addTextBlock(
-      pageSectionsId,
-      collectionId,
-      sectionIndex,
-      block.html,
-      block.layout,
-    );
+    if (isApiGalleryBlock(block)) {
+      // Gallery block — batch upload images + add as image blocks in grid layout
+      const galleryResult = await executeGalleryBlock(
+        apiClient, pageSectionsId, collectionId, sectionIndex, subdomain, block,
+      );
+      if (galleryResult.success) {
+        blocksAdded += galleryResult.blocksAdded;
+        logger.info(
+          { blocksAdded: galleryResult.blocksAdded, sectionIndex, total: apiBlocks.length },
+          'Content-only blank_api: gallery block added via API',
+        );
+      } else {
+        logger.warn(
+          { error: galleryResult.error, sectionIndex },
+          'Content-only blank_api: gallery block failed',
+        );
+      }
+    } else if (isApiImageBlock(block)) {
+      // Image block — upload image + add via API
+      const imageResult = await executeImageBlock(
+        apiClient, pageSectionsId, collectionId, sectionIndex, subdomain, block,
+      );
+      if (imageResult.success) {
+        blocksAdded++;
+        logger.info(
+          { blockId: imageResult.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
+          'Content-only blank_api: image block added via API',
+        );
+      } else {
+        logger.warn(
+          { error: imageResult.error, sectionIndex, imagePath: block.imagePath },
+          'Content-only blank_api: image block failed',
+        );
+      }
+    } else if (isApiButtonBlock(block)) {
+      // Button block — use addButtonBlock API
+      const result = await apiClient.addButtonBlock(
+        pageSectionsId,
+        collectionId,
+        sectionIndex,
+        block.label,
+        block.url,
+        block.layout,
+      );
 
-    if (result.success) {
-      blocksAdded++;
-      logger.info(
-        { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
-        'Content-only blank_api: text block added via API',
-      );
+      if (result.success) {
+        blocksAdded++;
+        logger.info(
+          { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length, label: block.label },
+          'Content-only blank_api: button block added via API',
+        );
+      } else {
+        logger.warn(
+          { error: result.error, sectionIndex, label: block.label },
+          'Content-only blank_api: addButtonBlock failed — switching to UI fallback',
+        );
+        apiFailed = true;
+        break;
+      }
     } else {
-      logger.warn(
-        { error: result.error, sectionIndex },
-        'Content-only blank_api: addTextBlock failed — switching to UI fallback',
+      // Text block — existing flow
+      const result = await apiClient.addTextBlock(
+        pageSectionsId,
+        collectionId,
+        sectionIndex,
+        block.html,
+        block.layout,
       );
-      apiFailed = true;
-      break;
+
+      if (result.success) {
+        blocksAdded++;
+        logger.info(
+          { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
+          'Content-only blank_api: text block added via API',
+        );
+      } else {
+        logger.warn(
+          { error: result.error, sectionIndex },
+          'Content-only blank_api: addTextBlock failed — switching to UI fallback',
+        );
+        apiFailed = true;
+        break;
+      }
     }
   }
 
-  // Fallback: UI + API for remaining blocks
+  // Fallback: UI + API for remaining blocks (text blocks only — button/image/gallery have no UI fallback yet)
   if (apiFailed) {
-    const remainingBlocks = apiBlocks.slice(blocksAdded);
-    const fallbackResult = await executeBlankApiFallback(
-      page, apiClient, pageSectionsId, collectionId, sectionIndex, remainingBlocks,
+    const remainingBlocks = apiBlocks.slice(blocksAdded).filter((b): b is ApiTextBlock =>
+      !isApiButtonBlock(b) && !isApiImageBlock(b) && !isApiGalleryBlock(b),
     );
-    blocksAdded += fallbackResult.blocksAdded;
+    if (remainingBlocks.length > 0) {
+      const fallbackResult = await executeBlankApiFallback(
+        page, apiClient, pageSectionsId, collectionId, sectionIndex, remainingBlocks,
+      );
+      blocksAdded += fallbackResult.blocksAdded;
+    }
   }
 
   if (blocksAdded === 0) {

@@ -59,6 +59,7 @@ import {
   handleRemoveBlock,
   handleMoveBlockInSection,
   handleResizeBlock,
+  handleAddButtonBlock,
 } from './actions/block-management-handlers.js';
 
 import {
@@ -72,6 +73,7 @@ import {
 import {
   handleReplaceImage,
   handleAddImageBlock,
+  handleAddGalleryBlock,
 } from './actions/image-handlers.js';
 
 import {
@@ -180,6 +182,12 @@ export async function executeAgentAction(
 
       case 'addImageBlock':
         return await handleAddImageBlock(page, action);
+
+      case 'addGalleryBlock':
+        return await handleAddGalleryBlock(page, action);
+
+      case 'addButtonBlock':
+        return await handleAddButtonBlock(page, action);
 
       case 'createPage':
         return await handleCreatePage(page, action);

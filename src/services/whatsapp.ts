@@ -439,6 +439,118 @@ async function callApi(
   });
 }
 
+// ─── Image Group Buffering ───────────────────────────────────────────────────
+
+/**
+ * Buffer for grouping WhatsApp images sent in quick succession.
+ * When a user sends multiple images, WhatsApp delivers them as separate
+ * webhook calls within a few seconds. We buffer them and group by sender.
+ */
+
+interface ImageGroupBuffer {
+  senderId: string;
+  imageGroupId: string;
+  messages: IncomingWhatsAppMessage[];
+  firstReceivedAt: number;
+  timer: ReturnType<typeof setTimeout> | null;
+}
+
+const IMAGE_GROUP_WAIT_MS = 5_000; // Wait 5s for more images
+const IMAGE_GROUP_WINDOW_MS = 10_000; // Group images within 10s of each other
+
+/** Active image group buffers, keyed by sender ID */
+const imageGroupBuffers = new Map<string, ImageGroupBuffer>();
+
+export type ImageGroupCallback = (messages: IncomingWhatsAppMessage[], imageGroupId: string) => void;
+
+let imageGroupCallback: ImageGroupCallback | null = null;
+
+/**
+ * Register a callback for when an image group is complete.
+ * The callback receives all messages in the group and a group ID.
+ */
+export function onImageGroupComplete(callback: ImageGroupCallback): void {
+  imageGroupCallback = callback;
+}
+
+/**
+ * Buffer an image message. Returns true if the message was buffered
+ * (caller should NOT process it immediately). Returns false if not an image
+ * or buffering is not configured (caller should process normally).
+ */
+export function bufferImageMessage(msg: IncomingWhatsAppMessage): boolean {
+  if (msg.type !== 'image' || !msg.mediaId) return false;
+  if (!imageGroupCallback) return false;
+
+  const senderId = msg.from;
+  const existing = imageGroupBuffers.get(senderId);
+
+  if (existing) {
+    // Check if within the grouping window
+    const elapsed = Date.now() - existing.firstReceivedAt;
+    if (elapsed <= IMAGE_GROUP_WINDOW_MS) {
+      // Add to existing group
+      existing.messages.push(msg);
+
+      // Reset the timer — wait for more images
+      if (existing.timer) clearTimeout(existing.timer);
+      existing.timer = setTimeout(() => flushImageGroup(senderId), IMAGE_GROUP_WAIT_MS);
+
+      logger.info(
+        { senderId, imageGroupId: existing.imageGroupId, count: existing.messages.length },
+        'Added image to existing group buffer',
+      );
+      return true;
+    }
+
+    // Outside window — flush old group, start new one
+    flushImageGroup(senderId);
+  }
+
+  // Start a new group
+  const imageGroupId = `img-group-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const buffer: ImageGroupBuffer = {
+    senderId,
+    imageGroupId,
+    messages: [msg],
+    firstReceivedAt: Date.now(),
+    timer: setTimeout(() => flushImageGroup(senderId), IMAGE_GROUP_WAIT_MS),
+  };
+  imageGroupBuffers.set(senderId, buffer);
+
+  logger.info(
+    { senderId, imageGroupId, mediaId: msg.mediaId },
+    'Started new image group buffer',
+  );
+  return true;
+}
+
+function flushImageGroup(senderId: string): void {
+  const buffer = imageGroupBuffers.get(senderId);
+  if (!buffer) return;
+
+  imageGroupBuffers.delete(senderId);
+  if (buffer.timer) clearTimeout(buffer.timer);
+
+  logger.info(
+    { senderId, imageGroupId: buffer.imageGroupId, count: buffer.messages.length },
+    'Flushing image group buffer',
+  );
+
+  if (imageGroupCallback) {
+    imageGroupCallback(buffer.messages, buffer.imageGroupId);
+  }
+}
+
+/** Clear all active image group buffers (for testing). */
+export function clearImageGroupBuffers(): void {
+  for (const buffer of imageGroupBuffers.values()) {
+    if (buffer.timer) clearTimeout(buffer.timer);
+  }
+  imageGroupBuffers.clear();
+  imageGroupCallback = null;
+}
+
 // ─── Webhook Payload Parsing ────────────────────────────────────────────────
 
 export interface IncomingWhatsAppMessage {
@@ -451,6 +563,10 @@ export interface IncomingWhatsAppMessage {
   buttonId?: string;
   /** For image messages — the WhatsApp media ID (used to download the image) */
   mediaId?: string;
+  /** Whether this message is part of a multi-image group */
+  isPartOfImageGroup?: boolean;
+  /** Group ID for multi-image messages sent in quick succession */
+  imageGroupId?: string;
 }
 
 /**

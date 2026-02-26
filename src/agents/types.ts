@@ -31,6 +31,7 @@ export interface ContentOperation {
     | 'create_page'
     | 'add_section'
     | 'add_block'
+    | 'add_gallery'
     | 'modify_text'
     | 'replace_image'
     | 'remove_block'
@@ -99,38 +100,16 @@ export interface ContentSpec {
   templateName?: string;
   /** Content strategy for this operation */
   contentStrategy?: 'template' | 'blank_api' | 'manual';
-  /** For blank_api strategy: text blocks to add via Content Save API */
-  apiBlocks?: Array<{
-    html: string;
-    layout?: {
-      columns?: number;
-      rowHeight?: number;
-      gapRows?: number;
-      startX?: number;
-      endX?: number;
-      startY?: number;
-      endY?: number;
-    };
-    formatting?: {
-      tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p';
-      alignment?: 'left' | 'center' | 'right';
-      bold?: boolean;
-      italic?: boolean;
-    };
-    /** Structured content for rich HTML generation via buildRichHtml() */
-    richContent?: Array<{
-      text: string;
-      tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p' | 'li';
-      style?: Record<string, string>;
-      bold?: boolean;
-      italic?: boolean;
-      link?: { href: string; target?: string };
-    }>;
-  }>;
+  /** For blank_api strategy: blocks to add via Content Save API (text, button, image, or gallery blocks) */
+  apiBlocks?: Array<ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock>;
   /** Template index for position-based selection (0-based) */
   templateIndex?: number;
   /** Named layout preset for blank_api sections (e.g., "two-column", "hero-wide") */
   layoutPreset?: string;
+  /** For gallery operations: expected number of images added */
+  galleryImageCount?: number;
+  /** For gallery operations: expected alt texts (for validation) */
+  galleryAltTexts?: string[];
   /** Structured replacements for template sections (texts, buttons, images, block removals) */
   replacements?: {
     texts?: Array<{ searchText: string; newText: string }>;
@@ -140,7 +119,135 @@ export interface ContentSpec {
   };
 }
 
+// ─── API Block Types (for blank_api strategy) ──────────────────────────────
+
+/** A text block to add via Content Save API */
+export interface ApiTextBlock {
+  html: string;
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+  formatting?: {
+    tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p';
+    alignment?: 'left' | 'center' | 'right';
+    bold?: boolean;
+    italic?: boolean;
+  };
+  /** Structured content for rich HTML generation via buildRichHtml() */
+  richContent?: Array<{
+    text: string;
+    tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p' | 'li';
+    style?: Record<string, string>;
+    bold?: boolean;
+    italic?: boolean;
+    link?: { href: string; target?: string };
+  }>;
+}
+
+/** A button block to add via Content Save API */
+export interface ApiButtonBlock {
+  type: 'button';
+  label: string;
+  url: string;
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+}
+
+/** An image block to add via Content Save API */
+export interface ApiImageBlock {
+  type: 'image';
+  imagePath: string;  // local file path in storage/uploads/
+  altText?: string;
+  title?: string;
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+}
+
+/** A gallery operation — multiple images in a grid layout */
+export interface ApiGalleryBlock {
+  type: 'gallery';
+  images: Array<{ imagePath: string; altText?: string; title?: string }>;
+  galleryStyle?: 'grid' | 'slideshow' | 'collage';
+  columns?: number;  // grid columns (2, 3, 4)
+}
+
+/** Type guard: is this apiBlock a button block? */
+export function isApiButtonBlock(block: ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock): block is ApiButtonBlock {
+  return 'type' in block && (block as ApiButtonBlock).type === 'button';
+}
+
+/** Type guard: is this apiBlock an image block? */
+export function isApiImageBlock(block: ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock): block is ApiImageBlock {
+  return 'type' in block && (block as ApiImageBlock).type === 'image';
+}
+
+/** Type guard: is this apiBlock a gallery block? */
+export function isApiGalleryBlock(block: ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock): block is ApiGalleryBlock {
+  return 'type' in block && (block as ApiGalleryBlock).type === 'gallery';
+}
+
 // ─── Page Structure (from Content Save API, input to Content Strategist) ────
+
+/** Inline text styles parsed from HTML style="" attributes */
+export interface TextStyles {
+  alignment?: 'left' | 'center' | 'right';
+  color?: string;
+  fontSize?: string;
+  fontFamily?: string;
+  fontWeight?: string;
+  letterSpacing?: string;
+  lineHeight?: string;
+  textTransform?: string;
+  headingTag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p';
+  bold?: boolean;
+  italic?: boolean;
+}
+
+export interface GridSpan {
+  columns: number;
+  rows: number;
+  startX: number;
+  endX: number;
+  startY: number;
+  endY: number;
+}
+
+export interface ExtractedLink {
+  text: string;
+  href: string;
+  target?: string;
+}
+
+export interface SectionDesignProperties {
+  theme?: string;
+  backgroundColor?: string;
+  hasBackgroundImage?: boolean;
+  sectionHeight?: string;
+  contentWidth?: string;
+  verticalAlignment?: string;
+  sectionPadding?: string;
+  blockSpacing?: string;
+}
 
 /** Summary of a single block within a section */
 export interface BlockSummary {
@@ -154,6 +261,18 @@ export interface BlockSummary {
   buttonLabel?: string;
   /** Button URL */
   buttonUrl?: string;
+  /** Parsed inline text styles (text blocks only) */
+  textStyles?: TextStyles;
+  /** Grid layout span (columns/rows occupied) */
+  gridSpan?: GridSpan;
+  /** Links extracted from HTML content (text blocks only) */
+  links?: ExtractedLink[];
+  /** Image subtitle (image blocks only) */
+  imageSubtitle?: string;
+  /** Image link destination (image blocks only) */
+  imageLinkTo?: string;
+  /** Whether the block is visible (false = hidden on desktop) */
+  visible?: boolean;
 }
 
 /** Summary of a single section on the page */
@@ -168,6 +287,8 @@ export interface SectionSummary {
   blockCount: number;
   /** Summary of blocks in this section */
   blocks: BlockSummary[];
+  /** Section-level design properties (theme, colors, spacing) */
+  design?: SectionDesignProperties;
 }
 
 /** Full page structure summary for a single page */

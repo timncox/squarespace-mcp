@@ -17,6 +17,8 @@ export interface CreateTaskInput {
   description?: string;
   /** Path to a reference image (e.g., WhatsApp screenshot) showing what to change */
   referenceImagePath?: string;
+  /** Paths to multiple reference images (JSON-serialized array) */
+  imagePaths?: string[];
   applyToAllSites: boolean;
   groupId?: string;
   needsClarification: boolean;
@@ -32,11 +34,11 @@ export function createTask(input: CreateTaskInput): Task {
     INSERT INTO tasks (
       id, email_id, task_type, client_name, site_id, target_page,
       content_to_find, content_to_add, attachment_filename, attachment_path,
-      description, reference_image_path, apply_to_all_sites, group_id,
+      description, reference_image_path, image_paths, apply_to_all_sites, group_id,
       needs_clarification, clarification_question,
       status, created_at, updated_at
     ) VALUES (
-      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?
+      ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?
     )
   `).run(
     id,
@@ -51,6 +53,7 @@ export function createTask(input: CreateTaskInput): Task {
     input.attachmentPath ?? null,
     input.description ?? null,
     input.referenceImagePath ?? null,
+    input.imagePaths ? JSON.stringify(input.imagePaths) : null,
     input.applyToAllSites ? 1 : 0,
     input.groupId ?? null,
     input.needsClarification ? 1 : 0,
@@ -166,6 +169,19 @@ export function incrementTaskAttempt(id: string, lastError: string): number {
   return newCount;
 }
 
+/**
+ * Update a task's image paths (e.g., when gallery images are provided after initial request).
+ */
+export function updateTaskImagePaths(id: string, imagePaths: string[]): void {
+  const db = getDb();
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE tasks SET image_paths = ?, updated_at = ? WHERE id = ?
+  `).run(JSON.stringify(imagePaths), now, id);
+
+  logger.info({ taskId: id, imageCount: imagePaths.length }, 'Task image paths updated');
+}
+
 export function updateTaskOriginalContent(id: string, originalContent: string): void {
   const db = getDb();
   const now = new Date().toISOString();
@@ -194,6 +210,7 @@ function rowToTask(row: Record<string, unknown>): Task {
     errorMessage: row.error_message as string | undefined,
     screenshotPath: row.screenshot_path as string | undefined,
     referenceImagePath: row.reference_image_path as string | undefined,
+    imagePaths: row.image_paths ? JSON.parse(row.image_paths as string) as string[] : undefined,
     originalContent: row.original_content as string | undefined,
     attemptCount: (row.attempt_count as number) ?? 0,
     lastError: row.last_error as string | undefined,

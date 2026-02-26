@@ -170,14 +170,31 @@ MENU BLOCK
 +-- ...
 \`\`\`
 
-**To edit menu block content, ALWAYS use "editMenuBlock" (select-all/replace strategy):**
-Clicking into a menu block to position the cursor is unreliable and corrupts text. Instead:
-1. First, READ the existing menu block content by looking at the screenshot
-2. Compose the COMPLETE new content in your head — merge existing items you want to keep with new/changed items
-3. Use \`editMenuBlock\` with \`searchText\` (any visible text in the menu block) and \`newContent\` (the FULL content including both kept and new items)
-4. The action handles: find block → open editor → select ALL → type replacement → verify
+**To edit menu block content, ALWAYS use "editMenuBlock":**
+Clicking into a menu block to position the cursor is unreliable and corrupts text. There are two modes:
 
-**Example:** To add "Fish Tacos $14" to a menu that has "Burger $12" and "Salad $10":
+**Merge mode (preferred for update_menu_block tasks):** Set \`merge: true\`. The handler will:
+1. Read the existing menu block content automatically
+2. Send both existing content and your newContent to an LLM merger
+3. The merger intelligently combines them — adding new items, updating prices, preserving unchanged items
+4. Write the merged result back to the block
+
+Use merge mode when the task says to use merge mode, or when you have partial updates (new items to add, price changes) and want to preserve existing content you haven't read.
+
+\`\`\`json
+{
+  "action": "editMenuBlock",
+  "searchText": "Burger",
+  "newContent": "Fish Tacos\\nFresh cod tacos with lime slaw.\\n$14",
+  "merge": true
+}
+\`\`\`
+
+**Replace mode (default):** Without \`merge: true\`, editMenuBlock uses select-all/replace. You must:
+1. READ the existing menu block content by looking at the screenshot
+2. Compose the COMPLETE new content yourself — merge existing items you want to keep with new/changed items
+3. Use \`editMenuBlock\` with \`searchText\` and \`newContent\` (the FULL content including both kept and new items)
+
 \`\`\`json
 {
   "action": "editMenuBlock",
@@ -194,6 +211,8 @@ Clicking into a menu block to position the cursor is unreliable and corrupts tex
 3. Changes auto-save
 
 **NEVER remove a section or the menu block to delete a menu item.** This destroys the entire menu.
+
+**API fast path**: editMenuBlock tries the Content Save API first (~200ms) for both merge and replace modes. Falls back to 8-step UI automation automatically if the API path fails. No action changes needed — the fast path is transparent.
 
 #### Gallery/Image Grid Blocks
 - Contains multiple images in a grid or slideshow
@@ -596,6 +615,8 @@ Respond with a JSON object containing:
 | moveSectionDown | searchText | Move a section DOWN on the page. Tries Content Save API first (reorders sections array directly), falls back to section toolbar arrows. searchText = text in the section to move. |
 | replaceImage | searchText, imagePath, altText? | Replace an image in an image block. Finds the image by alt text or nearby text, opens the image editor, uploads a new file. searchText = alt text or nearby text. imagePath = absolute path to the new image file. altText = optional new alt text. Image metadata (alt text, title, description) can also be updated via Content Save API fast path. |
 | addImageBlock | imagePath, altText? | **Add a NEW image block with an uploaded image.** Must already be in section edit mode (use enterSectionEditMode first). Clicks ADD BLOCK, picks "Image", uploads the file, and optionally sets alt text. Use this instead of addBlockToSection + replaceImage when adding a new image — empty image placeholders have no alt text so replaceImage can't find them. |
+| addGalleryBlock | imagePaths, altTexts?, galleryStyle? | **Add multiple images as a gallery grid in one step.** Tries Content Save API first (batch upload + batch add — fast), falls back to sequential addImageBlock UI calls. imagePaths = array of absolute file paths. altTexts = optional array of alt texts (same order as imagePaths). galleryStyle = "grid" (2-3 columns, default), "slideshow" (full-width stacked, taller rows), or "collage" (full-width stacked, tighter spacing). Must already be in section edit mode (use enterSectionEditMode first). Use for gallery pages or when adding multiple images at once — much faster than calling addImageBlock repeatedly. |
+| addButtonBlock | label, url, size?, style?, alignment? | **Add a NEW button block with label and URL in one step.** Tries Content Save API first (~200ms), falls back to UI (ADD BLOCK → Button → editButtonBlock). Must already be in section edit mode (use enterSectionEditMode first). size: small/medium/large. style: primary/secondary/tertiary. alignment: left/center/right. Use addButtonBlock to ADD new buttons, editButtonBlock to EDIT existing buttons. |
 | createPage | title, slug?, template? | Create a new page in the site. Navigates to Pages panel, clicks Add, fills in the title. slug = optional URL slug (auto-generated from title if omitted). template = optional page template (default: Blank). |
 | editSectionStyle | searchText, sectionTheme?, backgroundColor?, backgroundImage?, overlayOpacity?, sectionHeight?, contentWidth?, verticalAlignment?, sectionPadding?, blockSpacing? | Change section design settings. Opens the EDIT SECTION design panel (not EDIT CONTENT). searchText = text in the section. sectionTheme = site color theme name (e.g., "Lightest", "Light", "Dark", "Darkest", "White", "Black") — PREFERRED over backgroundColor for consistent styling. backgroundColor = hex color (e.g., "#FF5733") — use only when sectionTheme is insufficient. backgroundImage = absolute path to background image file. overlayOpacity = 0-100, color overlay on background image. sectionHeight = "auto", "small", "medium", "large", or "full". contentWidth = "inset" or "full". verticalAlignment = "top", "middle", or "bottom". sectionPadding = "none", "small", "medium", or "large" — controls top/bottom padding of the section. blockSpacing = "none", "small", "medium", or "large" — controls the gap between blocks in the section. Provide at least one style property. |
 | switchPage | pageSlug | Navigate to a different page and enter edit mode. Use for multi-page tasks. pageSlug = the URL slug (e.g., "about", "contact"). |
@@ -624,7 +645,7 @@ Respond with a JSON object containing:
 7. If you can't find content, scroll down to check below the fold
 8. When you see a confirmation dialog, read the dialog text carefully before confirming. Make sure it is removing/editing the right thing (a block, not a section).
 9. Keep actions simple and targeted — don't try to do everything at once
-10. **When editing menu block content, ALWAYS use "editMenuBlock"** instead of manually clicking into the block. Direct cursor placement in menu blocks is unreliable and corrupts text. editMenuBlock uses a select-all/replace strategy: it reads existing content, selects everything, then types the complete new content. You must compose the full newContent yourself (existing items to keep + new/changed items). NEVER remove the menu block or its parent section.
+10. **When editing menu block content, ALWAYS use "editMenuBlock"** instead of manually clicking into the block. Direct cursor placement in menu blocks is unreliable and corrupts text. For update_menu_block tasks, use \`merge: true\` — this reads existing content automatically, merges with your newContent via LLM, and writes the result. For manual edits where you've composed the full content yourself, omit merge. NEVER remove the menu block or its parent section. The handler tries the Content Save API first (~200ms) before falling back to UI automation.
 11. When asked to remove a button, image, or other block: enter section edit mode, select just that block, and delete it — NEVER remove the whole section
 12. **When in doubt about what to remove, err on the side of removing LESS. It is easier to remove more later than to recover destroyed content.**
 13. **When editing existing text on the page, ALWAYS use "editTextBlock" instead of manually chaining clicks.** It first attempts a fast Content Save API path (~500ms, no UI interaction needed). If the API is unavailable, it falls back to the full UI sequence (find text → click section → EDIT CONTENT → double-click → select all → type → verify). Either way, it's one reliable action. If the result says "via Content Save API", the edit is already saved — proceed to verification or your next action. Only fall back to individual actions if editTextBlock fails entirely.
@@ -632,11 +653,13 @@ Respond with a JSON object containing:
 15. **When editing buttons, ALWAYS use "editButtonBlock"** instead of manually navigating the button editor. It handles finding the button, entering edit mode, and updating the label/URL.
 16. **When removing a block, ALWAYS use "removeBlock"** instead of manually chaining clicks. It first tries the Content Save API (removes block from sections JSON directly — fast, precise), falling back to UI automation (enter section edit mode, select block, delete). Never use Remove Section when you only need to remove a block.
 17. **When you need to add a block to a section, use "enterSectionEditMode" first, then "addBlockToSection".** This two-step sequence ensures you're in Fluid Engine edit mode before adding blocks.
-18. **Prefer compound actions (editTextBlock, formatTextBlock, editButtonBlock, editMenuBlock, editQuoteBlock, editCodeBlock, enterSectionEditMode, addBlockToSection, addImageBlock, addSection, addSectionFromTemplate, removeBlock, moveSectionUp, moveSectionDown, replaceImage, createPage, editSectionStyle, switchPage, editPageSEO, editCustomCSS, createBlogPost, moveBlockInSection, resizeBlock) over manual click chains.** They are more reliable because they handle overlays, EDIT CONTENT clicks, and DOM changes automatically.
+18. **Prefer compound actions (editTextBlock, formatTextBlock, editButtonBlock, editMenuBlock, editQuoteBlock, editCodeBlock, enterSectionEditMode, addBlockToSection, addImageBlock, addGalleryBlock, addButtonBlock, addSection, addSectionFromTemplate, removeBlock, moveSectionUp, moveSectionDown, replaceImage, createPage, editSectionStyle, switchPage, editPageSEO, editCustomCSS, createBlogPost, moveBlockInSection, resizeBlock) over manual click chains.** They are more reliable because they handle overlays, EDIT CONTENT clicks, and DOM changes automatically.
 19. **Placeholder text like "Write here..." is NOT real DOM text** — it's rendered via CSS pseudo-elements. If you see an empty text block with placeholder text, use editTextBlock with searchText="Write here" and it will find the empty block automatically. Never use findText to search for placeholder text — it won't find it.
 20. **When reordering sections, use moveSectionUp/moveSectionDown** instead of manually clicking section toolbar arrows. These first try the Content Save API (reorders sections array directly — fast, precise), falling back to UI automation (select section, click arrow button). If the API result says "via Content Save API", the move is already saved — reload to see changes.
 21. **When replacing images, use replaceImage** instead of manually navigating the image editor. It handles finding the image, opening the editor, and uploading via file input.
 22a. **When adding a NEW image block, use addImageBlock** instead of addBlockToSection + replaceImage. Empty image placeholders have no alt text, so replaceImage cannot find them. addImageBlock handles the full sequence: ADD BLOCK → Image → upload → alt text in one reliable action. You must be in section edit mode first (use enterSectionEditMode).
+22b. **When adding a NEW button, use addButtonBlock** instead of addBlockToSection("Button") + editButtonBlock. addButtonBlock handles adding the block and configuring label, URL, size, style, and alignment in one step. Tries the Content Save API first for speed (~200ms), falls back to UI automation. Use addButtonBlock for NEW buttons, editButtonBlock for EXISTING buttons. You must be in section edit mode first (use enterSectionEditMode).
+22c. **When adding MULTIPLE images at once, use addGalleryBlock** instead of calling addImageBlock repeatedly. addGalleryBlock batch-uploads all images and arranges them in a grid, slideshow, or collage layout in one step. Tries the Content Save API batch path first for speed, falls back to sequential UI uploads. You must be in section edit mode first (use enterSectionEditMode). Use galleryStyle "grid" for 2-3 column grids, "slideshow" for full-width stacked images, or "collage" for tighter stacking.
 22. **When changing section design (theme, background color/image, height, width, alignment, padding, spacing), use editSectionStyle.** It opens the EDIT SECTION design panel (not EDIT CONTENT). PREFER sectionTheme over backgroundColor — Squarespace uses coordinated color themes that set background, text, heading, and button colors together. Use backgroundColor only for custom hex values not covered by a theme. Available properties: sectionTheme, backgroundColor, backgroundImage, overlayOpacity, sectionHeight, contentWidth, verticalAlignment, sectionPadding, blockSpacing.
 23. **For multi-page tasks, use switchPage** to navigate between pages instead of manual navigation. It handles the full sequence: navigate to pages panel → click the page → enter edit mode.
 24. **Use editPageSEO to set SEO titles and descriptions** — never try to edit these through the page content editor. SEO fields live in the page settings panel.
@@ -652,10 +675,11 @@ Respond with a JSON object containing:
 
 \`\`\`json
 {
-  "reasoning": "The client wants to add 'Fish Tacos $14' to the menu. I can see the menu currently has 'Burger $12' and 'Salad $10'. I'll use editMenuBlock with the COMPLETE content — keeping existing items and adding the new one. This avoids cursor positioning issues.",
+  "reasoning": "The task says to update the menu with new items using merge mode. I'll use editMenuBlock with merge: true — the handler will read existing content, merge in the new items, and write the result. I can see 'Burger' in the menu block so I'll use that as searchText.",
   "action": "editMenuBlock",
   "searchText": "Burger",
-  "newContent": "Burger $12\\nSalad $10\\nFish Tacos $14"
+  "newContent": "Fish Tacos\\nFresh cod tacos with lime slaw.\\n$14",
+  "merge": true
 }
 \`\`\`
 
@@ -758,6 +782,27 @@ Respond with a JSON object containing:
   "action": "addImageBlock",
   "imagePath": "/Users/timcox/squarespace helper/storage/project-screenshots/menu-block.png",
   "altText": "Menu Formatter app screenshot"
+}
+\`\`\`
+
+\`\`\`json
+{
+  "reasoning": "I need to add a 'Book Now' button to this section. I'm already in section edit mode, so I'll use addButtonBlock to add a new button with the label and URL.",
+  "action": "addButtonBlock",
+  "label": "Book Now",
+  "url": "/reservations",
+  "style": "primary",
+  "alignment": "center"
+}
+\`\`\`
+
+\`\`\`json
+{
+  "reasoning": "I need to add a gallery of project screenshots. I'm in section edit mode, so I'll use addGalleryBlock to batch-upload all images in a grid layout.",
+  "action": "addGalleryBlock",
+  "imagePaths": ["/Users/timcox/squarespace helper/storage/uploads/project1.jpg", "/Users/timcox/squarespace helper/storage/uploads/project2.jpg", "/Users/timcox/squarespace helper/storage/uploads/project3.jpg", "/Users/timcox/squarespace helper/storage/uploads/project4.jpg"],
+  "altTexts": ["Project 1 screenshot", "Project 2 screenshot", "Project 3 screenshot", "Project 4 screenshot"],
+  "galleryStyle": "grid"
 }
 \`\`\`
 

@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { logger } from '../../utils/logger.js';
 import { errMsg } from '../../utils/errors.js';
 import { createMediaUploadClient } from '../../services/media-upload.js';
-import { createContentSaveClient, ContentSaveClient, type BlockMoveResult, type BlockResizeResult, type BlockRemoveResult, type SectionMoveResult, type ImageBlockUpdateResult, type TextBlockAddResult, type TextPatchResult } from '../../services/content-save.js';
+import { createContentSaveClient, ContentSaveClient, type BlockMoveResult, type BlockResizeResult, type BlockRemoveResult, type SectionMoveResult, type ImageBlockUpdateResult, type TextBlockAddResult, type TextPatchResult, type MenuBlockUpdateResult } from '../../services/content-save.js';
 import type { ActionResult } from './types.js';
 
 /**
@@ -66,6 +66,65 @@ export function extractSubdomain(page: Page): string | null {
 }
 
 /**
+ * Common API context needed by all try*Api() functions.
+ * Extracts subdomain, pageSectionsId, collectionId from the Playwright page.
+ * Returns null if any extraction step fails (caller should return null to fall through to UI).
+ */
+interface ApiContext {
+  subdomain: string;
+  pageSectionsId: string;
+  collectionId: string;
+  client: ContentSaveClient;
+  slug: string;
+}
+
+async function extractApiContext(
+  page: Page,
+  callerName: string,
+): Promise<ApiContext | null> {
+  const subdomain = extractSubdomain(page);
+  if (!subdomain) {
+    logger.debug(`${callerName}: could not extract subdomain from URL`);
+    return null;
+  }
+
+  const siteFrame = page.frame({ name: 'sqs-site-frame' });
+  if (!siteFrame) {
+    logger.debug(`${callerName}: no sqs-site-frame found`);
+    return null;
+  }
+
+  const pageSectionsId = await siteFrame.evaluate(() => {
+    const article = document.querySelector('article[data-page-sections]');
+    return article?.getAttribute('data-page-sections') ?? null;
+  }).catch(() => null);
+
+  if (!pageSectionsId) {
+    logger.debug(`${callerName}: could not find data-page-sections attribute`);
+    return null;
+  }
+
+  const client = createContentSaveClient(subdomain);
+  const pageUrl = page.url();
+  const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
+  const slug = slugMatch?.[1] ?? '';
+  const ids = await client.getPageIds(slug);
+
+  if (!ids) {
+    logger.debug({ slug }, `${callerName}: could not get page IDs`);
+    return null;
+  }
+
+  return {
+    subdomain,
+    pageSectionsId,
+    collectionId: ids.collectionId,
+    client,
+    slug,
+  };
+}
+
+/**
  * Attempt to upload an image via the Squarespace media API (no UI).
  * Returns the asset URL on success, null on failure. Never throws.
  */
@@ -97,8 +156,8 @@ export async function tryMediaApiUpload(
  * Attempt to update a text block via the Content Save API (no UI).
  * Uses the read-modify-write pattern: GET sections → find block → PUT modified sections.
  *
- * Requires pageSectionsId and collectionId, which are extracted from the page DOM
- * and the ?format=json-pretty endpoint respectively.
+ * Detects substring edits (searchText is a portion of the block's full text) and uses
+ * patchTextBlock for surgical replacement, preserving surrounding content.
  *
  * Returns an ActionResult on success, null on failure. Never throws.
  */
@@ -107,46 +166,14 @@ export async function tryContentSaveApi(
   searchText: string,
   newText: string,
 ): Promise<ActionResult | null> {
-  const subdomain = extractSubdomain(page);
-  if (!subdomain) {
-    logger.debug('tryContentSaveApi: could not extract subdomain from URL');
-    return null;
-  }
+  const ctx = await extractApiContext(page, 'tryContentSaveApi');
+  if (!ctx) return null;
 
   try {
-    // Extract pageSectionsId from the editor DOM (data-page-sections attribute)
-    const siteFrame = page.frame({ name: 'sqs-site-frame' });
-    if (!siteFrame) {
-      logger.debug('tryContentSaveApi: no sqs-site-frame found');
-      return null;
-    }
-
-    const pageSectionsId = await siteFrame.evaluate(() => {
-      const article = document.querySelector('article[data-page-sections]');
-      return article?.getAttribute('data-page-sections') ?? null;
-    }).catch(() => null);
-
-    if (!pageSectionsId) {
-      logger.debug('tryContentSaveApi: could not find data-page-sections attribute');
-      return null;
-    }
-
-    // Get collectionId from ?format=json-pretty
-    const client = createContentSaveClient(subdomain);
-    const pageUrl = page.url();
-    const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
-    const slug = slugMatch?.[1] ?? '';
-    const ids = await client.getPageIds(slug);
-
-    if (!ids) {
-      logger.debug({ slug }, 'tryContentSaveApi: could not get page IDs');
-      return null;
-    }
-
     // Determine if this is a substring edit or a full block replacement.
     // First, peek at the block's full text to compare with searchText.
-    const sections = await client.getPageSections(pageSectionsId);
-    const blockMatch = client.findBlock(sections.sections, searchText);
+    const sections = await ctx.client.getPageSections(ctx.pageSectionsId);
+    const blockMatch = ctx.client.findBlock(sections.sections, searchText);
 
     if (!blockMatch) {
       logger.debug({ searchText }, 'tryContentSaveApi: no block found matching searchText');
@@ -173,9 +200,9 @@ export async function tryContentSaveApi(
         'Content Save API: detected substring edit — using patchTextBlock',
       );
 
-      const patchResult: TextPatchResult = await client.patchTextBlock(
-        pageSectionsId,
-        ids.collectionId,
+      const patchResult: TextPatchResult = await ctx.client.patchTextBlock(
+        ctx.pageSectionsId,
+        ctx.collectionId,
         searchText,
         newText,
       );
@@ -199,9 +226,9 @@ export async function tryContentSaveApi(
     // Wrap newText in <p> tags if it's plain text (no HTML tags)
     const newHtml = newText.includes('<') ? newText : `<p>${newText}</p>`;
 
-    const result = await client.updateTextBlock(
-      pageSectionsId,
-      ids.collectionId,
+    const result = await ctx.client.updateTextBlock(
+      ctx.pageSectionsId,
+      ctx.collectionId,
       searchText,
       newHtml,
     );
@@ -235,43 +262,13 @@ export async function tryBlockMoveApi(
   searchText: string,
   direction: 'up' | 'down' | 'left' | 'right',
 ): Promise<ActionResult | null> {
-  const subdomain = extractSubdomain(page);
-  if (!subdomain) {
-    logger.debug('tryBlockMoveApi: could not extract subdomain from URL');
-    return null;
-  }
+  const ctx = await extractApiContext(page, 'tryBlockMoveApi');
+  if (!ctx) return null;
 
   try {
-    const siteFrame = page.frame({ name: 'sqs-site-frame' });
-    if (!siteFrame) {
-      logger.debug('tryBlockMoveApi: no sqs-site-frame found');
-      return null;
-    }
-
-    const pageSectionsId = await siteFrame.evaluate(() => {
-      const article = document.querySelector('article[data-page-sections]');
-      return article?.getAttribute('data-page-sections') ?? null;
-    }).catch(() => null);
-
-    if (!pageSectionsId) {
-      logger.debug('tryBlockMoveApi: could not find data-page-sections attribute');
-      return null;
-    }
-
-    const client = createContentSaveClient(subdomain);
-    const pageUrl = page.url();
-    const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
-    const slug = slugMatch?.[1] ?? '';
-    const ids = await client.getPageIds(slug);
-
-    if (!ids) {
-      logger.debug({ slug }, 'tryBlockMoveApi: could not get page IDs');
-      return null;
-    }
-
-    const result: BlockMoveResult = await client.moveBlock(
-      pageSectionsId,
-      ids.collectionId,
+    const result: BlockMoveResult = await ctx.client.moveBlock(
+      ctx.pageSectionsId,
+      ctx.collectionId,
       searchText,
       direction,
     );
@@ -308,43 +305,13 @@ export async function tryBlockResizeApi(
   width?: 'smaller' | 'larger' | 'full',
   height?: 'shorter' | 'taller',
 ): Promise<ActionResult | null> {
-  const subdomain = extractSubdomain(page);
-  if (!subdomain) {
-    logger.debug('tryBlockResizeApi: could not extract subdomain from URL');
-    return null;
-  }
+  const ctx = await extractApiContext(page, 'tryBlockResizeApi');
+  if (!ctx) return null;
 
   try {
-    const siteFrame = page.frame({ name: 'sqs-site-frame' });
-    if (!siteFrame) {
-      logger.debug('tryBlockResizeApi: no sqs-site-frame found');
-      return null;
-    }
-
-    const pageSectionsId = await siteFrame.evaluate(() => {
-      const article = document.querySelector('article[data-page-sections]');
-      return article?.getAttribute('data-page-sections') ?? null;
-    }).catch(() => null);
-
-    if (!pageSectionsId) {
-      logger.debug('tryBlockResizeApi: could not find data-page-sections attribute');
-      return null;
-    }
-
-    const client = createContentSaveClient(subdomain);
-    const pageUrl = page.url();
-    const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
-    const slug = slugMatch?.[1] ?? '';
-    const ids = await client.getPageIds(slug);
-
-    if (!ids) {
-      logger.debug({ slug }, 'tryBlockResizeApi: could not get page IDs');
-      return null;
-    }
-
-    const result: BlockResizeResult = await client.resizeBlock(
-      pageSectionsId,
-      ids.collectionId,
+    const result: BlockResizeResult = await ctx.client.resizeBlock(
+      ctx.pageSectionsId,
+      ctx.collectionId,
       searchText,
       width,
       height,
@@ -381,43 +348,13 @@ export async function tryBlockRemoveApi(
   page: Page,
   searchText: string,
 ): Promise<ActionResult | null> {
-  const subdomain = extractSubdomain(page);
-  if (!subdomain) {
-    logger.debug('tryBlockRemoveApi: could not extract subdomain from URL');
-    return null;
-  }
+  const ctx = await extractApiContext(page, 'tryBlockRemoveApi');
+  if (!ctx) return null;
 
   try {
-    const siteFrame = page.frame({ name: 'sqs-site-frame' });
-    if (!siteFrame) {
-      logger.debug('tryBlockRemoveApi: no sqs-site-frame found');
-      return null;
-    }
-
-    const pageSectionsId = await siteFrame.evaluate(() => {
-      const article = document.querySelector('article[data-page-sections]');
-      return article?.getAttribute('data-page-sections') ?? null;
-    }).catch(() => null);
-
-    if (!pageSectionsId) {
-      logger.debug('tryBlockRemoveApi: could not find data-page-sections attribute');
-      return null;
-    }
-
-    const client = createContentSaveClient(subdomain);
-    const pageUrl = page.url();
-    const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
-    const slug = slugMatch?.[1] ?? '';
-    const ids = await client.getPageIds(slug);
-
-    if (!ids) {
-      logger.debug({ slug }, 'tryBlockRemoveApi: could not get page IDs');
-      return null;
-    }
-
-    const result: BlockRemoveResult = await client.removeBlock(
-      pageSectionsId,
-      ids.collectionId,
+    const result: BlockRemoveResult = await ctx.client.removeBlock(
+      ctx.pageSectionsId,
+      ctx.collectionId,
       searchText,
     );
 
@@ -450,43 +387,13 @@ export async function trySectionMoveApi(
   direction: 'up' | 'down',
 ): Promise<ActionResult | null> {
   const label = direction === 'up' ? 'moveSectionUp' : 'moveSectionDown';
-  const subdomain = extractSubdomain(page);
-  if (!subdomain) {
-    logger.debug('trySectionMoveApi: could not extract subdomain from URL');
-    return null;
-  }
+  const ctx = await extractApiContext(page, 'trySectionMoveApi');
+  if (!ctx) return null;
 
   try {
-    const siteFrame = page.frame({ name: 'sqs-site-frame' });
-    if (!siteFrame) {
-      logger.debug('trySectionMoveApi: no sqs-site-frame found');
-      return null;
-    }
-
-    const pageSectionsId = await siteFrame.evaluate(() => {
-      const article = document.querySelector('article[data-page-sections]');
-      return article?.getAttribute('data-page-sections') ?? null;
-    }).catch(() => null);
-
-    if (!pageSectionsId) {
-      logger.debug('trySectionMoveApi: could not find data-page-sections attribute');
-      return null;
-    }
-
-    const client = createContentSaveClient(subdomain);
-    const pageUrl = page.url();
-    const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
-    const slug = slugMatch?.[1] ?? '';
-    const ids = await client.getPageIds(slug);
-
-    if (!ids) {
-      logger.debug({ slug }, 'trySectionMoveApi: could not get page IDs');
-      return null;
-    }
-
-    const result: SectionMoveResult = await client.moveSection(
-      pageSectionsId,
-      ids.collectionId,
+    const result: SectionMoveResult = await ctx.client.moveSection(
+      ctx.pageSectionsId,
+      ctx.collectionId,
       searchText,
       direction,
     );
@@ -523,43 +430,13 @@ export async function tryImageBlockUpdateApi(
   searchText: string,
   fields: { title?: string; description?: string; subtitle?: string; altText?: string; linkTo?: string },
 ): Promise<ActionResult | null> {
-  const subdomain = extractSubdomain(page);
-  if (!subdomain) {
-    logger.debug('tryImageBlockUpdateApi: could not extract subdomain from URL');
-    return null;
-  }
+  const ctx = await extractApiContext(page, 'tryImageBlockUpdateApi');
+  if (!ctx) return null;
 
   try {
-    const siteFrame = page.frame({ name: 'sqs-site-frame' });
-    if (!siteFrame) {
-      logger.debug('tryImageBlockUpdateApi: no sqs-site-frame found');
-      return null;
-    }
-
-    const pageSectionsId = await siteFrame.evaluate(() => {
-      const article = document.querySelector('article[data-page-sections]');
-      return article?.getAttribute('data-page-sections') ?? null;
-    }).catch(() => null);
-
-    if (!pageSectionsId) {
-      logger.debug('tryImageBlockUpdateApi: could not find data-page-sections attribute');
-      return null;
-    }
-
-    const client = createContentSaveClient(subdomain);
-    const pageUrl = page.url();
-    const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
-    const slug = slugMatch?.[1] ?? '';
-    const ids = await client.getPageIds(slug);
-
-    if (!ids) {
-      logger.debug({ slug }, 'tryImageBlockUpdateApi: could not get page IDs');
-      return null;
-    }
-
-    const result: ImageBlockUpdateResult = await client.updateImageBlock(
-      pageSectionsId,
-      ids.collectionId,
+    const result: ImageBlockUpdateResult = await ctx.client.updateImageBlock(
+      ctx.pageSectionsId,
+      ctx.collectionId,
       searchText,
       fields,
     );
@@ -594,43 +471,13 @@ export async function tryAddTextBlockApi(
   html: string,
   layout?: { columns?: number },
 ): Promise<ActionResult | null> {
-  const subdomain = extractSubdomain(page);
-  if (!subdomain) {
-    logger.debug('tryAddTextBlockApi: could not extract subdomain from URL');
-    return null;
-  }
+  const ctx = await extractApiContext(page, 'tryAddTextBlockApi');
+  if (!ctx) return null;
 
   try {
-    const siteFrame = page.frame({ name: 'sqs-site-frame' });
-    if (!siteFrame) {
-      logger.debug('tryAddTextBlockApi: no sqs-site-frame found');
-      return null;
-    }
-
-    const pageSectionsId = await siteFrame.evaluate(() => {
-      const article = document.querySelector('article[data-page-sections]');
-      return article?.getAttribute('data-page-sections') ?? null;
-    }).catch(() => null);
-
-    if (!pageSectionsId) {
-      logger.debug('tryAddTextBlockApi: could not find data-page-sections attribute');
-      return null;
-    }
-
-    const client = createContentSaveClient(subdomain);
-    const pageUrl = page.url();
-    const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
-    const slug = slugMatch?.[1] ?? '';
-    const ids = await client.getPageIds(slug);
-
-    if (!ids) {
-      logger.debug({ slug }, 'tryAddTextBlockApi: could not get page IDs');
-      return null;
-    }
-
-    const result: TextBlockAddResult = await client.addTextBlock(
-      pageSectionsId,
-      ids.collectionId,
+    const result: TextBlockAddResult = await ctx.client.addTextBlock(
+      ctx.pageSectionsId,
+      ctx.collectionId,
       sectionIndex,
       html,
       layout,
@@ -775,6 +622,82 @@ export async function tryFooterContentSaveApi(
     return null;
   } catch (err) {
     logger.warn({ error: errMsg(err) }, 'Footer Content Save API failed');
+    return null;
+  }
+}
+
+/**
+ * Attempt to update a menu block via the Content Save API (no UI).
+ * Reads the current menu, optionally merges with new content, and writes back.
+ *
+ * @param page        Playwright page
+ * @param searchText  Text to find the menu block (tab/section/item title)
+ * @param newContent  New menu content (plain text format)
+ * @param merge       If true, structurally merge updates into existing menu.
+ *                    If false, parse newContent as a full replacement.
+ * @returns ActionResult on success, null on failure. Never throws.
+ */
+export async function tryMenuBlockApi(
+  page: Page,
+  searchText: string,
+  newContent: string,
+  merge?: boolean,
+): Promise<ActionResult | null> {
+  const ctx = await extractApiContext(page, 'tryMenuBlockApi');
+  if (!ctx) return null;
+
+  try {
+    // Read current menu
+    const currentMenu = await ctx.client.getMenuBlock(ctx.pageSectionsId, searchText);
+    if (!currentMenu.success || !currentMenu.menus) {
+      logger.debug({ searchText, error: currentMenu.error }, 'tryMenuBlockApi: menu block not found');
+      return null;
+    }
+
+    // Dynamic imports to avoid circular deps
+    const { parseMenuText } = await import('../../services/menu-parser.js');
+
+    let newMenus;
+    if (merge) {
+      // Structured merge: parse updates, merge with current
+      const parsed = parseMenuText(newContent);
+      if (parsed.length === 0) {
+        // Prose input (e.g. "set Bash Burger price to $30") — can't merge structurally.
+        // Fall back to UI path where the LLM merger handles prose.
+        logger.info('tryMenuBlockApi: newContent did not parse into menu tabs — falling back to LLM merge');
+        return null;
+      }
+      const { mergeMenuFromText } = await import('../../services/menu-merger.js');
+      newMenus = mergeMenuFromText(currentMenu.menus, newContent);
+    } else {
+      // Full replacement: parse newContent as the complete menu
+      newMenus = parseMenuText(newContent);
+    }
+
+    // Write back
+    const result: MenuBlockUpdateResult = await ctx.client.updateMenuBlock(
+      ctx.pageSectionsId,
+      ctx.collectionId,
+      searchText,
+      newMenus,
+    );
+
+    if (result.success) {
+      const modeStr = merge ? 'merged' : 'replaced';
+      logger.info(
+        { blockId: result.blockId, mode: modeStr, oldTabs: result.oldTabCount, newTabs: result.newTabCount },
+        'Menu Block API: update succeeded',
+      );
+      return {
+        success: true,
+        message: `editMenuBlock: Updated menu via Content Save API (${modeStr}, block ${result.blockId}). Tabs: ${result.oldTabCount}→${result.newTabCount}, Items: ${result.oldItemCount}→${result.newItemCount}. Reload the page to see the change.`,
+      };
+    }
+
+    logger.warn({ error: result.error, searchText }, 'Menu Block API: update failed');
+    return null;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'Menu Block API failed');
     return null;
   }
 }

@@ -2,7 +2,8 @@ import { Page } from 'playwright';
 import { logger } from '../../utils/logger.js';
 import { clickThroughOverlay, findTextOnPage, getSiteFrame } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
-import { isFluidEngineActive, clickEditorButton, tryBlockMoveApi, tryBlockResizeApi, tryBlockRemoveApi } from './handler-utils.js';
+import { isFluidEngineActive, clickEditorButton, tryBlockMoveApi, tryBlockResizeApi, tryBlockRemoveApi, extractSubdomain } from './handler-utils.js';
+import { createContentSaveClient } from '../../services/content-save.js';
 import type { ActionResult } from './types.js';
 
 // ─── Compound Action: addBlockToSection ──────────────────────────────────
@@ -1060,5 +1061,134 @@ export async function handleResizeBlock(
   return {
     success: true,
     message: `resizeBlock: resized block "${searchText}" — ${updates.join(', ')}. Verify visually.`,
+  };
+}
+
+// ─── Compound Action: addButtonBlock ──────────────────────────────────────
+
+/**
+ * Compound action: add a NEW Button block with label and URL.
+ *
+ * Fast path: tries Content Save API first (~200ms).
+ * UI fallback: addBlockToSection("Button") → editButtonBlock with the new label/URL.
+ *
+ * Prerequisite: the section must already be in edit mode (use enterSectionEditMode first).
+ */
+export async function handleAddButtonBlock(
+  page: Page,
+  action: { action: 'addButtonBlock'; label: string; url: string; size?: 'small' | 'medium' | 'large'; style?: 'primary' | 'secondary' | 'tertiary'; alignment?: 'left' | 'center' | 'right' },
+): Promise<ActionResult> {
+  const { label, url, size, style, alignment } = action;
+
+  // ── API fast path: try Content Save API first ──────────────────────────
+  logger.info({ label, url }, 'addButtonBlock[0]: trying API fast path');
+  try {
+    const subdomain = extractSubdomain(page);
+    if (subdomain) {
+      const siteFrame = page.frame({ name: 'sqs-site-frame' });
+      if (siteFrame) {
+        const pageSectionsId = await siteFrame.evaluate(() => {
+          const article = document.querySelector('article[data-page-sections]');
+          return article?.getAttribute('data-page-sections') ?? null;
+        }).catch(() => null);
+
+        if (pageSectionsId) {
+          const client = createContentSaveClient(subdomain);
+          const pageUrl = page.url();
+          const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
+          const slug = slugMatch?.[1] ?? '';
+          const ids = await client.getPageIds(slug);
+
+          if (ids) {
+            const result = await (client as any).addButtonBlock(
+              pageSectionsId,
+              ids.collectionId,
+              label,
+              url,
+            );
+            if (result?.success) {
+              logger.info({ blockId: result.blockId }, 'addButtonBlock: added via API fast path');
+              return {
+                success: true,
+                message: `addButtonBlock: Added button "${label}" → "${url}" via Content Save API (block ${result.blockId}). Reload the page to see the change.`,
+              };
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'addButtonBlock: API fast path failed, falling back to UI');
+  }
+
+  // ── UI fallback: addBlockToSection("Button") + editButtonBlock ─────────
+  logger.info({ label, url }, 'addButtonBlock[1/3]: adding Button block via UI');
+
+  // Step 1: Verify section edit mode
+  const addBlockVisible = await isFluidEngineActive(page, 2000);
+  if (!addBlockVisible) {
+    return {
+      success: false,
+      message: 'addButtonBlock step 1: Not in section edit mode. Use enterSectionEditMode first, then retry.',
+    };
+  }
+
+  // Step 2: Add a Button block via addBlockToSection
+  const addResult = await handleAddBlockToSection(page, {
+    action: 'addBlockToSection',
+    blockType: 'Button',
+  });
+
+  if (!addResult.success) {
+    return {
+      success: false,
+      message: `addButtonBlock step 2: Failed to add Button block — ${addResult.message}`,
+    };
+  }
+  await page.waitForTimeout(1500);
+
+  // Step 3: Edit the newly added button with label, URL, and optional design params.
+  // Squarespace default button text is "Button" or "Learn more" — try both.
+  logger.info({ label, url }, 'addButtonBlock[3/3]: editing button with label and URL');
+
+  // Import editButtonBlock handler dynamically to avoid circular deps
+  const { handleEditButtonBlock } = await import('./text-editing-handlers.js');
+
+  // Try "Button" first (most common default)
+  let editResult = await handleEditButtonBlock(page, {
+    action: 'editButtonBlock',
+    searchText: 'Button',
+    newLabel: label,
+    url,
+    size,
+    style,
+    alignment,
+  });
+
+  if (!editResult.success) {
+    // Retry with "Learn more" (alternate default)
+    logger.info('addButtonBlock[3/3]: "Button" not found, trying "Learn more"');
+    editResult = await handleEditButtonBlock(page, {
+      action: 'editButtonBlock',
+      searchText: 'Learn more',
+      newLabel: label,
+      url,
+      size,
+      style,
+      alignment,
+    });
+  }
+
+  if (!editResult.success) {
+    // The button was added but we couldn't configure it
+    return {
+      success: true,
+      message: `addButtonBlock: Button block added but could not configure label/URL — ${editResult.message}. The button was added with default text. Use editButtonBlock to update it manually.`,
+    };
+  }
+
+  return {
+    success: true,
+    message: `addButtonBlock: Added button "${label}" → "${url}".${size ? ` Size: ${size}.` : ''}${style ? ` Style: ${style}.` : ''}${alignment ? ` Alignment: ${alignment}.` : ''}`,
   };
 }

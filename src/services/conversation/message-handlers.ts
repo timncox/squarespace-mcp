@@ -27,6 +27,30 @@ import { formatDirectRequestTaskList } from './helpers.js';
 import type { Task } from '../../models/task.js';
 import type { Conversation } from '../../models/conversation.js';
 
+// ─── Gallery Detection ─────────────────────────────────────────────────────
+
+const GALLERY_PATTERNS = [
+  'gallery',
+  'photo gallery',
+  'image gallery',
+  'portfolio',
+  'add photos',
+  'add images',
+  'upload photos',
+  'upload images',
+  'create gallery',
+  'new gallery',
+];
+
+/**
+ * Detect if a request has gallery intent based on the message text or task descriptions.
+ * Gallery requests without attached images should prompt the user to send images.
+ */
+export function hasGalleryIntent(text: string): boolean {
+  const lower = text.toLowerCase();
+  return GALLERY_PATTERNS.some((p) => lower.includes(p));
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Extract the primary siteId from a conversation's tasks for queue routing. */
@@ -45,13 +69,44 @@ function getSiteIdForQueue(conversation: Conversation): string {
  * Uses Claude to interpret the message and determine which site(s) and
  * page(s) to edit, then creates tasks and asks Tim for confirmation.
  */
-export async function handleDirectRequest(msg: IncomingWhatsAppMessage): Promise<void> {
+export async function handleDirectRequest(msg: IncomingWhatsAppMessage & { imageMessages?: IncomingWhatsAppMessage[] }): Promise<void> {
   let messageText = msg.body;
   let referenceImagePath: string | undefined;
   let referenceImageBase64: string | undefined;
+  let imagePaths: string[] | undefined;
 
-  // Handle image messages: download the image from WhatsApp
-  if (msg.type === 'image' && msg.mediaId) {
+  // Handle multi-image group: download all images
+  if (msg.imageMessages && msg.imageMessages.length > 0) {
+    const { downloadMedia } = await import('../whatsapp.js');
+    const { readFileSync } = await import('fs');
+    const downloaded: string[] = [];
+
+    for (const imgMsg of msg.imageMessages) {
+      // Dashboard images already have a local path
+      const localPath = (imgMsg as Record<string, unknown>)._localPath as string | undefined;
+      if (localPath) {
+        downloaded.push(localPath);
+      } else if (imgMsg.mediaId) {
+        try {
+          const path = await downloadMedia(imgMsg.mediaId);
+          downloaded.push(path);
+        } catch (err) {
+          logger.error({ error: errMsg(err), mediaId: imgMsg.mediaId }, 'Failed to download image from group');
+        }
+      }
+    }
+
+    if (downloaded.length > 0) {
+      imagePaths = downloaded;
+      referenceImagePath = downloaded[0]; // First image for backward compat
+      try {
+        referenceImageBase64 = readFileSync(downloaded[0]).toString('base64');
+      } catch { /* non-fatal */ }
+      logger.info({ count: downloaded.length, imageGroupId: msg.imageGroupId }, 'Downloaded multi-image group');
+    }
+  }
+  // Handle single image message: download the image from WhatsApp
+  else if (msg.type === 'image' && msg.mediaId) {
     try {
       const { downloadMedia } = await import('../whatsapp.js');
       referenceImagePath = await downloadMedia(msg.mediaId);
@@ -59,6 +114,7 @@ export async function handleDirectRequest(msg: IncomingWhatsAppMessage): Promise
       const { readFileSync } = await import('fs');
       referenceImageBase64 = readFileSync(referenceImagePath).toString('base64');
 
+      imagePaths = [referenceImagePath];
       logger.info({ mediaId: msg.mediaId, path: referenceImagePath }, 'Downloaded WhatsApp reference image');
     } catch (err) {
       logger.error({ error: errMsg(err) }, 'Failed to download WhatsApp image');
@@ -139,6 +195,7 @@ export async function handleDirectRequest(msg: IncomingWhatsAppMessage): Promise
           targetPage: t.targetPage,
           description: t.description,
           referenceImagePath,
+          imagePaths,
           applyToAllSites: t.applyToAllSites,
           groupId: t.groupId,
           needsClarification: t.needsClarification,
@@ -169,6 +226,7 @@ export async function handleDirectRequest(msg: IncomingWhatsAppMessage): Promise
         targetPage: t.targetPage,
         description: t.description,
         referenceImagePath,
+        imagePaths,
         applyToAllSites: t.applyToAllSites,
         groupId: t.groupId,
         needsClarification: false,
@@ -185,6 +243,23 @@ export async function handleDirectRequest(msg: IncomingWhatsAppMessage): Promise
     });
 
     logAction(null, 'conversation_created', `WhatsApp request: ${conversation.id}`);
+
+    // ─── Gallery without images: ask for images ──────────────────────────
+    // Detect gallery intent from the message or task descriptions. If the user
+    // hasn't provided any images, enter the 'clarifying' state and ask for them.
+    const galleryIntentInMessage = hasGalleryIntent(messageText || '');
+    const galleryIntentInTasks = interpreted.tasks.some((t) => hasGalleryIntent(t.description));
+    const hasImages = imagePaths && imagePaths.length > 0;
+
+    if ((galleryIntentInMessage || galleryIntentInTasks) && !hasImages) {
+      updateConversationStatus(conversation.id, 'clarifying');
+      logAction(null, 'gallery_awaiting_images', `Gallery request without images — asking Tim for photos`);
+      await sendToTim(
+        `Got it — I'll set up a gallery for you! Please send me the photos you'd like to include, and I'll add them.`,
+        conversation.id,
+      );
+      return;
+    }
 
     // Send confirmation with task summary.
     // WhatsApp button messages have a 1024-char body limit.
@@ -287,9 +362,79 @@ export async function handleConfirmation(conversation: Conversation, msg: Incomi
 
 // ─── Clarification Handler ──────────────────────────────────────────────────
 
-export async function handleClarification(conversation: Conversation, msg: IncomingWhatsAppMessage): Promise<void> {
+export async function handleClarification(conversation: Conversation, msg: IncomingWhatsAppMessage & { imageMessages?: IncomingWhatsAppMessage[] }): Promise<void> {
   const reply = msg.body.trim();
   logAction(null, 'clarification_received', `Tim replied: ${reply}`);
+
+  // ─── Gallery image fulfillment ─────────────────────────────────────────
+  // If the existing tasks have gallery intent and the user sends images,
+  // attach the images to the tasks and move to confirmation.
+  const tasks = conversation.taskIds.map((id) => getTask(id)).filter(Boolean) as Task[];
+  const conversationHasGalleryIntent = tasks.some((t) => hasGalleryIntent(t.description ?? ''));
+
+  if (conversationHasGalleryIntent) {
+    // Check if this message carries images
+    let newImagePaths: string[] = [];
+
+    if (msg.imageMessages && msg.imageMessages.length > 0) {
+      const { downloadMedia } = await import('../whatsapp.js');
+      for (const imgMsg of msg.imageMessages) {
+        const localPath = (imgMsg as Record<string, unknown>)._localPath as string | undefined;
+        if (localPath) {
+          newImagePaths.push(localPath);
+        } else if (imgMsg.mediaId) {
+          try {
+            const path = await downloadMedia(imgMsg.mediaId);
+            newImagePaths.push(path);
+          } catch (err) {
+            logger.error({ error: errMsg(err) }, 'Failed to download gallery image');
+          }
+        }
+      }
+    } else if (msg.type === 'image' && msg.mediaId) {
+      try {
+        const { downloadMedia } = await import('../whatsapp.js');
+        const path = await downloadMedia(msg.mediaId);
+        newImagePaths.push(path);
+      } catch (err) {
+        logger.error({ error: errMsg(err) }, 'Failed to download gallery image');
+      }
+    }
+
+    if (newImagePaths.length > 0) {
+      // Attach images to all gallery tasks
+      const { updateTaskImagePaths } = await import('../../db/tasks.js');
+      for (const task of tasks) {
+        const existingPaths = task.imagePaths ?? [];
+        const allPaths = [...existingPaths, ...newImagePaths];
+        updateTaskImagePaths(task.id, allPaths);
+      }
+
+      logger.info(
+        { imageCount: newImagePaths.length, conversationId: conversation.id },
+        'Gallery images received — moving to confirmation',
+      );
+
+      updateConversationStatus(conversation.id, 'awaiting_confirm');
+
+      const taskSummary = tasks
+        .map((t, i) => `${i + 1}. ${t.description} (${t.clientName}${t.targetPage ? ` / ${t.targetPage}` : ''})`)
+        .join('\n');
+
+      await sendButtonsToTim(
+        `Got ${newImagePaths.length} photo(s)! Here's the plan:\n\n${taskSummary}\n\nProceed?`,
+        [
+          { id: 'confirm_yes', title: 'Yes, proceed' },
+          { id: 'confirm_no', title: 'No, skip' },
+        ],
+        conversation.id,
+      );
+      return;
+    }
+
+    // If no images but the reply is text, fall through to normal clarification handling
+    // (e.g., the user might be providing a site name or more details)
+  }
 
   // Try to resolve the reply as a site name using discovered sites
   let resolvedSite: import('../../automation/site-discovery.js').DiscoveredSite | undefined;

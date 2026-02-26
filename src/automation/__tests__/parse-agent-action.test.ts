@@ -441,6 +441,44 @@ describe('parseAgentAction', () => {
     expect((result as any).newContent).toBe('Burger $12\nSalad $10\nFish Tacos $14');
   });
 
+  it('parses editMenuBlock with merge: true', () => {
+    const result = parseAgentAction(JSON.stringify({
+      action: 'editMenuBlock',
+      searchText: 'Appetizers',
+      newContent: 'New Dish\nDescription\n$15',
+      merge: true,
+    }));
+    expect(result).toEqual({
+      action: 'editMenuBlock',
+      searchText: 'Appetizers',
+      newContent: 'New Dish\nDescription\n$15',
+      merge: true,
+    });
+  });
+
+  it('parses editMenuBlock with merge: false (defaults to no merge)', () => {
+    const result = parseAgentAction(JSON.stringify({
+      action: 'editMenuBlock',
+      searchText: 'Lunch',
+      newContent: 'Soup $8',
+      merge: false,
+    }));
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe('editMenuBlock');
+    expect((result as any).merge).toBe(false);
+  });
+
+  it('parses editMenuBlock without merge field (backwards compatible)', () => {
+    const result = parseAgentAction(JSON.stringify({
+      action: 'editMenuBlock',
+      searchText: 'Dinner',
+      newContent: 'Steak $30',
+    }));
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe('editMenuBlock');
+    expect((result as any).merge).toBeUndefined();
+  });
+
   // ── addSectionFromTemplate tests ──────────────────────────────────
 
   it('parses addSectionFromTemplate with text replacements', () => {
@@ -732,6 +770,196 @@ describe('parseAgentAction', () => {
     expect(result).not.toBeNull();
     expect(result!.action).toBe('formatTextBlock');
     expect((result as any).formatLevel).toBe('heading1');
+  });
+
+  // ── addButtonBlock tests ────────────────────────────────────────────
+
+  it('parses addButtonBlock with label and url', () => {
+    const result = parseAgentAction('{"action":"addButtonBlock","label":"Book Now","url":"/reservations"}');
+    expect(result).toEqual({ action: 'addButtonBlock', label: 'Book Now', url: '/reservations' });
+  });
+
+  it('parses addButtonBlock with size', () => {
+    const result = parseAgentAction('{"action":"addButtonBlock","label":"Contact Us","url":"/contact","size":"large"}');
+    expect(result).toEqual({ action: 'addButtonBlock', label: 'Contact Us', url: '/contact', size: 'large' });
+  });
+
+  it('parses addButtonBlock with style and alignment', () => {
+    const result = parseAgentAction(
+      '{"action":"addButtonBlock","label":"Learn More","url":"https://example.com","style":"secondary","alignment":"center"}',
+    );
+    expect(result).toEqual({
+      action: 'addButtonBlock',
+      label: 'Learn More',
+      url: 'https://example.com',
+      style: 'secondary',
+      alignment: 'center',
+    });
+  });
+
+  it('parses addButtonBlock with all optional params', () => {
+    const result = parseAgentAction(
+      '{"action":"addButtonBlock","label":"Get Started","url":"/signup","size":"large","style":"primary","alignment":"center"}',
+    );
+    expect(result).toEqual({
+      action: 'addButtonBlock',
+      label: 'Get Started',
+      url: '/signup',
+      size: 'large',
+      style: 'primary',
+      alignment: 'center',
+    });
+  });
+
+  it('parses addButtonBlock from markdown code fence', () => {
+    const result = parseAgentAction(`\`\`\`json
+{
+  "reasoning": "Adding a booking button to the section",
+  "action": "addButtonBlock",
+  "label": "Reserve a Table",
+  "url": "/reservations",
+  "style": "primary"
+}
+\`\`\``);
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe('addButtonBlock');
+    expect((result as any).label).toBe('Reserve a Table');
+    expect((result as any).url).toBe('/reservations');
+    expect((result as any).style).toBe('primary');
+  });
+
+  it('parses addButtonBlock with external URL', () => {
+    const result = parseAgentAction(
+      '{"action":"addButtonBlock","label":"Visit Facebook","url":"https://facebook.com/mypage"}',
+    );
+    expect(result).toEqual({
+      action: 'addButtonBlock',
+      label: 'Visit Facebook',
+      url: 'https://facebook.com/mypage',
+    });
+  });
+
+  it('parses addButtonBlock with tertiary style and right alignment', () => {
+    const result = parseAgentAction(
+      '{"action":"addButtonBlock","label":"Skip","url":"#next","size":"small","style":"tertiary","alignment":"right"}',
+    );
+    expect(result).toEqual({
+      action: 'addButtonBlock',
+      label: 'Skip',
+      url: '#next',
+      size: 'small',
+      style: 'tertiary',
+      alignment: 'right',
+    });
+  });
+
+  it('parses addButtonBlock embedded in surrounding text', () => {
+    const input = 'I need to add a button. {"action":"addButtonBlock","label":"View Menu","url":"/menu"} That should work.';
+    const result = parseAgentAction(input);
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe('addButtonBlock');
+    expect((result as any).label).toBe('View Menu');
+    expect((result as any).url).toBe('/menu');
+  });
+
+  // ── addGalleryBlock tests ──────────────────────────────────────────────
+
+  it('parses addGalleryBlock with imagePaths only', () => {
+    const result = parseAgentAction(JSON.stringify({
+      action: 'addGalleryBlock',
+      imagePaths: ['/tmp/img1.jpg', '/tmp/img2.jpg'],
+    }));
+    expect(result).toEqual({
+      action: 'addGalleryBlock',
+      imagePaths: ['/tmp/img1.jpg', '/tmp/img2.jpg'],
+    });
+  });
+
+  it('parses addGalleryBlock with altTexts', () => {
+    const result = parseAgentAction(JSON.stringify({
+      action: 'addGalleryBlock',
+      imagePaths: ['/tmp/photo1.jpg', '/tmp/photo2.jpg'],
+      altTexts: ['Sunset view', 'Mountain peak'],
+    }));
+    expect(result).toEqual({
+      action: 'addGalleryBlock',
+      imagePaths: ['/tmp/photo1.jpg', '/tmp/photo2.jpg'],
+      altTexts: ['Sunset view', 'Mountain peak'],
+    });
+  });
+
+  it('parses addGalleryBlock with galleryStyle grid', () => {
+    const result = parseAgentAction(JSON.stringify({
+      action: 'addGalleryBlock',
+      imagePaths: ['/tmp/a.jpg', '/tmp/b.jpg', '/tmp/c.jpg'],
+      galleryStyle: 'grid',
+    }));
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe('addGalleryBlock');
+    expect((result as any).galleryStyle).toBe('grid');
+    expect((result as any).imagePaths).toHaveLength(3);
+  });
+
+  it('parses addGalleryBlock with galleryStyle slideshow', () => {
+    const result = parseAgentAction(JSON.stringify({
+      action: 'addGalleryBlock',
+      imagePaths: ['/tmp/slide1.jpg', '/tmp/slide2.jpg'],
+      galleryStyle: 'slideshow',
+    }));
+    expect(result).not.toBeNull();
+    expect((result as any).galleryStyle).toBe('slideshow');
+  });
+
+  it('parses addGalleryBlock with galleryStyle collage', () => {
+    const result = parseAgentAction(JSON.stringify({
+      action: 'addGalleryBlock',
+      imagePaths: ['/tmp/c1.jpg'],
+      galleryStyle: 'collage',
+    }));
+    expect(result).not.toBeNull();
+    expect((result as any).galleryStyle).toBe('collage');
+  });
+
+  it('parses addGalleryBlock with all params', () => {
+    const result = parseAgentAction(JSON.stringify({
+      action: 'addGalleryBlock',
+      imagePaths: ['/tmp/img1.jpg', '/tmp/img2.jpg', '/tmp/img3.jpg', '/tmp/img4.jpg'],
+      altTexts: ['Photo 1', 'Photo 2', 'Photo 3', 'Photo 4'],
+      galleryStyle: 'grid',
+    }));
+    expect(result).toEqual({
+      action: 'addGalleryBlock',
+      imagePaths: ['/tmp/img1.jpg', '/tmp/img2.jpg', '/tmp/img3.jpg', '/tmp/img4.jpg'],
+      altTexts: ['Photo 1', 'Photo 2', 'Photo 3', 'Photo 4'],
+      galleryStyle: 'grid',
+    });
+  });
+
+  it('parses addGalleryBlock from markdown code fence', () => {
+    const result = parseAgentAction(`\`\`\`json
+{
+  "reasoning": "Adding a gallery of project images to this section.",
+  "action": "addGalleryBlock",
+  "imagePaths": ["/tmp/p1.jpg", "/tmp/p2.jpg"],
+  "altTexts": ["Project 1", "Project 2"],
+  "galleryStyle": "grid"
+}
+\`\`\``);
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe('addGalleryBlock');
+    expect((result as any).imagePaths).toHaveLength(2);
+    expect((result as any).altTexts).toHaveLength(2);
+    expect((result as any).galleryStyle).toBe('grid');
+  });
+
+  it('parses addGalleryBlock with empty imagePaths array', () => {
+    const result = parseAgentAction(JSON.stringify({
+      action: 'addGalleryBlock',
+      imagePaths: [],
+    }));
+    expect(result).not.toBeNull();
+    expect(result!.action).toBe('addGalleryBlock');
+    expect((result as any).imagePaths).toEqual([]);
   });
 
   // ── editButtonBlock Design tab tests ─────────────────────────────────

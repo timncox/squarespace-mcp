@@ -10,7 +10,7 @@ AI agent that edits Squarespace websites based on forwarded client emails and Wh
 npm run dev          # Start dev server (tsx watch)
 npm run build        # TypeScript compile
 npm run start        # Run compiled JS (node dist/src/index.js)
-npm run test         # vitest run (2164 tests)
+npm run test         # vitest run (2487 tests)
 npm run test:unit    # Parse agent action tests only
 npm run cli          # CLI tool (tsx src/cli.ts)
 npm run setup-gmail  # Gmail OAuth setup
@@ -76,7 +76,9 @@ storage/            # Runtime data (uploads/, screenshots/) — not committed
 | `src/services/content-validator.ts` | Post-operation validation via API snapshot comparison |
 | `src/db/plan-operations.ts` | CRUD for granular per-operation tracking (plan_operations table) |
 | `src/config/section-templates.json` | Template catalog (27 templates, 8 categories) with placeholder patterns |
-| `src/services/content-save.ts` | Content Save API client (text/image/block/section manipulation) |
+| `src/services/content-save.ts` | Content Save API client (text/image/block/section/menu manipulation) |
+| `src/services/menu-parser.ts` | Menu block text ↔ structured JSON (`parseMenuText`, `serializeMenu`) |
+| `src/services/menu-merger.ts` | Menu merge: LLM (`mergeMenuContent`) + deterministic (`mergeMenuStructured`, `mergeMenuFromText`) |
 | `src/services/whatsapp.ts` | WhatsApp Cloud API + dashboard SSE bridge |
 | `src/routes/dashboard.ts` | Dashboard UI + SSE + chat endpoints |
 | `src/db/database.ts` | SQLite schema + migrations (DB path: `data/sqhelper.db`) |
@@ -142,14 +144,32 @@ Several browser agent actions try the Content Save API first (~100-500ms) before
 | `removeBlock` | `ContentSaveClient.removeBlock()` — splices block from gridContents | 6-step UI compound action |
 | `moveSectionUp/Down` | `ContentSaveClient.moveSection()` — reorders sections array | Section toolbar arrows |
 | `replaceImage` / `addImageBlock` | `ContentSaveClient.updateImageBlock()` — updates title/description/subtitle/altText | UI automation (7-step compound) |
+| `editMenuBlock` | `ContentSaveClient.updateMenuBlock()` — structured JSON read-modify-write on type 18 blocks | 8-step UI automation (select-all/replace) |
 
-Block finding uses `ContentSaveClient.findBlock()` — a generalized finder that searches text blocks (stripped HTML), image blocks (title/description), blocks with `value.text`/`value.label`, and block ID prefix fallback.
+Block finding uses `ContentSaveClient.findBlock()` — a generalized finder that searches text blocks (stripped HTML), image blocks (title/description), menu blocks (type 18: raw text, tab/section/item titles), blocks with `value.text`/`value.label`, and block ID prefix fallback.
 
 Grid system: Desktop = 24 columns (X: 1–24), `start` inclusive / `end` exclusive. `gridSettings.breakpointSettings.desktop.columns` provides the max. Mobile auto-reflows — only desktop coordinates are modified.
 
 Additional methods: `swapBlocks()` exchanges two blocks' full layout objects (desktop + mobile + zIndex) in a single GET + PUT. `removeBlock()` splices a block from its section's gridContents array. `moveSection()` reorders sections by splicing/inserting in the sections array (boundary-safe: returns success with oldIndex === newIndex at edges). `updateImageBlock()` updates image block metadata (title, description, subtitle, altText, linkTo) via read-modify-write. `addTextBlock()` adds a new text block to a section via API (generates block ID, calculates grid position with configurable `gapRows`/`rowHeight` spacing, includes `verticalAlignment` and `zIndex` fields, backfills missing fields on existing blocks before PUT).
 
 **Block spacing**: `addTextBlock()` accepts `layout.gapRows` (default 2 for non-first blocks, 0 for first) and `layout.rowHeight` (default 3). Content strategist outputs layout hints per `apiBlock`. Section styling (`sectionPadding`, `blockSpacing`, `sectionTheme`) applied after both blank_api and template operations.
+
+### Menu Block API
+
+Menu blocks are **type 18** in Squarespace's Fluid Engine. Their JSON structure: `{ menus: MenuTab[], raw: string, menuStyle: number, currencySymbol: string }` stored in `fluidEngineContext.gridContents[].content.value.value`.
+
+**Parser** (`src/services/menu-parser.ts`): `parseMenuText(text)` converts plain-text menu format (tabs with `========`, sections with `-------`, items with `$price`) into structured `MenuTab[]`. `serializeMenu(menus)` is the inverse. Types: `MenuTab`, `MenuSection`, `MenuItem`.
+
+**API methods** on `ContentSaveClient`:
+- `findMenuBlock(sections, searchText)` — wraps `findBlock()` with type 18 filter, returns `menuValue`
+- `getMenuBlock(pageSectionsId, searchText)` — read-only, returns current menus/menuStyle/currencySymbol
+- `updateMenuBlock(pageSectionsId, collectionId, searchText, newMenus, options?)` — read-modify-write, regenerates `raw` via `serializeMenu()`, preserves unknown fields via spread. Supports `{ preserveRaw: true }` option.
+
+**Structured merge** (`src/services/menu-merger.ts`): `mergeMenuStructured(current, updates)` matches tabs/sections/items by title (case-insensitive exact match), appends unmatched entries, overrides non-null update values. `mergeMenuFromText(currentMenus, updateText)` convenience wrapper. Existing LLM-based `mergeMenuContent()` unchanged (fallback for fuzzy cases).
+
+**Wiring**: `tryMenuBlockApi()` in `handler-utils.ts` extracts IDs from DOM, reads current menu, merge or replace via parser/merger, writes back. `handleEditMenuBlock()` calls it as a fast path before the 8-step UI automation.
+
+Tests: `menu-parser.test.ts` (45), `content-save-menu.test.ts` (24), `menu-merger.test.ts` (36).
 
 ### Blank+API Execution Path
 
@@ -335,6 +355,9 @@ Upload strategies (fallback chain):
 - `src/services/__tests__/content-validator.test.ts` — content validation tests
 - `src/db/__tests__/plan-operations.test.ts` — operation tracking CRUD tests
 - `src/agents/__tests__/page-structure.test.ts` — page structure summarization tests
+- `src/services/__tests__/menu-parser.test.ts` — menu text parser + serializer tests (45 tests)
+- `src/services/__tests__/content-save-menu.test.ts` — menu block API methods tests (24 tests)
+- `src/services/__tests__/menu-merger.test.ts` — menu merger (LLM + structured) tests (36 tests)
 - Integration test: `src/automation/__tests__/compound-actions.integration.test.ts` (requires live browser session)
 - Run: `npm run test` (integration test files show as "failed" when no browser session — this is expected)
 - **Pre-existing TS errors**: `operationType` union doesn't include `'create_page'`, causing TS2367 in tests and execution.ts. Workaround: cast to `string` for comparison. Server runs via `tsx watch` which ignores type errors.

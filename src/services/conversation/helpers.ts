@@ -23,6 +23,14 @@ export function buildTaskDescription(task: Task): string {
       }
     }
 
+    // Append image paths if present (for gallery/image operations)
+    if (task.imagePaths && task.imagePaths.length > 0) {
+      desc += `\n\nImage files provided (${task.imagePaths.length}):`;
+      for (const imgPath of task.imagePaths) {
+        desc += `\n  - ${imgPath}`;
+      }
+    }
+
     // Append specific content references
     if (task.contentToFind && !desc.toLowerCase().includes(task.contentToFind.toLowerCase())) {
       desc += `\n\nContent to look for: "${task.contentToFind}"`;
@@ -48,7 +56,14 @@ export function buildTaskDescription(task: Task): string {
     }
 
     case 'update_menu_block':
-      return `Update the menu block on the page. ${task.contentToAdd ? `New content: ${task.contentToAdd}` : 'Update with the new menu items.'}`;
+      return `Update the menu block on the page using MERGE MODE.\n\n` +
+        `Use the editMenuBlock action with merge: true. This will:\n` +
+        `1. Read the existing menu content from the block automatically\n` +
+        `2. Merge the update content with existing content via LLM (preserving items not mentioned in the update)\n` +
+        `3. Write the merged result back to the menu block\n\n` +
+        `Set searchText to any visible text in the menu block (e.g., a menu item name or section header you can see in the screenshot).\n` +
+        `Set newContent to the raw update content below — the merger handles formatting.\n` +
+        (task.contentToAdd ? `\nContent to merge in:\n${task.contentToAdd}` : '\nUpdate with the new menu items.');
 
     case 'replace_file': {
       const filePath = task.attachmentPath || resolveAttachmentPath(undefined, task.attachmentFilename ?? '');
@@ -82,7 +97,10 @@ export function describeTask(task: Task): string {
   if (task.description) {
     const site = task.siteId !== 'unknown' ? ` on ${task.siteId}` : '';
     const page = task.targetPage ? `/${task.targetPage}` : '';
-    return `${task.description.substring(0, 80)}${task.description.length > 80 ? '...' : ''}${site}${page}`;
+    const imageInfo = task.imagePaths && task.imagePaths.length > 0
+      ? ` (${task.imagePaths.length} image${task.imagePaths.length > 1 ? 's' : ''})`
+      : '';
+    return `${task.description.substring(0, 80)}${task.description.length > 80 ? '...' : ''}${site}${page}${imageInfo}`;
   }
 
   // Legacy format for structured tasks
@@ -99,7 +117,14 @@ export function describeTask(task: Task): string {
               ? 'Replace'
               : task.taskType;
 
-  let desc = `${action} "${task.contentToFind || task.attachmentFilename || '?'}" on ${task.siteId}/${task.targetPage ?? '?'}`;
+  // For menu updates, extract the menu page name (first line before "========") from contentToAdd
+  let label = task.contentToFind || task.attachmentFilename || '';
+  if (!label && task.taskType === 'update_menu_block' && task.contentToAdd) {
+    const firstLine = task.contentToAdd.split('\n')[0].trim();
+    label = firstLine || 'menu items';
+  }
+
+  let desc = `${action} "${label || '?'}" on ${task.siteId}/${task.targetPage ?? '?'}`;
 
   if (task.applyToAllSites && task.groupId) {
     desc += ` (all ${task.groupId} sites)`;

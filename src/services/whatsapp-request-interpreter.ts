@@ -191,6 +191,12 @@ These are the CORRECT navigation paths in the Squarespace editor. NEVER guess �
 8. If Tim mentions a site that isn't in the available list, set needsClarification=true and tell Tim the site wasn't found on the dashboard. List the available sites AND tell Tim he can add it by inviting user@example.com as a contributor on that Squarespace site.
 9. If an image is attached, use it to understand what Tim is referring to (e.g., which button, which section, which text to remove or change). Describe the visual element clearly in the task description so the browser agent knows what to look for.
 10. If the message contains a \`--- PDF Content from '...' ---\` section, the user has uploaded a PDF whose text has been extracted. Use this content for the task. If Tim says to "add this to a new page", create a task with a description that tells the browser agent to: create a new page with an appropriate title derived from the PDF content, then add the PDF text content to the page using text blocks. Include the full PDF text in the description so the agent has the content to add.
+11. **Gallery/image requests**: When Tim asks to create a gallery, add photos, upload images to a gallery, or create a portfolio page, create a task with a clear description mentioning it's a gallery operation. Examples:
+   - "add 5 photos to a new gallery page on Tim Cox" → one task: create a new gallery page and add the uploaded images as a gallery grid
+   - "create a photo gallery" → gallery task for the specified (or clarified) site
+   - "upload these images to a gallery" → gallery task using the attached images
+   - "add a portfolio page" → gallery/portfolio page creation task
+   If images are attached, mention in the description that uploaded images should be used. If no images are attached but the request implies images are needed, the description should note that images will need to be provided.
 
 ## Response Format
 Respond with JSON only:

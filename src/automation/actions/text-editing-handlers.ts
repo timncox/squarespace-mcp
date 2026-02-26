@@ -4,6 +4,7 @@ import { clickThroughOverlay, dblclickThroughOverlay, findTextOnPage, getSiteFra
 import { errMsg } from '../../utils/errors.js';
 import { isFluidEngineActive, clickEditorButton, tryContentSaveApi, tryFooterContentSaveApi } from './handler-utils.js';
 import type { ActionResult } from './types.js';
+import { mergeMenuContent } from '../../services/menu-merger.js';
 
 // ─── Compound Action: editTextBlock ───────────────────────────────────────
 
@@ -1796,9 +1797,20 @@ export async function handleEditButtonBlock(
  */
 export async function handleEditMenuBlock(
   page: Page,
-  action: { action: 'editMenuBlock'; searchText: string; newContent: string },
+  action: { action: 'editMenuBlock'; searchText: string; newContent: string; merge?: boolean },
 ): Promise<ActionResult> {
-  const { searchText, newContent } = action;
+  const { searchText, merge } = action;
+  let newContent = action.newContent;
+
+  // ── Fast path: try Content Save API first (~100-500ms) ────────────
+  try {
+    const { tryMenuBlockApi } = await import('./handler-utils.js');
+    const apiResult = await tryMenuBlockApi(page, searchText, newContent, merge);
+    if (apiResult) return apiResult;
+    logger.info('editMenuBlock: API fast path unavailable, falling back to UI automation');
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'editMenuBlock: API fast path error, falling back to UI');
+  }
 
   // ── Step 1: Find the menu block text on the page ────────────────────
   logger.info({ searchText }, 'editMenuBlock[1/8]: finding menu block');
@@ -1875,6 +1887,23 @@ export async function handleEditMenuBlock(
       { existingLength: existingContent.length, preview: existingContent.substring(0, 100) },
       'editMenuBlock[5/8]: existing content read',
     );
+  }
+
+  // ── Step 5b: Merge mode — intelligently merge updates into existing ──
+  if (merge && existingContent) {
+    logger.info({ merge }, 'editMenuBlock[5b]: merge mode — calling mergeMenuContent');
+    try {
+      newContent = await mergeMenuContent(existingContent, newContent);
+      logger.info(
+        { mergedLength: newContent.length, preview: newContent.substring(0, 100) },
+        'editMenuBlock[5b]: merge complete',
+      );
+    } catch (err) {
+      logger.warn({ err: errMsg(err) }, 'editMenuBlock[5b]: merge failed, falling back to full replace');
+      // Fall through with original newContent
+    }
+  } else if (merge && !existingContent) {
+    logger.warn('editMenuBlock[5b]: merge requested but no existing content found — using newContent as-is');
   }
 
   // ── Step 6: Activate contenteditable and select all ─────────────────
