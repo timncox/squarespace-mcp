@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ContentPlan, ContentOperation, ContentSpec } from '../types.js';
+import type { ContentPlan, ContentOperation, ContentSpec, ApiTextBlock, ApiButtonBlock } from '../types.js';
+import { isApiButtonBlock } from '../types.js';
 import type { Task } from '../../models/task.js';
 import type { Conversation } from '../../models/conversation.js';
 
@@ -103,7 +104,7 @@ describe('Content Strategy Routing', () => {
 
       expect(spec.contentStrategy).toBe('blank_api');
       expect(spec.apiBlocks).toHaveLength(3);
-      expect(spec.apiBlocks![0].html).toContain('Work Experience');
+      expect((spec.apiBlocks![0] as ApiTextBlock).html).toContain('Work Experience');
     });
 
     it('blank_api apiBlocks can include layout hints', () => {
@@ -905,5 +906,120 @@ describe('ContentPlan Operation Types', () => {
 
     const pages = plan.operations.map(op => op.targetPage);
     expect(pages).toEqual(['home', 'about', 'contact']);
+  });
+});
+
+// ─── Button Block Type Tests ────────────────────────────────────────────────
+
+describe('ApiButtonBlock type and isApiButtonBlock guard', () => {
+  it('isApiButtonBlock returns true for button blocks', () => {
+    const block: ApiButtonBlock = { type: 'button', label: 'Click Me', url: 'https://example.com' };
+    expect(isApiButtonBlock(block)).toBe(true);
+  });
+
+  it('isApiButtonBlock returns false for text blocks', () => {
+    const block: ApiTextBlock = { html: '<h2>Heading</h2>' };
+    expect(isApiButtonBlock(block)).toBe(false);
+  });
+
+  it('isApiButtonBlock returns false for text blocks with layout', () => {
+    const block: ApiTextBlock = { html: '<p>Text</p>', layout: { columns: 12 } };
+    expect(isApiButtonBlock(block)).toBe(false);
+  });
+
+  it('isApiButtonBlock returns false for text blocks with formatting', () => {
+    const block: ApiTextBlock = { html: 'Hello', formatting: { tag: 'h1', alignment: 'center' } };
+    expect(isApiButtonBlock(block)).toBe(false);
+  });
+
+  it('button blocks can have optional layout', () => {
+    const block: ApiButtonBlock = {
+      type: 'button',
+      label: 'Sign Up',
+      url: 'https://signup.example.com',
+      layout: { startX: 7, endX: 18, startY: 4, endY: 7 },
+    };
+    expect(isApiButtonBlock(block)).toBe(true);
+    expect(block.layout?.startX).toBe(7);
+  });
+});
+
+describe('blank_api with button blocks in ContentSpec', () => {
+  it('apiBlocks can contain button block objects', () => {
+    const spec: ContentSpec = {
+      heading: 'Get Started',
+      contentStrategy: 'blank_api',
+      apiBlocks: [
+        { html: 'Get Started', formatting: { tag: 'h2', alignment: 'center' } },
+        { type: 'button', label: 'Book a Call', url: 'https://calendly.com/example' },
+      ],
+    };
+
+    expect(spec.apiBlocks).toHaveLength(2);
+    expect(isApiButtonBlock(spec.apiBlocks![0])).toBe(false);
+    expect(isApiButtonBlock(spec.apiBlocks![1])).toBe(true);
+  });
+
+  it('apiBlocks can be a single button block', () => {
+    const spec: ContentSpec = {
+      contentStrategy: 'blank_api',
+      apiBlocks: [
+        { type: 'button', label: 'Howdy', url: 'https://timcox.co' },
+      ],
+    };
+
+    expect(spec.apiBlocks).toHaveLength(1);
+    expect(isApiButtonBlock(spec.apiBlocks![0])).toBe(true);
+    const btn = spec.apiBlocks![0] as ApiButtonBlock;
+    expect(btn.label).toBe('Howdy');
+    expect(btn.url).toBe('https://timcox.co');
+  });
+
+  it('mixed apiBlocks can be separated by type', () => {
+    const spec: ContentSpec = {
+      contentStrategy: 'blank_api',
+      apiBlocks: [
+        { html: '<h2>Contact Us</h2>' },
+        { html: '<p>Reach out anytime.</p>' },
+        { type: 'button', label: 'Email Us', url: 'mailto:hello@example.com' },
+        { type: 'button', label: 'Call Us', url: 'tel:+1234567890' },
+      ],
+    };
+
+    const textBlocks = spec.apiBlocks!.filter((b): b is ApiTextBlock => !isApiButtonBlock(b));
+    const buttonBlocks = spec.apiBlocks!.filter(isApiButtonBlock);
+
+    expect(textBlocks).toHaveLength(2);
+    expect(buttonBlocks).toHaveLength(2);
+    expect(buttonBlocks[0].label).toBe('Email Us');
+    expect(buttonBlocks[1].label).toBe('Call Us');
+  });
+
+  it('blank_api operations with buttons are identified correctly in plan filtering', () => {
+    const plan = makePlan(0, {
+      operations: [
+        makeOperation({
+          content: {
+            heading: 'CTA Section',
+            contentStrategy: 'blank_api',
+            apiBlocks: [
+              { html: 'Ready to Start?', formatting: { tag: 'h2', alignment: 'center' } },
+              { type: 'button', label: 'Get Started', url: '/signup' },
+            ],
+          },
+        }),
+        makeOperation({
+          content: { heading: 'About', contentStrategy: 'template', templateIndex: 0 },
+        }),
+      ],
+    });
+
+    const blankApiOps = plan.operations.filter(op => op.content.contentStrategy === 'blank_api');
+    expect(blankApiOps).toHaveLength(1);
+    expect(blankApiOps[0].content.apiBlocks).toHaveLength(2);
+
+    // The button block should be correctly identifiable in the apiBlocks array
+    const hasButton = blankApiOps[0].content.apiBlocks!.some(isApiButtonBlock);
+    expect(hasButton).toBe(true);
   });
 });

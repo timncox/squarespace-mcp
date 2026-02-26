@@ -79,6 +79,16 @@ export function taskNeedsContentPlanning(task: Task, originalMessage?: string): 
     'testimonial',
     'reference',
     'quote block',
+    'gallery',
+    'photo gallery',
+    'image gallery',
+    'portfolio',
+    'add photos',
+    'add images',
+    'upload photos',
+    'upload images',
+    'create gallery',
+    'new gallery',
   ];
 
   if (task.description) {
@@ -113,6 +123,8 @@ export function taskIsPageCreation(task: Task): boolean {
     'new page to',
     'create page',
     'add page',
+    'new gallery page',
+    'new portfolio page',
   ];
   return pageCreationPatterns.some((p) => desc.includes(p));
 }

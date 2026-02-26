@@ -35,6 +35,8 @@ export interface Task {
   screenshotPath?: string;
   /** Path to a reference image (e.g., WhatsApp screenshot) showing what to change */
   referenceImagePath?: string;
+  /** Paths to multiple reference images (e.g., multi-image WhatsApp message) */
+  imagePaths?: string[];
   originalContent?: string; // stored before edits for undo
   /** Number of execution attempts (incremented on supervisor failure) */
   attemptCount: number;

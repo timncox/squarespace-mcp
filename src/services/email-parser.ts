@@ -29,6 +29,9 @@ export interface ParsedEmail {
 
   /** Attachments */
   attachments: GmailAttachment[];
+
+  /** Extracted text from PDF attachments (keyed by filename) */
+  pdfTexts?: Record<string, { text: string; numPages: number }>;
 }
 
 /**

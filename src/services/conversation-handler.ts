@@ -29,6 +29,8 @@ import { storeWhatsAppMessage } from '../db/whatsapp-messages.js';
 import {
   sendToTim,
   sendButtonsToTim,
+  bufferImageMessage,
+  onImageGroupComplete,
   type IncomingWhatsAppMessage,
 } from './whatsapp.js';
 import {
@@ -190,6 +192,12 @@ export async function handleIncomingMessage(msg: IncomingWhatsAppMessage): Promi
   });
 
   if (!conversation) {
+    // Try to buffer image messages for multi-image grouping
+    if (!isDashboard && msg.type === 'image' && bufferImageMessage(msg)) {
+      logger.info({ waMessageId: msg.waMessageId }, 'Image buffered for grouping');
+      return;
+    }
+
     // No matching conversation — interpret as a direct editing request
     await handleDirectRequest(msg);
     return;
@@ -225,6 +233,29 @@ export async function handleIncomingMessage(msg: IncomingWhatsAppMessage): Promi
       break;
   }
 }
+
+// ─── Image Group Handler ────────────────────────────────────────────────────
+
+// Register callback for when a multi-image group is ready
+onImageGroupComplete(async (messages, imageGroupId) => {
+  logger.info({ imageGroupId, count: messages.length }, 'Image group complete, processing');
+
+  // The caption on the first image becomes the task description
+  const firstMsg = messages[0];
+  const caption = messages.find((m) => m.body)?.body ?? '';
+
+  // Build a synthetic message that carries all the grouped images
+  const syntheticMsg: IncomingWhatsAppMessage & { imageMessages?: IncomingWhatsAppMessage[] } = {
+    ...firstMsg,
+    body: caption,
+    isPartOfImageGroup: true,
+    imageGroupId,
+    imageMessages: messages,
+  };
+
+  // Route through normal handler (as a new direct request)
+  await handleDirectRequest(syntheticMsg);
+});
 
 // ─── New Email Handler ──────────────────────────────────────────────────────
 

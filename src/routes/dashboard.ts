@@ -1097,9 +1097,18 @@ function renderChatPage(): string {
             <button id="pdf-chip-remove" style="background:none; border:none; color:#93c5fd; cursor:pointer; font-size:1rem; line-height:1; padding:0 0.125rem;">&times;</button>
           </span>
         </div>
+        <div id="image-chip" style="display:none; flex-shrink:0; padding:0.25rem 0.75rem;">
+          <span style="display:inline-flex; align-items:center; gap:0.375rem; background:#1e3a5f; color:#93c5fd; border:1px solid #3b82f6; border-radius:1rem; padding:0.25rem 0.625rem; font-size:0.8125rem;">
+            <span>🖼️</span>
+            <span id="image-chip-name"></span>
+            <button id="image-chip-remove" style="background:none; border:none; color:#93c5fd; cursor:pointer; font-size:1rem; line-height:1; padding:0 0.125rem;">&times;</button>
+          </span>
+        </div>
         <div style="flex-shrink:0; border-top:1px solid #334155; padding-top:0.75rem; display:flex; gap:0.5rem;">
           <input type="file" id="pdf-file-input" accept=".pdf" style="display:none;">
+          <input type="file" id="image-file-input" accept="image/jpeg,image/png,image/gif,image/webp" multiple style="display:none;">
           <button id="pdf-attach-btn" title="Attach PDF" style="background:none; border:1px solid #334155; border-radius:0.5rem; padding:0.5rem 0.625rem; cursor:pointer; font-size:1rem; color:#94a3b8; flex-shrink:0;">📎</button>
+          <button id="image-attach-btn" title="Attach Images" style="background:none; border:1px solid #334155; border-radius:0.5rem; padding:0.5rem 0.625rem; cursor:pointer; font-size:1rem; color:#94a3b8; flex-shrink:0;">🖼️</button>
           <input type="text" id="chat-input" placeholder="Send a request or reply…"
             style="flex:1; background:#0f172a; border:1px solid #334155; border-radius:0.5rem; padding:0.5rem 0.75rem; color:#e2e8f0; font-size:0.875rem; outline:none;"
             autocomplete="off">
@@ -1136,10 +1145,18 @@ function renderChatPage(): string {
         const pdfChip = document.getElementById('pdf-chip');
         const pdfChipName = document.getElementById('pdf-chip-name');
         const pdfChipRemove = document.getElementById('pdf-chip-remove');
+        const imageFileInput = document.getElementById('image-file-input');
+        const imageAttachBtn = document.getElementById('image-attach-btn');
+        const imageChip = document.getElementById('image-chip');
+        const imageChipName = document.getElementById('image-chip-name');
+        const imageChipRemove = document.getElementById('image-chip-remove');
 
         // ── PDF Attachment State ──
         var pendingPdfBase64 = null;
         var pendingPdfFilename = null;
+
+        // ── Image Attachment State ──
+        var pendingImages = []; // Array of { base64, filename }
 
         pdfAttachBtn.addEventListener('click', function() { pdfFileInput.click(); });
 
@@ -1162,6 +1179,35 @@ function renderChatPage(): string {
           pendingPdfFilename = null;
           pdfFileInput.value = '';
           pdfChip.style.display = 'none';
+        });
+
+        imageAttachBtn.addEventListener('click', function() { imageFileInput.click(); });
+
+        imageFileInput.addEventListener('change', function() {
+          var files = imageFileInput.files;
+          if (!files || files.length === 0) return;
+          pendingImages = [];
+          var remaining = files.length;
+          for (var i = 0; i < files.length; i++) {
+            (function(file, idx) {
+              var reader = new FileReader();
+              reader.onload = function() {
+                pendingImages[idx] = { base64: reader.result.split(',')[1], filename: file.name };
+                remaining--;
+                if (remaining === 0) {
+                  imageChipName.textContent = pendingImages.length + ' image' + (pendingImages.length > 1 ? 's' : '');
+                  imageChip.style.display = 'block';
+                }
+              };
+              reader.readAsDataURL(file);
+            })(files[i], i);
+          }
+        });
+
+        imageChipRemove.addEventListener('click', function() {
+          pendingImages = [];
+          imageFileInput.value = '';
+          imageChip.style.display = 'none';
         });
 
         // ── Helpers ──
@@ -1261,6 +1307,9 @@ function renderChatPage(): string {
             payload.pdfBase64 = pendingPdfBase64;
             payload.pdfFilename = pendingPdfFilename;
           }
+          if (pendingImages.length > 0) {
+            payload.images = pendingImages.map(function(img) { return { base64: img.base64, filename: img.filename }; });
+          }
 
           fetch('/dashboard/chat', {
             method: 'POST',
@@ -1278,13 +1327,20 @@ function renderChatPage(): string {
             pdfFileInput.value = '';
             pdfChip.style.display = 'none';
           }
+          // Clear image state after send
+          if (pendingImages.length > 0) {
+            pendingImages = [];
+            imageFileInput.value = '';
+            imageChip.style.display = 'none';
+          }
         }
 
         sendBtn.addEventListener('click', function() {
           var text = inputEl.value.trim();
-          if (!text && !pendingPdfBase64) return;
+          if (!text && !pendingPdfBase64 && pendingImages.length === 0) return;
           var displayText = text || '';
           if (pendingPdfFilename) displayText = (displayText ? displayText + ' ' : '') + '📄 ' + pendingPdfFilename;
+          if (pendingImages.length > 0) displayText = (displayText ? displayText + ' ' : '') + '🖼️ ' + pendingImages.length + ' image' + (pendingImages.length > 1 ? 's' : '');
           addBubble(displayText, 'inbound', 'text');
           sendMessage(text, null);
           inputEl.value = '';
@@ -1616,21 +1672,21 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/dashboard/chat', {
     config: { rawBody: true },
-    bodyLimit: 10 * 1024 * 1024, // 10MB for PDF uploads
+    bodyLimit: 50 * 1024 * 1024, // 50MB for multi-image uploads
   }, async (
-    request: FastifyRequest<{ Body: { body?: string; buttonId?: string; conversationId?: string; pdfBase64?: string; pdfFilename?: string } }>,
+    request: FastifyRequest<{ Body: { body?: string; buttonId?: string; conversationId?: string; pdfBase64?: string; pdfFilename?: string; images?: Array<{ base64: string; filename: string }> } }>,
     reply: FastifyReply,
   ) => {
-    const { body, buttonId, conversationId, pdfBase64, pdfFilename } = request.body as {
-      body?: string; buttonId?: string; conversationId?: string; pdfBase64?: string; pdfFilename?: string;
+    const { body, buttonId, conversationId, pdfBase64, pdfFilename, images } = request.body as {
+      body?: string; buttonId?: string; conversationId?: string; pdfBase64?: string; pdfFilename?: string; images?: Array<{ base64: string; filename: string }>;
     };
 
-    if (!body && !buttonId && !pdfBase64) {
-      return reply.status(400).send({ error: 'body, buttonId, or pdfBase64 required' });
+    if (!body && !buttonId && !pdfBase64 && (!images || images.length === 0)) {
+      return reply.status(400).send({ error: 'body, buttonId, pdfBase64, or images required' });
     }
 
     let messageBody = body || buttonId || '';
-    const messageType: 'text' | 'button' = buttonId ? 'button' : 'text';
+    const messageType: 'text' | 'button' | 'image' = buttonId ? 'button' : (images && images.length > 0) ? 'image' : 'text';
 
     // Handle PDF attachment
     if (pdfBase64) {
@@ -1655,8 +1711,33 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       }
     }
 
+    // Handle image attachments — save to storage/uploads/
+    let imagePaths: string[] | undefined;
+    if (images && images.length > 0) {
+      const uploadsDir = 'storage/uploads';
+      mkdirSync(uploadsDir, { recursive: true });
+      imagePaths = [];
+
+      for (const img of images) {
+        try {
+          const imgBuffer = Buffer.from(img.base64, 'base64');
+          const safeName = (img.filename || 'image.jpg').replace(/[^a-zA-Z0-9._-]/g, '_');
+          const savedPath = `${uploadsDir}/${randomUUID()}-${safeName}`;
+          writeFileSync(savedPath, imgBuffer);
+          imagePaths.push(savedPath);
+          logger.info({ filename: safeName, savedPath, bytes: imgBuffer.length }, 'Image saved from dashboard upload');
+        } catch (err) {
+          logger.error({ err, filename: img.filename }, 'Image save failed');
+        }
+      }
+
+      if (imagePaths.length === 0) {
+        return reply.status(400).send({ error: 'All image uploads failed' });
+      }
+    }
+
     // Build a synthetic IncomingWhatsAppMessage with optional conversationId
-    const syntheticMsg: IncomingWhatsAppMessage & { conversationId?: string } = {
+    const syntheticMsg: IncomingWhatsAppMessage & { conversationId?: string; imageMessages?: IncomingWhatsAppMessage[] } = {
       waMessageId: `dash-in-${Date.now()}`,
       from: 'dashboard',
       timestamp: String(Math.floor(Date.now() / 1000)),
@@ -1666,12 +1747,30 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
       ...(conversationId ? { conversationId } : {}),
     };
 
+    // If images were uploaded, build image messages for the handler
+    if (imagePaths && imagePaths.length > 0) {
+      syntheticMsg.isPartOfImageGroup = imagePaths.length > 1;
+      syntheticMsg.imageGroupId = `dash-img-${Date.now()}`;
+      // For dashboard images, we don't need mediaId — images are already saved to disk
+      // Pass paths through imageMessages so handleDirectRequest can pick them up
+      syntheticMsg.imageMessages = imagePaths.map((path, i) => ({
+        waMessageId: `dash-img-${Date.now()}-${i}`,
+        from: 'dashboard',
+        timestamp: String(Math.floor(Date.now() / 1000)),
+        type: 'image' as const,
+        body: i === 0 ? messageBody : '',
+        // mediaId is not needed since files are already on disk
+        // Store the local path in a way handleDirectRequest can use
+        _localPath: path,
+      })) as unknown as IncomingWhatsAppMessage[];
+    }
+
     // Process asynchronously (don't block the response)
     handleIncomingMessage(syntheticMsg).catch((err) => {
       logger.error({ err }, 'Dashboard chat message handler error');
     });
 
-    return reply.send({ ok: true });
+    return reply.send({ ok: true, imagePaths });
   });
 
   // ─── Chat API: Message History ──────────────────────────────────────────────

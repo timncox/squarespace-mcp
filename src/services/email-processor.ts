@@ -1,6 +1,8 @@
+import { readFileSync } from 'fs';
 import { fetchNewMessages, downloadAttachment, markAsRead, type GmailMessage } from './gmail.js';
 import { parseEmail, type ParsedEmail } from './email-parser.js';
 import { extractTasks, type ExtractionResult } from './task-extractor.js';
+import { extractPdfText } from './pdf-extractor.js';
 import { storeEmail, getEmailByGmailId, markEmailProcessed } from '../db/emails.js';
 import { createTask, type CreateTaskInput } from '../db/tasks.js';
 import { recordAttachment } from './file-manager.js';
@@ -79,7 +81,8 @@ export async function processEmail(message: GmailMessage): Promise<ProcessingRes
 
   logAction(null, 'email_received', `Subject: ${parsed.subject}, From: ${parsed.originalSenderEmail || parsed.forwarderEmail}`);
 
-  // 3. Download attachments
+  // 3. Download attachments + extract PDF text
+  const pdfTexts: Record<string, { text: string; numPages: number }> = {};
   for (const attachment of parsed.attachments) {
     try {
       const filePath = await downloadAttachment(
@@ -88,9 +91,26 @@ export async function processEmail(message: GmailMessage): Promise<ProcessingRes
         attachment.filename,
       );
       recordAttachment(storedEmail.id, attachment.filename, filePath, attachment.mimeType);
+
+      // Extract text from PDF attachments
+      if (attachment.mimeType === 'application/pdf') {
+        try {
+          const buffer = readFileSync(filePath);
+          const { text, numPages } = await extractPdfText(buffer);
+          pdfTexts[attachment.filename] = { text, numPages };
+          logger.info({ filename: attachment.filename, numPages, textLength: text.length }, 'PDF text extracted');
+        } catch (pdfErr) {
+          logger.warn({ filename: attachment.filename, ...errContext(pdfErr) }, 'Failed to extract text from PDF (may be scanned/image-only)');
+        }
+      }
     } catch (err) {
       logger.error({ filename: attachment.filename, ...errContext(err) }, 'Failed to download attachment');
     }
+  }
+
+  // Attach extracted PDF texts to parsed email for task extraction
+  if (Object.keys(pdfTexts).length > 0) {
+    parsed.pdfTexts = pdfTexts;
   }
 
   // 4. Extract tasks via Claude (with 1 retry on failure)

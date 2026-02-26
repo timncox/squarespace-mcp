@@ -47,6 +47,15 @@ export interface MediaUploadResult {
   failureReason?: string;
 }
 
+export interface BatchUploadResult {
+  originalPath: string;
+  success: boolean;
+  assetUrl?: string;
+  assetId?: string;
+  jobId?: string;
+  error?: string;
+}
+
 export interface MediaLibraryUsage {
   IMAGE: { count: number; limits: { count: number } };
   VIDEO: { count: number; durationSeconds: number; limits: { durationSeconds: number; count: number } };
@@ -395,6 +404,75 @@ export class MediaUploadClient {
 
     // Poll for completion
     return this.pollUploadStatus(uploadResult.jobId);
+  }
+
+  /**
+   * Upload multiple images in parallel with concurrency limiting.
+   * Returns results in the same order as the input array.
+   * Handles partial failures — some may succeed while others fail.
+   *
+   * @param filePaths Array of absolute paths to image files
+   * @param concurrency Max parallel uploads (default 3)
+   */
+  async uploadImages(
+    filePaths: string[],
+    concurrency = 3,
+  ): Promise<BatchUploadResult[]> {
+    if (filePaths.length === 0) return [];
+
+    await this.ensureAuthorized();
+
+    logger.info(
+      { count: filePaths.length, concurrency, libraryId: this.libraryId },
+      'Starting batch image upload',
+    );
+
+    // Pre-allocate results array to preserve order
+    const results: BatchUploadResult[] = new Array(filePaths.length);
+    let nextIndex = 0;
+
+    // Promise pool pattern — run up to `concurrency` uploads at once
+    const workers: Promise<void>[] = [];
+    for (let w = 0; w < Math.min(concurrency, filePaths.length); w++) {
+      workers.push(
+        (async () => {
+          while (true) {
+            const idx = nextIndex++;
+            if (idx >= filePaths.length) break;
+
+            const filePath = filePaths[idx];
+            try {
+              const uploadResult = await this.uploadImage(filePath);
+              results[idx] = {
+                originalPath: filePath,
+                success: uploadResult.status === 'success',
+                assetUrl: uploadResult.assetUrl,
+                assetId: uploadResult.assetId,
+                jobId: uploadResult.jobId,
+                error: uploadResult.failureReason,
+              };
+            } catch (err) {
+              results[idx] = {
+                originalPath: filePath,
+                success: false,
+                error: err instanceof Error ? err.message : String(err),
+              };
+            }
+          }
+        })(),
+      );
+    }
+
+    await Promise.all(workers);
+
+    const succeeded = results.filter((r) => r.success).length;
+    const failed = results.filter((r) => !r.success).length;
+    logger.info(
+      { total: filePaths.length, succeeded, failed },
+      'Batch image upload completed',
+    );
+
+    return results;
   }
 
   // ── Private Methods ──────────────────────────────────────────────────────

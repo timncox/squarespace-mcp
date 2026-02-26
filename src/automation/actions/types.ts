@@ -34,6 +34,8 @@ export type AgentAction =
   | { action: 'moveSectionDown'; searchText: string }
   | { action: 'replaceImage'; searchText: string; imagePath: string; altText?: string }
   | { action: 'addImageBlock'; imagePath: string; altText?: string }
+  | { action: 'addGalleryBlock'; imagePaths: string[]; altTexts?: string[]; galleryStyle?: 'grid' | 'slideshow' | 'collage' }
+  | { action: 'addButtonBlock'; label: string; url: string; size?: 'small' | 'medium' | 'large'; style?: 'primary' | 'secondary' | 'tertiary'; alignment?: 'left' | 'center' | 'right' }
   | { action: 'createPage'; title: string; slug?: string; template?: string }
   | { action: 'deletePage'; title: string }
   | { action: 'editSectionStyle'; searchText: string; backgroundColor?: string; backgroundImage?: string; sectionTheme?: string; sectionHeight?: 'auto' | 'small' | 'medium' | 'large' | 'full'; contentWidth?: 'inset' | 'full'; verticalAlignment?: 'top' | 'middle' | 'bottom'; overlayOpacity?: number; sectionPadding?: 'none' | 'small' | 'medium' | 'large'; blockSpacing?: 'none' | 'small' | 'medium' | 'large' }
@@ -43,7 +45,7 @@ export type AgentAction =
   | { action: 'createBlogPost'; blogPageSlug: string; title: string; content?: string; draft?: boolean }
   | { action: 'moveBlockInSection'; searchText: string; position: 'up' | 'down' | 'left' | 'right' }
   | { action: 'resizeBlock'; searchText: string; width?: 'smaller' | 'larger' | 'full'; height?: 'shorter' | 'taller' }
-  | { action: 'editMenuBlock'; searchText: string; newContent: string }
+  | { action: 'editMenuBlock'; searchText: string; newContent: string; merge?: boolean }
   | { action: 'editQuoteBlock'; searchText: string; quote: string; attribution?: string }
   | { action: 'editCodeBlock'; searchText: string; code: string }
   | { action: 'done'; summary: string }

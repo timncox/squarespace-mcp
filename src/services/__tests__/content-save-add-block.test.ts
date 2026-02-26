@@ -803,9 +803,9 @@ describe('ContentSaveClient — addTextBlock', () => {
       // Auto X: starts at 1, spans 12 columns
       expect(newBlock.layout.desktop.start.x).toBe(1);
       expect(newBlock.layout.desktop.end.x).toBe(13);
-      // Auto Y: stacks below existing block at y=3, with default gapRows=0
-      expect(newBlock.layout.desktop.start.y).toBe(3); // 3 (maxY) + 0 (gapRows default)
-      expect(newBlock.layout.desktop.end.y).toBe(6); // 3 + 3 (default rowHeight)
+      // Auto Y: stacks below existing block at y=3, with default gapRows=2
+      expect(newBlock.layout.desktop.start.y).toBe(5); // 3 (maxY) + 2 (gapRows default)
+      expect(newBlock.layout.desktop.end.y).toBe(8); // 5 + 3 (default rowHeight)
 
       fetchSpy.mockRestore();
     });
@@ -833,9 +833,9 @@ describe('ContentSaveClient — addTextBlock', () => {
       // Full width
       expect(newBlock.layout.desktop.start.x).toBe(1);
       expect(newBlock.layout.desktop.end.x).toBe(25);
-      // Auto Y: below existing block at y=3, with gapRows=0 (default)
-      expect(newBlock.layout.desktop.start.y).toBe(3); // 3 + 0
-      expect(newBlock.layout.desktop.end.y).toBe(6); // 3 + 3
+      // Auto Y: below existing block at y=3, with gapRows=2 (default when blocks exist)
+      expect(newBlock.layout.desktop.start.y).toBe(5); // 3 + 2
+      expect(newBlock.layout.desktop.end.y).toBe(8); // 5 + 3
 
       fetchSpy.mockRestore();
     });

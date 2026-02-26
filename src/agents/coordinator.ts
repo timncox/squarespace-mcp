@@ -10,7 +10,8 @@
 import type { Page } from 'playwright';
 import type { Task } from '../models/task.js';
 import type { Conversation } from '../models/conversation.js';
-import type { ContentPlan, ContentOperation, ResearchResult, SiteAnalysis, PageStructure, BlockSummary, SectionSummary } from './types.js';
+import type { ContentPlan, ContentOperation, ResearchResult, SiteAnalysis, PageStructure, BlockSummary, SectionSummary, SectionDesignProperties } from './types.js';
+import { extractTextStyles, extractGridSpan, extractLinks, extractSectionDesign } from '../services/design-property-extractor.js';
 import { runResearchAgent } from './research-agent.js';
 import { visitProjectUrls } from './url-researcher.js';
 import { runSiteAnalystAgent } from './site-analyst-agent.js';
@@ -510,6 +511,17 @@ export function summarizePageSections(
 
       const summary: BlockSummary = { type: typeName };
 
+      // Extract grid span for all blocks
+      const gridSpan = extractGridSpan(gc);
+      if (gridSpan) {
+        summary.gridSpan = gridSpan;
+      }
+
+      // Check visibility (hidden on desktop)
+      if (gc.layout?.desktop?.visible === false) {
+        summary.visible = false;
+      }
+
       if (blockType === 2 && blockValue) {
         // Text block: extract snippet from HTML source
         const html = (blockValue as { source?: string; html?: string }).source
@@ -521,15 +533,34 @@ export function summarizePageSections(
             ? stripped.substring(0, TEXT_SNIPPET_LENGTH) + '...'
             : stripped;
         }
+
+        // Extract text styles and links from HTML
+        const textStyles = extractTextStyles(html);
+        if (Object.keys(textStyles).length > 0) {
+          summary.textStyles = textStyles;
+        }
+        const links = extractLinks(html);
+        if (links.length > 0) {
+          summary.links = links;
+        }
       } else if (blockType === 1337 && blockValue) {
-        // Image block: extract alt text / title
-        const imgVal = blockValue as { title?: string; description?: string; altText?: string };
+        // Image block: extract alt text / title + subtitle + linkTo
+        const imgVal = blockValue as { title?: string; description?: string; altText?: string; subtitle?: string; linkTo?: string };
         summary.imageAlt = imgVal.altText ?? imgVal.title ?? imgVal.description ?? undefined;
+        if (imgVal.subtitle) {
+          summary.imageSubtitle = imgVal.subtitle;
+        }
+        if (imgVal.linkTo) {
+          summary.imageLinkTo = imgVal.linkTo;
+        }
       } else if (blockValue) {
         // Button or other block with text/label
-        const val = blockValue as { text?: string; label?: string };
+        const val = blockValue as { text?: string; label?: string; url?: string; link?: string };
         if (val.label) {
           summary.buttonLabel = val.label;
+        }
+        if (val.url || val.link) {
+          summary.buttonUrl = val.url ?? val.link;
         }
         if (val.text) {
           summary.textSnippet = val.text.length > TEXT_SNIPPET_LENGTH
@@ -541,13 +572,22 @@ export function summarizePageSections(
       blocks.push(summary);
     }
 
-    return {
+    // Extract section-level design properties
+    const design = extractSectionDesign(section);
+
+    const sectionResult: SectionSummary = {
       id: section.id,
       index,
       name: section.sectionName ?? `Section ${index + 1}`,
       blockCount: gridContents.length,
       blocks,
     };
+
+    if (design) {
+      sectionResult.design = design;
+    }
+
+    return sectionResult;
   });
 
   return {

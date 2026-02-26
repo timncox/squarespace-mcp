@@ -305,6 +305,149 @@ describe('summarizePageSections', () => {
   });
 });
 
+// ── Design property extraction in summarizePageSections ──────────────────────
+
+describe('summarizePageSections — design properties', () => {
+  it('extracts text styles from text blocks', () => {
+    const sections = [
+      makeSection({
+        fluidEngineContext: {
+          gridContents: [
+            makeTextBlock('<h2 style="text-align:center;color:#333;">Our Menu</h2>'),
+          ],
+        },
+      }),
+    ];
+
+    const result = summarizePageSections(sections);
+    const block = result.sections[0].blocks[0];
+    expect(block.textStyles).toBeDefined();
+    expect(block.textStyles!.headingTag).toBe('h2');
+    expect(block.textStyles!.alignment).toBe('center');
+    expect(block.textStyles!.color).toBe('#333');
+  });
+
+  it('extracts grid span from block layout', () => {
+    const sections = [
+      makeSection({
+        fluidEngineContext: {
+          gridContents: [
+            makeTextBlock('<p>Half width</p>'),  // default layout: x:1-24
+          ],
+        },
+      }),
+    ];
+
+    const result = summarizePageSections(sections);
+    const block = result.sections[0].blocks[0];
+    expect(block.gridSpan).toBeDefined();
+    expect(block.gridSpan!.columns).toBe(23);  // 24 - 1
+    expect(block.gridSpan!.startX).toBe(1);
+    expect(block.gridSpan!.endX).toBe(24);
+  });
+
+  it('extracts links from text block HTML', () => {
+    const sections = [
+      makeSection({
+        fluidEngineContext: {
+          gridContents: [
+            makeTextBlock('<p>Visit <a href="https://example.com">our site</a> for more.</p>'),
+          ],
+        },
+      }),
+    ];
+
+    const result = summarizePageSections(sections);
+    const block = result.sections[0].blocks[0];
+    expect(block.links).toHaveLength(1);
+    expect(block.links![0].text).toBe('our site');
+    expect(block.links![0].href).toBe('https://example.com');
+  });
+
+  it('extracts image subtitle and linkTo', () => {
+    const sections = [
+      makeSection({
+        fluidEngineContext: {
+          gridContents: [
+            {
+              layout: {
+                desktop: { start: { x: 1, y: 1 }, end: { x: 12, y: 8 } },
+                mobile: { start: { x: 1, y: 1 }, end: { x: 12, y: 8 } },
+              },
+              content: {
+                value: {
+                  id: 'img-sub',
+                  type: 1337,
+                  value: {
+                    title: 'Chef photo',
+                    altText: 'Chef Maria',
+                    subtitle: 'Photo by John Smith',
+                    linkTo: '/about-chef',
+                  },
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ];
+
+    const result = summarizePageSections(sections);
+    const block = result.sections[0].blocks[0];
+    expect(block.imageAlt).toBe('Chef Maria');
+    expect(block.imageSubtitle).toBe('Photo by John Smith');
+    expect(block.imageLinkTo).toBe('/about-chef');
+  });
+
+  it('extracts section design properties', () => {
+    const sections: PageSection[] = [
+      {
+        id: 'sec-dark',
+        sectionName: 'Dark Hero',
+        sectionTheme: 'Dark',
+        sectionHeight: 'large',
+        contentWidth: 'inset',
+        fluidEngineContext: {
+          gridContents: [],
+        },
+      } as unknown as PageSection,
+    ];
+
+    const result = summarizePageSections(sections);
+    expect(result.sections[0].design).toBeDefined();
+    expect(result.sections[0].design!.theme).toBe('Dark');
+    expect(result.sections[0].design!.sectionHeight).toBe('large');
+    expect(result.sections[0].design!.contentWidth).toBe('inset');
+  });
+
+  it('marks hidden blocks with visible=false', () => {
+    const sections = [
+      makeSection({
+        fluidEngineContext: {
+          gridContents: [
+            {
+              layout: {
+                desktop: { start: { x: 1, y: 1 }, end: { x: 24, y: 4 }, visible: false },
+                mobile: { start: { x: 1, y: 1 }, end: { x: 12, y: 4 } },
+              },
+              content: {
+                value: {
+                  id: 'hidden-block',
+                  type: 2,
+                  value: { source: '<p>Hidden text</p>', html: '<p>Hidden text</p>' },
+                },
+              },
+            },
+          ],
+        },
+      }),
+    ];
+
+    const result = summarizePageSections(sections);
+    expect(result.sections[0].blocks[0].visible).toBe(false);
+  });
+});
+
 // ── PageStructure type tests ────────────────────────────────────────────────
 
 describe('PageStructure types', () => {

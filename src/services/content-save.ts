@@ -34,6 +34,10 @@ const USER_AGENT =
 const BLOCK_TYPE_TEXT = 2;
 // Image block type
 const BLOCK_TYPE_IMAGE = 1337;
+// Button block type
+const BLOCK_TYPE_BUTTON = 46;
+// Menu block type
+const BLOCK_TYPE_MENU = 18;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -132,6 +136,44 @@ export interface TextBlockAddResult {
   error?: string;
 }
 
+/** Result of adding a button block to a section */
+export interface ButtonBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of adding an image block to a section */
+export interface ImageBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of batch-adding image blocks to a section */
+export interface ImageBlockBatchResult {
+  success: boolean;
+  blocks: Array<{ blockId: string; assetUrl: string }>;
+  sectionId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of updating a button block */
+export interface ButtonBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  oldLabel?: string;
+  newLabel?: string;
+  oldUrl?: string;
+  newUrl?: string;
+  error?: string;
+}
+
 /** Result of filling a placeholder text block in a section */
 export interface FillBlockResult {
   success: boolean;
@@ -223,6 +265,18 @@ export interface ContentSaveResult {
   pageSectionsId: string;
   collectionId: string;
   sectionsCount: number;
+  error?: string;
+}
+
+/** Result of a menu block update operation */
+export interface MenuBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  sectionId?: string;
+  oldTabCount?: number;
+  newTabCount?: number;
+  oldItemCount?: number;
+  newItemCount?: number;
   error?: string;
 }
 
@@ -974,6 +1028,33 @@ export class ContentSaveClient {
           for (const field of fields) {
             if (this.stripHtml(String(field)).toLowerCase().includes(needle)) {
               return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+            }
+          }
+        }
+
+        // Menu blocks (type 18): match raw text, tab titles, section titles, item titles
+        if (bv.type === BLOCK_TYPE_MENU) {
+          const menuVal = bv.value;
+          // Search raw text field
+          if (menuVal?.raw && String(menuVal.raw).toLowerCase().includes(needle)) {
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+          // Search structured menus
+          if (menuVal?.menus && Array.isArray(menuVal.menus)) {
+            for (const tab of menuVal.menus) {
+              if (tab.title?.toLowerCase().includes(needle)) {
+                return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+              }
+              for (const sec of tab.sections || []) {
+                if (sec.title?.toLowerCase().includes(needle)) {
+                  return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+                }
+                for (const item of sec.items || []) {
+                  if (item.title?.toLowerCase().includes(needle)) {
+                    return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+                  }
+                }
+              }
             }
           }
         }
@@ -2227,6 +2308,556 @@ export class ContentSaveClient {
     }
   }
 
+  // ── Button Block Operations ────────────────────────────────────────────
+
+  /**
+   * Add a button block to a section via Content Save API.
+   * Same grid positioning logic as addTextBlock().
+   *
+   * Default button size: 7 columns wide (x: 1–8), 2 rows tall.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param label           Button display text
+   * @param url             Button link URL
+   * @param layout          Optional layout overrides (same as addTextBlock)
+   */
+  async addButtonBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    label: string,
+    url: string,
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    },
+  ): Promise<ButtonBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      // Default button: 7 columns wide, 2 rows tall
+      const rowHeight = layout?.rowHeight ?? 2;
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? 7;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and create GridContent
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: {
+            id: blockId,
+            type: BLOCK_TYPE_BUTTON,
+            value: { label, url },
+          },
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, label, url, position: { startX, startY, endX, endY } },
+        'Adding button block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionId: section.id, sectionIndex };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update a button block's label and/or URL.
+   * Uses findBlock() which matches on `value.label`.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param searchText      Text to find the button by (matches label)
+   * @param updates         Fields to update: newLabel and/or url
+   */
+  async updateButtonBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    updates: { newLabel?: string; url?: string },
+  ): Promise<ButtonBlockUpdateResult> {
+    if (!updates.newLabel && !updates.url) {
+      return { success: false, error: 'Must provide at least newLabel or url to update' };
+    }
+
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the button block
+      const match = this.findBlock(data.sections, searchText);
+      if (!match) {
+        return { success: false, error: `No block found matching "${searchText}"` };
+      }
+
+      const { gridContent } = match;
+      const blockValue = gridContent.content.value;
+
+      // Step 3: Verify block type is button (46)
+      if (blockValue.type !== BLOCK_TYPE_BUTTON) {
+        return {
+          success: false,
+          error: `Block "${searchText}" is type ${blockValue.type}, not a button block (expected ${BLOCK_TYPE_BUTTON})`,
+        };
+      }
+
+      const blockId = blockValue.id;
+      const oldLabel = blockValue.value?.label as string | undefined;
+      const oldUrl = blockValue.value?.url as string | undefined;
+
+      // Ensure value sub-object exists
+      if (!blockValue.value) {
+        blockValue.value = {};
+      }
+
+      // Step 4: Update provided fields
+      if (updates.newLabel !== undefined) {
+        blockValue.value.label = updates.newLabel;
+      }
+      if (updates.url !== undefined) {
+        blockValue.value.url = updates.url;
+      }
+
+      logger.info(
+        { blockId, searchText, oldLabel, newLabel: updates.newLabel, oldUrl, newUrl: updates.url },
+        'Updating button block via Content Save API',
+      );
+
+      // Step 5: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return {
+        success: true,
+        blockId,
+        oldLabel,
+        newLabel: updates.newLabel ?? oldLabel,
+        oldUrl,
+        newUrl: updates.url ?? oldUrl,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Image Block Operations ────────────────────────────────────────────
+
+  /**
+   * Add an image block to a section via Content Save API.
+   * Same grid positioning logic as addTextBlock/addButtonBlock.
+   *
+   * Default image size: 12 columns wide, 8 rows tall.
+   *
+   * The `assetUrl` is stored at `content.value.value.assetUrl` — this is the
+   * URL returned by MediaUploadClient after uploading an image to Squarespace's
+   * media library. The block also stores optional metadata (altText, title,
+   * description, subtitle, linkTo) following the same structure as updateImageBlock.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param assetUrl        Image asset URL (from MediaUploadClient upload)
+   * @param options         Optional metadata and layout overrides
+   */
+  async addImageBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    assetUrl: string,
+    options?: {
+      altText?: string;
+      title?: string;
+      description?: string;
+      subtitle?: string;
+      linkTo?: string;
+      layout?: {
+        columns?: number;
+        rowHeight?: number;
+        gapRows?: number;
+        startX?: number;
+        endX?: number;
+        startY?: number;
+        endY?: number;
+      };
+    },
+  ): Promise<ImageBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+      const layout = options?.layout;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      // Default image: 12 columns wide, 8 rows tall
+      const rowHeight = layout?.rowHeight ?? 8;
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? 12;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and create GridContent
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      const imageValue: Record<string, unknown> = {
+        assetUrl,
+        layout: 'caption-below',
+        linkTo: options?.linkTo ?? '',
+      };
+      if (options?.title !== undefined) imageValue.title = options.title;
+      if (options?.description !== undefined) imageValue.description = options.description;
+      if (options?.subtitle !== undefined) imageValue.subtitle = options.subtitle;
+
+      const blockContent: Record<string, unknown> = {
+        id: blockId,
+        type: BLOCK_TYPE_IMAGE,
+        value: imageValue,
+      };
+      if (options?.altText !== undefined) blockContent.altText = options.altText;
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: blockContent as GridContent['content']['value'],
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, assetUrl, position: { startX, startY, endX, endY } },
+        'Adding image block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionId: section.id, sectionIndex };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Batch-add multiple image blocks to a section in a single GET+PUT cycle.
+   * More efficient than calling addImageBlock() N times (N GETs + N PUTs → 1 GET + 1 PUT).
+   *
+   * Images are stacked vertically by default, each below the previous one.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param images          Array of image specs to add
+   */
+  async addImageBlockBatch(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    images: Array<{
+      assetUrl: string;
+      altText?: string;
+      title?: string;
+      layout?: {
+        columns?: number;
+        rowHeight?: number;
+        gapRows?: number;
+        startX?: number;
+        endX?: number;
+        startY?: number;
+        endY?: number;
+      };
+    }>,
+  ): Promise<ImageBlockBatchResult> {
+    if (images.length === 0) {
+      return { success: false, blocks: [], error: 'No images provided' };
+    }
+
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, blocks: [], error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, blocks: [], error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Track max Y across all existing blocks
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      let maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+
+      const addedBlocks: Array<{ blockId: string; assetUrl: string }> = [];
+
+      // Step 3: Create and push each image block
+      for (let idx = 0; idx < images.length; idx++) {
+        const img = images[idx];
+        const layout = img.layout;
+
+        const rowHeight = layout?.rowHeight ?? 8;
+        const gapRows = layout?.gapRows ?? ((gridContents.length > addedBlocks.length ? addedBlocks.length > 0 : false) || gridContents.length > 0 ? 2 : 0);
+        const effectiveGap = (idx === 0 && gridContents.length - addedBlocks.length === 0) ? 0 : gapRows;
+
+        let startX: number;
+        let endX: number;
+        let startY: number;
+        let endY: number;
+
+        if (layout?.startX != null && layout?.endX != null) {
+          startX = Math.max(1, layout.startX);
+          endX = Math.min(maxColumns + 1, layout.endX);
+        } else {
+          const cols = layout?.columns ?? 12;
+          startX = 1;
+          endX = Math.min(startX + cols, maxColumns + 1);
+        }
+
+        if (layout?.startY != null && layout?.endY != null) {
+          startY = Math.max(0, layout.startY);
+          endY = layout.endY;
+        } else {
+          startY = maxY + effectiveGap;
+          endY = startY + rowHeight;
+        }
+
+        const blockId = ContentSaveClient.generateBlockId();
+        maxZ += 1;
+
+        const newBlock: GridContent = {
+          layout: {
+            mobile: { start: { x: 1, y: maxMobileY + effectiveGap }, end: { x: 9, y: maxMobileY + effectiveGap + rowHeight }, visible: true, verticalAlignment: 'top', zIndex: maxZ },
+            desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex: maxZ },
+          },
+          content: {
+            value: {
+              id: blockId,
+              type: BLOCK_TYPE_IMAGE,
+              value: {
+                assetUrl: img.assetUrl,
+                layout: 'caption-below',
+                linkTo: '',
+                ...(img.title !== undefined ? { title: img.title } : {}),
+              },
+              ...(img.altText !== undefined ? { altText: img.altText } : {}),
+            } as GridContent['content']['value'],
+          },
+        };
+
+        gridContents.push(newBlock);
+        addedBlocks.push({ blockId, assetUrl: img.assetUrl });
+
+        // Update running maxY for next block
+        maxY = endY;
+        maxMobileY = maxMobileY + effectiveGap + rowHeight;
+      }
+
+      logger.info(
+        { sectionIndex, sectionId: section.id, imageCount: images.length, blockIds: addedBlocks.map(b => b.blockId) },
+        'Batch-adding image blocks via Content Save API',
+      );
+
+      // Step 4: PUT the modified sections (single write for all blocks)
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, blocks: [], error: saveResult.error };
+      }
+
+      return { success: true, blocks: addedBlocks, sectionId: section.id, sectionIndex };
+    } catch (err) {
+      return { success: false, blocks: [], error: errMsg(err) };
+    }
+  }
+
   // ── Fill Placeholder Block ──────────────────────────────────────────────
 
   /**
@@ -2321,6 +2952,134 @@ export class ContentSaveClient {
       return {
         success: false,
         error: `Section ${sectionIndex} has ${textBlockCount} text block(s) but all have content longer than 50 chars`,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Menu Block Methods ─────────────────────────────────────────────────
+
+  /**
+   * Find a menu block (type 18) in sections by searching text.
+   * Returns the block value with menus/raw/menuStyle/currencySymbol, or null.
+   */
+  findMenuBlock(
+    sections: PageSection[],
+    searchText: string,
+  ): {
+    section: PageSection;
+    gridContent: GridContent;
+    sectionIndex: number;
+    blockIndex: number;
+    menuValue: any;  // { menus, raw, menuStyle, currencySymbol, ... }
+  } | null {
+    const found = this.findBlock(sections, searchText);
+    if (!found) return null;
+
+    const bv = found.gridContent.content.value;
+    if (bv.type !== BLOCK_TYPE_MENU) return null;
+
+    return {
+      ...found,
+      menuValue: bv.value,
+    };
+  }
+
+  /**
+   * Read the current state of a menu block from a page.
+   * Returns the menus array, menuStyle, currencySymbol, and blockId.
+   */
+  async getMenuBlock(
+    pageSectionsId: string,
+    searchText: string,
+  ): Promise<{
+    success: boolean;
+    menus?: any[];
+    menuStyle?: number;
+    currencySymbol?: string;
+    blockId?: string;
+    raw?: string;
+    error?: string;
+  }> {
+    try {
+      const data = await this.getPageSections(pageSectionsId);
+      const found = this.findMenuBlock(data.sections, searchText);
+      if (!found) {
+        return { success: false, error: `Menu block not found for searchText "${searchText}"` };
+      }
+      const mv = found.menuValue;
+      return {
+        success: true,
+        menus: mv.menus || [],
+        menuStyle: mv.menuStyle,
+        currencySymbol: mv.currencySymbol,
+        blockId: found.gridContent.content.value.id,
+        raw: mv.raw,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update a menu block's menus array via read-modify-write.
+   * Preserves menuStyle, currencySymbol, and any other unknown fields.
+   * Regenerates the `raw` field using serializeMenu().
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param searchText      Text to find the menu block
+   * @param newMenus        The new menus array (MenuTab[])
+   * @param options         Optional: { preserveRaw?: boolean } - if true, don't regenerate raw field
+   */
+  async updateMenuBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    newMenus: any[],
+    options?: { preserveRaw?: boolean },
+  ): Promise<MenuBlockUpdateResult> {
+    try {
+      const data = await this.getPageSections(pageSectionsId);
+      const found = this.findMenuBlock(data.sections, searchText);
+      if (!found) {
+        return { success: false, error: `Menu block not found for searchText "${searchText}"` };
+      }
+
+      const bv = found.gridContent.content.value;
+      const oldMenus = found.menuValue.menus || [];
+      const oldItemCount = oldMenus.reduce((sum: number, tab: any) =>
+        sum + (tab.sections || []).reduce((s: number, sec: any) => s + (sec.items || []).length, 0), 0);
+      const newItemCount = newMenus.reduce((sum: number, tab: any) =>
+        sum + (tab.sections || []).reduce((s: number, sec: any) => s + (sec.items || []).length, 0), 0);
+
+      // Update menus, preserve everything else (spread preserves unknown fields)
+      bv.value = {
+        ...bv.value,
+        menus: newMenus,
+      };
+
+      // Regenerate raw field unless told to preserve it
+      if (!options?.preserveRaw) {
+        const { serializeMenu } = await import('./menu-parser.js');
+        bv.value.raw = serializeMenu(newMenus);
+      }
+
+      // Save
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error || 'Save failed' };
+      }
+
+      return {
+        success: true,
+        blockId: bv.id,
+        sectionId: found.section.id,
+        oldTabCount: oldMenus.length,
+        newTabCount: newMenus.length,
+        oldItemCount,
+        newItemCount,
       };
     } catch (err) {
       return { success: false, error: errMsg(err) };
