@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { logger } from '../../utils/logger.js';
 import { errMsg } from '../../utils/errors.js';
 import { createMediaUploadClient } from '../../services/media-upload.js';
-import { createContentSaveClient, ContentSaveClient, type BlockMoveResult, type BlockResizeResult, type BlockRemoveResult, type SectionMoveResult, type ImageBlockUpdateResult, type TextBlockAddResult, type TextPatchResult, type MenuBlockUpdateResult } from '../../services/content-save.js';
+import { createContentSaveClient, ContentSaveClient, type BlockMoveResult, type BlockResizeResult, type BlockRemoveResult, type SectionMoveResult, type ImageBlockUpdateResult, type TextBlockAddResult, type TextPatchResult, type MenuBlockUpdateResult, type SectionStyleResult, type SectionStyleOptions } from '../../services/content-save.js';
 import type { ActionResult } from './types.js';
 
 /**
@@ -114,6 +114,12 @@ async function extractApiContext(
     logger.debug({ slug }, `${callerName}: could not get page IDs`);
     return null;
   }
+
+  // Cache page IDs for simple edit fast path
+  try {
+    const { cachePageIds } = await import('../../services/page-id-resolver.js');
+    cachePageIds(subdomain, slug, pageSectionsId, ids.collectionId);
+  } catch { /* non-blocking */ }
 
   return {
     subdomain,
@@ -698,6 +704,47 @@ export async function tryMenuBlockApi(
     return null;
   } catch (err) {
     logger.warn({ error: errMsg(err) }, 'Menu Block API failed');
+    return null;
+  }
+}
+
+/**
+ * Attempt to edit section style via the Content Save API (no UI).
+ * Replaces the 15-20 step browser agent UI automation with a single read-modify-write.
+ * Returns an ActionResult on success, null on failure. Never throws.
+ */
+export async function trySectionStyleApi(
+  page: Page,
+  searchText: string,
+  styles: SectionStyleOptions,
+): Promise<ActionResult | null> {
+  const ctx = await extractApiContext(page, 'trySectionStyleApi');
+  if (!ctx) return null;
+
+  try {
+    const result: SectionStyleResult = await ctx.client.editSectionStyle(
+      ctx.pageSectionsId,
+      ctx.collectionId,
+      searchText,
+      styles,
+    );
+
+    if (result.success) {
+      const fieldsStr = result.updatedFields?.join(', ') ?? 'unknown';
+      logger.info(
+        { sectionId: result.sectionId, sectionIndex: result.sectionIndex, updatedFields: result.updatedFields },
+        'Section Style API: section style updated successfully',
+      );
+      return {
+        success: true,
+        message: `editSectionStyle: Updated section style via Content Save API (section ${result.sectionId}, index ${result.sectionIndex}). Updated: ${fieldsStr}. Reload the page to see the change in the editor.`,
+      };
+    }
+
+    logger.warn({ error: result.error, searchText }, 'Section Style API: update failed');
+    return null;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'Section Style API failed');
     return null;
   }
 }

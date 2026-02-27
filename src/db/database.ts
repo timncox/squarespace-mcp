@@ -236,6 +236,18 @@ function migrate(db: Database.Database): void {
   // Phase 15 migrations — Multi-image support
   addColumnIfMissing(db, 'tasks', 'image_paths', 'TEXT');
 
+  // Phase 16 migrations — Page ID cache for simple edit fast path
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS page_id_cache (
+      subdomain TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      page_sections_id TEXT NOT NULL,
+      collection_id TEXT NOT NULL,
+      cached_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (subdomain, slug)
+    )
+  `);
+
   logger.debug('Database migrations applied');
 }
 

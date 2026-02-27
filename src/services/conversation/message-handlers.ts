@@ -100,7 +100,14 @@ export async function handleDirectRequest(msg: IncomingWhatsAppMessage & { image
       imagePaths = downloaded;
       referenceImagePath = downloaded[0]; // First image for backward compat
       try {
-        referenceImageBase64 = readFileSync(downloaded[0]).toString('base64');
+        const { statSync } = await import('fs');
+        const fileSize = statSync(downloaded[0]).size;
+        // Claude API has a 5MB limit for image inputs — skip if too large
+        if (fileSize <= 5 * 1024 * 1024) {
+          referenceImageBase64 = readFileSync(downloaded[0]).toString('base64');
+        } else {
+          logger.info({ fileSize, path: downloaded[0] }, 'Reference image exceeds 5MB — skipping base64 for interpretation');
+        }
       } catch { /* non-fatal */ }
       logger.info({ count: downloaded.length, imageGroupId: msg.imageGroupId }, 'Downloaded multi-image group');
     }
@@ -111,8 +118,14 @@ export async function handleDirectRequest(msg: IncomingWhatsAppMessage & { image
       const { downloadMedia } = await import('../whatsapp.js');
       referenceImagePath = await downloadMedia(msg.mediaId);
 
-      const { readFileSync } = await import('fs');
-      referenceImageBase64 = readFileSync(referenceImagePath).toString('base64');
+      const { readFileSync, statSync } = await import('fs');
+      const fileSize = statSync(referenceImagePath).size;
+      // Claude API has a 5MB limit for image inputs — skip if too large
+      if (fileSize <= 5 * 1024 * 1024) {
+        referenceImageBase64 = readFileSync(referenceImagePath).toString('base64');
+      } else {
+        logger.info({ fileSize, path: referenceImagePath }, 'Reference image exceeds 5MB — skipping base64 for interpretation');
+      }
 
       imagePaths = [referenceImagePath];
       logger.info({ mediaId: msg.mediaId, path: referenceImagePath }, 'Downloaded WhatsApp reference image');
@@ -286,7 +299,97 @@ export async function handleDirectRequest(msg: IncomingWhatsAppMessage & { image
   } catch (err) {
     const errorMessage = errMsg(err);
     logger.error({ error: errorMessage }, 'Failed to interpret WhatsApp request');
-    await sendToTim('Sorry, I had trouble understanding that request. Could you rephrase it?');
+    try {
+      await sendToTim('Sorry, I had trouble understanding that request. Could you rephrase it?');
+    } catch (sendErr) {
+      // If WhatsApp is down, at least push to dashboard SSE
+      logger.warn({ error: errMsg(sendErr) }, 'Could not send error reply via WhatsApp');
+      const { dashboardEvents } = await import('../dashboard-events.js');
+      dashboardEvents.emit('dashboard', {
+        type: 'message',
+        data: { body: 'Sorry, I had trouble understanding that request. Could you rephrase it?', direction: 'outbound' },
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+}
+
+// ─── Simple Edit Fast Path ──────────────────────────────────────────────────
+
+/**
+ * Attempt to classify and execute all tasks as simple edits via Content Save API.
+ * Returns a summary string if ALL tasks succeed, or null to fall through to the
+ * normal pipeline (planning → browser agent).
+ */
+export async function trySimpleEditFastPath(
+  conversation: Conversation,
+  tasks: Task[],
+): Promise<string | null> {
+  // Only attempt for conversations without existing plans
+  if (conversation.contentPlan) return null;
+
+  // No tasks → nothing to do
+  if (tasks.length === 0) return null;
+
+  // Don't attempt if tasks have images (likely need browser agent)
+  if (tasks.some(t => t.referenceImagePath || (t.imagePaths && t.imagePaths.length > 0))) return null;
+
+  try {
+    const { classifySimpleEdit } = await import('../simple-edit-classifier.js');
+
+    // Classify all tasks
+    const classifications = await Promise.all(
+      tasks.map(t => classifySimpleEdit(t))
+    );
+
+    // ALL tasks must be simple edits with high confidence
+    if (!classifications.every(c => c.isSimpleEdit && c.confidence === 'high')) {
+      const reasons = classifications
+        .filter(c => !c.isSimpleEdit || c.confidence !== 'high')
+        .map(c => c.reason);
+      logger.info({ reasons }, 'Simple edit fast path: not all tasks qualify');
+      return null;
+    }
+
+    logger.info(
+      { taskCount: tasks.length, editTypes: classifications.map(c => c.editType) },
+      'Simple edit fast path: all tasks classified as simple — executing via API'
+    );
+
+    // Execute all tasks via API
+    const { executeSimpleEdit } = await import('../simple-edit-executor.js');
+    const results: string[] = [];
+
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i];
+      const classification = classifications[i];
+
+      updateTaskStatus(task.id, 'executing');
+      logAction(task.id, 'simple_edit_start', `Fast path: ${classification.editType} on ${task.siteId}/${task.targetPage}`);
+
+      const result = await executeSimpleEdit(task, classification);
+
+      if (!result.success) {
+        // If any task fails, abort fast path — let normal pipeline handle everything
+        logger.warn(
+          { taskId: task.id, editType: result.editType, error: result.error },
+          'Simple edit fast path: execution failed — falling back to normal pipeline'
+        );
+        // Reset task statuses back to confirmed
+        for (const t of tasks) {
+          updateTaskStatus(t.id, 'confirmed');
+        }
+        return null;
+      }
+
+      results.push(`✓ ${result.summary} (${result.durationMs}ms)`);
+      logAction(task.id, 'simple_edit_done', result.summary);
+    }
+
+    return `⚡ Fast edit${tasks.length > 1 ? 's' : ''} complete:\n\n${results.join('\n')}`;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'Simple edit fast path: error — falling back to normal pipeline');
+    return null;
   }
 }
 
@@ -312,6 +415,22 @@ export async function handleConfirmation(conversation: Conversation, msg: Incomi
     // Check if any tasks need content planning (creative/vague tasks).
     // Pass the original message — the request interpreter may have stripped creative keywords.
     const tasks = conversation.taskIds.map((id) => getTask(id)).filter(Boolean) as Task[];
+
+    // === Simple Edit Fast Path ===
+    // Try to handle simple edits directly via Content Save API (~500ms each)
+    // instead of browser agent (~2-5 min each). Only for high-confidence classifications.
+    const simpleEditResult = await trySimpleEditFastPath(conversation, tasks);
+    if (simpleEditResult) {
+      // All tasks handled via API — skip browser agent entirely
+      updateConversationStatus(conversation.id, 'completed');
+      for (const taskId of conversation.taskIds) {
+        updateTaskStatus(taskId, 'done');
+      }
+      await sendToTim(simpleEditResult, conversation.id);
+      return;
+    }
+    // === End Simple Edit Fast Path ===
+
     const originalMsg = conversation.originalMessage;
     const needsPlanning = !skipPlanning && tasks.some((t) => taskNeedsContentPlanning(t, originalMsg));
 

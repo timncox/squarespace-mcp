@@ -262,6 +262,14 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
   // to help diagnose template drift issues.
   if (plan) {
     validatePlanTemplateIndexes(plan);
+    // Warn about template operations missing replacements — these will add
+    // sections with placeholder content that never gets customized
+    for (const op of plan.operations) {
+      if (op.content.contentStrategy === 'template' && !op.content.replacements) {
+        logger.warn({ placement: op.placement, templateCategory: op.content.templateCategory },
+          'Template operation missing replacements — will have placeholder content');
+      }
+    }
   }
 
   // ── Batching Gate ─────────────────────────────────────────────────────
@@ -283,13 +291,17 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
   }
 
   // ── Blank API operations: execute directly without browser agent ──────
-  // Skip if the plan includes a create_page operation — the page doesn't exist yet,
-  // so blank_api ops can't navigate to it. Let everything go through the browser agent
-  // in sequence (create page first, then add sections).
+  // Skip if the plan includes a create_page operation OR the task description
+  // indicates page creation — the page doesn't exist yet, so blank_api ops
+  // can't navigate to it. Let everything go through the browser agent in
+  // sequence (create page first, then add sections).
   if (plan) {
+    const primaryTaskForGate = conversation.taskIds.length > 0
+      ? getTask(conversation.taskIds[0])
+      : null;
     const hasPageCreation = plan.operations.some(op =>
       op.operationType === 'create_page' || op.targetPage === 'new',
-    );
+    ) || (primaryTaskForGate ? taskIsPageCreation(primaryTaskForGate) : false);
     const blankApiOps = hasPageCreation
       ? []  // defer to browser agent — page must be created first
       : plan.operations.filter(op => op.content.contentStrategy === 'blank_api');
@@ -299,6 +311,9 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
       const blankApiBrowserManager = getBrowserManager({ headless: true });
       const blankApiSessionId = `blank-api-${conversation.id}`;
       const blankApiSession = await blankApiBrowserManager.createSession(blankApiSessionId);
+      let blankApiSucceeded = 0;
+      let blankApiFailed = 0;
+      let blankApiCatastrophicFailure = false;
 
       try {
         await ensureLoggedIn(blankApiSession);
@@ -324,6 +339,41 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
             const { dashboardEvents } = await import('../../services/dashboard-events.js');
             const blankApiValidations: ValidationResult[] = [];
 
+            // Pre-extract page IDs once for all blank_api operations (avoids per-op DOM access)
+            let preExtractedPageSectionsId: string | undefined;
+            let preExtractedCollectionId: string | undefined;
+            try {
+              const siteFrame = page.frame({ name: 'sqs-site-frame' });
+              if (siteFrame) {
+                preExtractedPageSectionsId = await siteFrame.evaluate(() => {
+                  const article = document.querySelector('article[data-page-sections]');
+                  return article?.getAttribute('data-page-sections') ?? null;
+                }).catch(() => null) ?? undefined;
+              }
+              if (preExtractedPageSectionsId) {
+                const idsClient = createContentSaveClient(subdomain);
+                // Derive page slug from multiple sources — the operation's targetPage
+                // is most reliable, followed by iframe URL, then outer config URL
+                const opSlug = blankApiOps[0]?.targetPage ?? '';
+                const iframeSlug = page.frame({ name: 'sqs-site-frame' })?.url()
+                  .match(/squarespace\.com\/([^?#/]+)/)?.[1] ?? '';
+                const outerSlug = page.url().match(/squarespace\.com\/config\/pages\/([^/?#]+)/)?.[1] ?? '';
+                const slug = opSlug || iframeSlug || outerSlug || primaryTask.targetPage || '';
+                logger.info({ opSlug, iframeSlug, outerSlug, resolvedSlug: slug },
+                  'blank_api: resolving page slug for pre-extraction');
+                const pageIds = await idsClient.getPageIds(slug);
+                if (pageIds) {
+                  preExtractedCollectionId = pageIds.collectionId;
+                }
+                logger.info(
+                  { pageSectionsId: preExtractedPageSectionsId, collectionId: preExtractedCollectionId },
+                  'blank_api: pre-extracted page IDs for API-first section addition',
+                );
+              }
+            } catch (err) {
+              logger.warn({ error: errMsg(err) }, 'blank_api: failed to pre-extract page IDs (will extract per-op)');
+            }
+
             for (let i = 0; i < blankApiOps.length; i++) {
               const op = blankApiOps[i];
               const heading = op.content.heading ?? `Section ${i + 1}`;
@@ -343,7 +393,10 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
                 timestamp: new Date().toISOString(),
               });
 
-              const result = await executeBlankApiOperation(page, op, subdomain);
+              const result = await executeBlankApiOperation(page, op, subdomain, {
+                pageSectionsId: preExtractedPageSectionsId,
+                collectionId: preExtractedCollectionId,
+              });
 
               // Update tracked operation status
               if (trackedOp) {
@@ -352,6 +405,12 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
                   result.success ? 'succeeded' : 'failed',
                   result.success ? undefined : result.error,
                 );
+              }
+
+              if (result.success) {
+                blankApiSucceeded++;
+              } else {
+                blankApiFailed++;
               }
 
               dashboardEvents.emit('dashboard', {
@@ -408,31 +467,45 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
         }
       } catch (err) {
         logger.error({ error: errMsg(err) }, 'Failed to execute blank_api operations');
+        blankApiCatastrophicFailure = true;
       } finally {
         await blankApiSession.close();
       }
 
-      // Remove blank_api ops from the plan so remaining ops go through normal execution
-      plan.operations = plan.operations.filter(op => op.content.contentStrategy !== 'blank_api');
+      // Only remove blank_api ops that succeeded — failed ops stay for browser agent fallback
+      if (blankApiCatastrophicFailure || blankApiSucceeded === 0) {
+        // Entire block failed (e.g. navigation error, page not found) — keep all ops for browser agent
+        logger.warn(
+          { succeeded: blankApiSucceeded, failed: blankApiFailed, catastrophic: blankApiCatastrophicFailure },
+          'blank_api: all operations failed — deferring to browser agent',
+        );
+      } else {
+        // Remove successfully completed blank_api ops from the plan
+        plan.operations = plan.operations.filter(op => op.content.contentStrategy !== 'blank_api');
 
-      // If no operations remain, we're done
-      if (plan.operations.length === 0) {
-        for (const taskId of conversation.taskIds) {
-          updateTaskStatus(taskId, 'done');
+        // If no operations remain, we're done
+        if (plan.operations.length === 0) {
+          for (const taskId of conversation.taskIds) {
+            updateTaskStatus(taskId, 'done');
+          }
+          updateConversationStatus(conversation.id, 'completed');
+          await sendToTim('All done! Content added via API.', conversation.id);
+          return;
         }
-        updateConversationStatus(conversation.id, 'completed');
-        await sendToTim('All done! Content added via API.', conversation.id);
-        return;
       }
     }
   }
 
   // ── Template operations: execute directly via handleAddSectionFromTemplate ──
-  // Skip if the plan includes a create_page operation — same reasoning as blank_api.
+  // Skip if the plan includes a create_page operation OR the task description
+  // indicates page creation — same reasoning as blank_api.
   if (plan) {
+    const primaryTaskForTemplateGate = conversation.taskIds.length > 0
+      ? getTask(conversation.taskIds[0])
+      : null;
     const hasPageCreationForTemplate = plan.operations.some(op =>
       (op.operationType as string) === 'create_page' || op.targetPage === 'new',
-    );
+    ) || (primaryTaskForTemplateGate ? taskIsPageCreation(primaryTaskForTemplateGate) : false);
     const templateOps = hasPageCreationForTemplate
       ? []  // defer to browser agent — page must be created first
       : plan.operations.filter(op =>
@@ -1178,6 +1251,7 @@ async function executeBlankApiOperation(
   page: import('playwright').Page,
   operation: import('../../agents/types.js').ContentOperation,
   subdomain: string,
+  options?: { pageSectionsId?: string; collectionId?: string },
 ): Promise<{ success: boolean; blocksAdded: number; error?: string; validation?: ValidationResult }> {
   const apiBlocks = operation.content.apiBlocks;
   if (!apiBlocks || apiBlocks.length === 0) {
@@ -1212,59 +1286,101 @@ async function executeBlankApiOperation(
   }
 
   try {
-    // Step 1: Add a blank section via direct handler call (no browser agent overhead)
-    const { handleAddSection } = await import('../../automation/actions/section-management-handlers.js');
-    const addSectionResult = await handleAddSection(page, { action: 'addSection' });
+    // ── API-first path: try addBlankSection via Content Save API (~200ms) ──
+    // The API persists server-side — no saveChanges() needed.
+    let pageSectionsId = options?.pageSectionsId ?? null;
+    let collectionId = options?.collectionId ?? null;
+    let usedApiPath = false;
 
-    if (!addSectionResult.success) {
-      return { success: false, blocksAdded: 0, error: `Failed to add blank section: ${addSectionResult.message}` };
+    if (pageSectionsId) {
+      try {
+        const apiClient = createContentSaveClient(subdomain);
+        const apiResult = await apiClient.addBlankSection(pageSectionsId);
+        if (apiResult.success) {
+          usedApiPath = true;
+          logger.info(
+            { sectionId: apiResult.sectionId, pageSectionsId },
+            'blank_api: blank section added via API (~200ms)',
+          );
+        } else {
+          logger.warn(
+            { error: apiResult.error },
+            'blank_api: API addBlankSection failed — falling back to UI',
+          );
+        }
+      } catch (apiErr) {
+        logger.warn(
+          { error: errMsg(apiErr) },
+          'blank_api: API addBlankSection error — falling back to UI',
+        );
+      }
     }
 
-    logger.info('blank_api: blank section added successfully');
+    // ── UI fallback path: add blank section via handleAddSection (~5s) ──
+    if (!usedApiPath) {
+      const { handleAddSection } = await import('../../automation/actions/section-management-handlers.js');
+      const addSectionResult = await handleAddSection(page, { action: 'addSection' });
 
-    // Step 1b: Save the editor to persist the blank section to the server.
-    // Without this, the Content Save API's GET returns stale data and the PUT
-    // conflicts with the editor's unsaved state → 500 Internal Server Error.
-    const { saveChanges: editorSave } = await import('../../automation/editor-actions.js');
-    const saveResult = await editorSave(page);
-    logger.info({ saveResult: saveResult.message }, 'blank_api: saved editor state after adding section');
-    await page.waitForTimeout(2000);
+      if (!addSectionResult.success) {
+        return { success: false, blocksAdded: 0, error: `Failed to add blank section: ${addSectionResult.message}` };
+      }
 
-    // Re-enter edit mode if save exited it (Done button exits edit mode)
-    if (saveResult.message?.includes('Done')) {
-      logger.info('blank_api: save clicked Done — re-entering edit mode');
-      const { enterEditMode } = await import('../../automation/site-navigator.js');
-      await enterEditMode(page);
-      await page.waitForTimeout(1500);
+      logger.info('blank_api: blank section added via UI');
+
+      // Save the editor to persist the blank section to the server.
+      const { saveChanges: editorSave } = await import('../../automation/editor-actions.js');
+      const saveResult = await editorSave(page);
+      logger.info({ saveResult: saveResult.message }, 'blank_api: saved editor state after adding section');
+      await page.waitForTimeout(2000);
+
+      // Re-enter edit mode if save exited it (Done button exits edit mode)
+      if (saveResult.message?.includes('Done')) {
+        logger.info('blank_api: save clicked Done — re-entering edit mode');
+        const { enterEditMode } = await import('../../automation/site-navigator.js');
+        await enterEditMode(page);
+        await page.waitForTimeout(1500);
+      }
     }
 
-    // Step 2: Extract pageSectionsId from the editor DOM
-    const siteFrame = page.frame({ name: 'sqs-site-frame' });
-    if (!siteFrame) {
-      return { success: false, blocksAdded: 0, error: 'No sqs-site-frame found after adding section' };
-    }
-
-    const pageSectionsId = await siteFrame.evaluate(() => {
-      const article = document.querySelector('article[data-page-sections]');
-      return article?.getAttribute('data-page-sections') ?? null;
-    }).catch(() => null);
-
+    // ── Extract page IDs if not provided ──
     if (!pageSectionsId) {
-      return { success: false, blocksAdded: 0, error: 'Could not find data-page-sections attribute' };
+      const siteFrame = page.frame({ name: 'sqs-site-frame' });
+      if (!siteFrame) {
+        return { success: false, blocksAdded: 0, error: 'No sqs-site-frame found after adding section' };
+      }
+
+      pageSectionsId = await siteFrame.evaluate(() => {
+        const article = document.querySelector('article[data-page-sections]');
+        return article?.getAttribute('data-page-sections') ?? null;
+      }).catch(() => null);
+
+      if (!pageSectionsId) {
+        return { success: false, blocksAdded: 0, error: 'Could not find data-page-sections attribute' };
+      }
     }
 
-    // Step 3: Get collectionId
+    if (!collectionId) {
+      const client = createContentSaveClient(subdomain);
+      // Derive page slug: try operation's targetPage, then iframe URL, then outer URL
+      const opSlug = operation.targetPage ?? '';
+      const iframeSlug = page.frame({ name: 'sqs-site-frame' })?.url()
+        .match(/squarespace\.com\/([^?#/]+)/)?.[1] ?? '';
+      const outerSlug = page.url().match(/squarespace\.com\/config\/pages\/([^/?#]+)/)?.[1] ?? '';
+      const slug = opSlug || iframeSlug || outerSlug || '';
+      logger.info({ opSlug, iframeSlug, outerSlug, resolvedSlug: slug },
+        'blank_api: resolving page slug for collectionId');
+      const ids = await client.getPageIds(slug);
+
+      if (!ids) {
+        return { success: false, blocksAdded: 0, error: `Could not get page IDs for slug "${slug}". URL: ${page.url()}` };
+      }
+      collectionId = ids.collectionId;
+    }
+
+    logger.info({ pageSectionsId, collectionId, usedApiPath }, 'blank_api: got page IDs');
+
+    // Create client for block operations (may already exist from ID extraction)
     const client = createContentSaveClient(subdomain);
-    const pageUrl = page.url();
-    const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
-    const slug = slugMatch?.[1] ?? '';
-    const ids = await client.getPageIds(slug);
-
-    if (!ids) {
-      return { success: false, blocksAdded: 0, error: `Could not get page IDs for slug "${slug}". URL: ${pageUrl}` };
-    }
-
-    logger.info({ pageSectionsId, collectionId: ids.collectionId, slug }, 'blank_api: got page IDs');
 
     // Capture pre-operation snapshot for validation
     const preSnapshot = await capturePreSnapshot(client, pageSectionsId);
@@ -1286,7 +1402,7 @@ async function executeBlankApiOperation(
       if (isApiGalleryBlock(block)) {
         // Gallery block — batch upload images + add as image blocks in grid layout
         const galleryResult = await executeGalleryBlock(
-          client, pageSectionsId, ids.collectionId, sectionIndex, subdomain, block,
+          client, pageSectionsId, collectionId!, sectionIndex, subdomain, block,
         );
         if (galleryResult.success) {
           blocksAdded += galleryResult.blocksAdded;
@@ -1304,7 +1420,7 @@ async function executeBlankApiOperation(
       } else if (isApiImageBlock(block)) {
         // Image block — upload image + add via API
         const imageResult = await executeImageBlock(
-          client, pageSectionsId, ids.collectionId, sectionIndex, subdomain, block,
+          client, pageSectionsId, collectionId!, sectionIndex, subdomain, block,
         );
         if (imageResult.success) {
           blocksAdded++;
@@ -1323,7 +1439,7 @@ async function executeBlankApiOperation(
         // Button block — use addButtonBlock API
         const result = await client.addButtonBlock(
           pageSectionsId,
-          ids.collectionId,
+          collectionId!,
           sectionIndex,
           block.label,
           block.url,
@@ -1352,7 +1468,7 @@ async function executeBlankApiOperation(
 
         const result = await client.addTextBlock(
           pageSectionsId,
-          ids.collectionId,
+          collectionId!,
           sectionIndex,
           blockHtml,
           block.layout,
@@ -1392,7 +1508,7 @@ async function executeBlankApiOperation(
 
       if (remainingTextBlocks.length > 0) {
         const fallbackResult = await executeBlankApiFallback(
-          page, client, pageSectionsId, ids.collectionId, sectionIndex, remainingTextBlocks,
+          page, client, pageSectionsId, collectionId!, sectionIndex, remainingTextBlocks,
         );
         blocksAdded += fallbackResult.blocksAdded;
         if (fallbackResult.errors.length > 0) {
@@ -1402,19 +1518,35 @@ async function executeBlankApiOperation(
     }
 
     // Step 6b: Apply section styling if specified (non-blocking)
+    // Try API-first (fast path ~200ms) when we already have client/IDs, fall back to UI handler
     const { sectionPadding, blockSpacing, sectionTheme } = operation.content;
     if (sectionPadding || blockSpacing || sectionTheme) {
       try {
-        const { handleEditSectionStyle } = await import('../../automation/actions/section-management-handlers.js');
-        const heading = operation.content.heading ?? 'blank section';
-        await handleEditSectionStyle(page, {
-          action: 'editSectionStyle',
-          searchText: heading,
-          sectionTheme,
-          sectionPadding,
-          blockSpacing,
-        });
-        logger.info({ sectionTheme, sectionPadding, blockSpacing }, 'blank_api: section styling applied');
+        let styled = false;
+        if (client && pageSectionsId && collectionId) {
+          const styleResult = await client.editSectionStyle(pageSectionsId, collectionId, sectionIndex, {
+            sectionTheme,
+            blockSpacing: blockSpacing ?? undefined,
+            paddingTop: sectionPadding ?? undefined,
+            paddingBottom: sectionPadding ?? undefined,
+          });
+          if (styleResult.success) {
+            styled = true;
+            logger.info({ sectionTheme, sectionPadding, blockSpacing, api: true }, 'blank_api: section styling applied via API');
+          }
+        }
+        if (!styled) {
+          const { handleEditSectionStyle } = await import('../../automation/actions/section-management-handlers.js');
+          const heading = operation.content.heading ?? 'blank section';
+          await handleEditSectionStyle(page, {
+            action: 'editSectionStyle',
+            searchText: heading,
+            sectionTheme,
+            sectionPadding,
+            blockSpacing,
+          });
+          logger.info({ sectionTheme, sectionPadding, blockSpacing }, 'blank_api: section styling applied via UI');
+        }
       } catch (styleErr) {
         logger.warn({ error: errMsg(styleErr) }, 'blank_api: section styling failed (non-blocking)');
       }
@@ -1443,6 +1575,63 @@ async function executeBlankApiOperation(
     return { success: true, blocksAdded, validation };
   } catch (err) {
     return { success: false, blocksAdded: 0, error: errMsg(err) };
+  }
+}
+
+// ─── API-First Template Copy ─────────────────────────────────────────────────
+
+/**
+ * Try to copy a template section via the Content Save API (~300ms).
+ * Returns the copy result if successful, or null if any step fails (caller falls through to UI).
+ */
+async function tryCopyTemplateViaApi(
+  subdomain: string,
+  pageSectionsId: string,
+  categoryName: string,
+  templateIndex: number,
+): Promise<import('../../services/content-save.js').CopyTemplateSectionResult | null> {
+  try {
+    const { getOrFetchCatalog, lookupCatalogEntry } = await import('../../services/section-catalog.js');
+
+    // Step 1: Get catalog (cached, ~0ms on hit)
+    const catalog = await getOrFetchCatalog(subdomain);
+    if (!catalog) {
+      logger.warn({ subdomain }, 'tryCopyTemplateViaApi: catalog fetch failed');
+      return null;
+    }
+
+    // Step 2: Look up the specific template entry
+    const entry = lookupCatalogEntry(catalog, categoryName, templateIndex);
+    if (!entry) {
+      logger.warn(
+        { categoryName, templateIndex },
+        'tryCopyTemplateViaApi: entry not found in catalog',
+      );
+      return null;
+    }
+
+    // Step 3: Copy the template section
+    const client = createContentSaveClient(subdomain);
+    const result = await client.copyTemplateSection(
+      entry.websiteId, entry.collectionId, entry.sectionId,
+    );
+
+    if (!result.success) {
+      logger.warn(
+        { error: result.error, categoryName, templateIndex },
+        'tryCopyTemplateViaApi: copy failed',
+      );
+      return null;
+    }
+
+    logger.info(
+      { sectionId: result.sectionId, categoryName, templateIndex },
+      'tryCopyTemplateViaApi: template section copied via API (~300ms)',
+    );
+    return result;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'tryCopyTemplateViaApi: error');
+    return null;
   }
 }
 
@@ -1476,39 +1665,11 @@ async function executeTemplateOperation(
   }
 
   try {
-    // Step 1: Add the template section via UI (no replacements yet)
-    const { handleAddSection } = await import('../../automation/actions/section-management-handlers.js');
-    const addResult = await handleAddSection(page, {
-      action: 'addSection',
-      category,
-      template: templateName ?? category,
-      templateIndex,
-    });
+    // ── Step 1: Try API-first template copy (~300ms) ──
+    let usedApiPath = false;
+    const subdomain = page.url().match(/https?:\/\/([a-z0-9-]+)\.squarespace\.com/i)?.[1];
 
-    if (!addResult.success) {
-      return { success: false, error: `Failed to add template section: ${addResult.message}` };
-    }
-
-    logger.info({ category, templateName, templateIndex }, 'template: section added successfully');
-
-    // Step 2: Save editor state so Content Save API has the new section data.
-    // Without this, the API returns stale data and can't find the new section's blocks.
-    const { saveChanges: editorSave } = await import('../../automation/editor-actions.js');
-    const saveResult = await editorSave(page);
-    logger.info({ saveResult: saveResult.message }, 'template: saved editor state after adding section');
-    await page.waitForTimeout(2000);
-
-    // Re-enter edit mode if save exited it
-    if (saveResult.message?.includes('Done')) {
-      logger.info('template: save clicked Done — re-entering edit mode');
-      const { enterEditMode: reEnterEditMode } = await import('../../automation/site-navigator.js');
-      await reEnterEditMode(page);
-      await page.waitForTimeout(1500);
-    }
-
-    // Step 3: Replace placeholder content via Content Save API
-    if (replacements && (replacements.texts?.length || replacements.buttons?.length || replacements.removeBlocks?.length)) {
-      // Extract page IDs for Content Save API
+    if (subdomain && templateIndex !== undefined) {
       const siteFrame = page.frame({ name: 'sqs-site-frame' });
       const pageSectionsId = siteFrame
         ? await siteFrame.evaluate(() => {
@@ -1517,18 +1678,76 @@ async function executeTemplateOperation(
           }).catch(() => null)
         : null;
 
-      const subdomain = page.url().match(/https?:\/\/([a-z0-9-]+)\.squarespace\.com/i)?.[1];
+      if (pageSectionsId) {
+        const copyResult = await tryCopyTemplateViaApi(
+          subdomain, pageSectionsId, category, templateIndex,
+        );
+        if (copyResult) {
+          usedApiPath = true;
+          logger.info(
+            { category, templateIndex, sectionId: copyResult.sectionId },
+            'template: section added via API (~300ms)',
+          );
+        }
+      }
+    }
 
-      if (pageSectionsId && subdomain) {
-        const client = createContentSaveClient(subdomain);
-        const pageUrl = page.url();
-        const slugMatch = pageUrl.match(/squarespace\.com\/config\/pages\/([^/?#]+)/);
-        const slug = slugMatch?.[1] ?? '';
+    // ── UI fallback: add template section via handleAddSection (~5-30s) ──
+    if (!usedApiPath) {
+      const { handleAddSection } = await import('../../automation/actions/section-management-handlers.js');
+      const addResult = await handleAddSection(page, {
+        action: 'addSection',
+        category,
+        template: templateName ?? category,
+        templateIndex,
+      });
+
+      if (!addResult.success) {
+        return { success: false, error: `Failed to add template section: ${addResult.message}` };
+      }
+
+      logger.info({ category, templateName, templateIndex }, 'template: section added via UI');
+
+      // Save editor state so Content Save API has the new section data.
+      const { saveChanges: editorSave } = await import('../../automation/editor-actions.js');
+      const saveResult = await editorSave(page);
+      logger.info({ saveResult: saveResult.message }, 'template: saved editor state after adding section');
+      await page.waitForTimeout(2000);
+
+      // Re-enter edit mode if save exited it
+      if (saveResult.message?.includes('Done')) {
+        logger.info('template: save clicked Done — re-entering edit mode');
+        const { enterEditMode: reEnterEditMode } = await import('../../automation/site-navigator.js');
+        await reEnterEditMode(page);
+        await page.waitForTimeout(1500);
+      }
+    }
+
+    // Step 3: Replace placeholder content via Content Save API
+    if (replacements && (replacements.texts?.length || replacements.buttons?.length || replacements.removeBlocks?.length)) {
+      // Extract page IDs for Content Save API
+      const siteFrame2 = page.frame({ name: 'sqs-site-frame' });
+      const pageSectionsId2 = siteFrame2
+        ? await siteFrame2.evaluate(() => {
+            const article = document.querySelector('article[data-page-sections]');
+            return article?.getAttribute('data-page-sections') ?? null;
+          }).catch(() => null)
+        : null;
+
+      const subdomain2 = page.url().match(/https?:\/\/([a-z0-9-]+)\.squarespace\.com/i)?.[1];
+
+      if (pageSectionsId2 && subdomain2) {
+        const client = createContentSaveClient(subdomain2);
+        // Derive page slug: try operation's targetPage, then iframe URL, then outer URL
+        const opSlug3 = operation.targetPage ?? '';
+        const iframeSlug3 = siteFrame2?.url().match(/squarespace\.com\/([^?#/]+)/)?.[1] ?? '';
+        const outerSlug3 = page.url().match(/squarespace\.com\/config\/pages\/([^/?#]+)/)?.[1] ?? '';
+        const slug = opSlug3 || iframeSlug3 || outerSlug3 || '';
         const ids = await client.getPageIds(slug);
 
         if (ids) {
           // Find the last section (the one we just added)
-          const sectionsData = await client.getPageSections(pageSectionsId);
+          const sectionsData = await client.getPageSections(pageSectionsId2);
           const sectionIndex = sectionsData.sections.length - 1;
 
           if (sectionIndex >= 0) {
@@ -1538,7 +1757,7 @@ async function executeTemplateOperation(
             // 3a. Replace text blocks
             if (replacements.texts) {
               for (const textRep of replacements.texts) {
-                const findResult = await client.updateTextBlock(pageSectionsId, ids.collectionId, textRep.searchText, textRep.newText);
+                const findResult = await client.updateTextBlock(pageSectionsId2, ids.collectionId, textRep.searchText, textRep.newText);
 
                 if (findResult.success) {
                   apiReplacements++;
@@ -1553,7 +1772,7 @@ async function executeTemplateOperation(
             // 3b. Remove unwanted blocks
             if (replacements.removeBlocks) {
               for (const blockText of replacements.removeBlocks) {
-                const removeResult = await client.removeBlock(pageSectionsId, ids.collectionId, blockText);
+                const removeResult = await client.removeBlock(pageSectionsId2, ids.collectionId, blockText);
                 if (removeResult.success) {
                   apiReplacements++;
                   logger.info({ searchText: blockText.substring(0, 30) }, 'template: block removed via API');
@@ -1596,21 +1815,60 @@ async function executeTemplateOperation(
     }
 
     // Step 4: Apply section styling if specified
+    // Try API-first (fast path ~200ms) with direct client, fall back to UI handler
     if (content.sectionPadding || content.blockSpacing || content.sectionTheme ||
         content.sectionHeight || content.contentWidth || content.verticalAlignment) {
       try {
-        const { handleEditSectionStyle } = await import('../../automation/actions/section-management-handlers.js');
-        const heading = content.heading ?? category;
-        await handleEditSectionStyle(page, {
-          action: 'editSectionStyle',
-          searchText: heading,
-          sectionTheme: content.sectionTheme,
-          sectionHeight: content.sectionHeight,
-          contentWidth: content.contentWidth,
-          verticalAlignment: content.verticalAlignment,
-          sectionPadding: content.sectionPadding,
-          blockSpacing: content.blockSpacing,
-        });
+        let styled = false;
+        const subdomainStyle = page.url().match(/https?:\/\/([a-z0-9-]+)\.squarespace\.com/i)?.[1];
+        if (subdomainStyle) {
+          const siteFrameStyle = page.frame({ name: 'sqs-site-frame' });
+          const psIdStyle = siteFrameStyle
+            ? await siteFrameStyle.evaluate(() => {
+                const article = document.querySelector('article[data-page-sections]');
+                return article?.getAttribute('data-page-sections') ?? null;
+              }).catch(() => null)
+            : null;
+
+          if (psIdStyle) {
+            const styleClient = createContentSaveClient(subdomainStyle);
+            const sectionsData = await styleClient.getPageSections(psIdStyle);
+            const lastIdx = sectionsData.sections.length - 1;
+            if (lastIdx >= 0) {
+              const slugStyle = page.url().match(/squarespace\.com\/config\/pages\/([^/?#]+)/)?.[1] ?? '';
+              const idsStyle = await styleClient.getPageIds(slugStyle);
+              if (idsStyle) {
+                const styleResult = await styleClient.editSectionStyle(psIdStyle, idsStyle.collectionId, lastIdx, {
+                  sectionTheme: content.sectionTheme,
+                  sectionHeight: content.sectionHeight,
+                  contentWidth: content.contentWidth,
+                  verticalAlignment: content.verticalAlignment,
+                  blockSpacing: content.blockSpacing ?? undefined,
+                  paddingTop: content.sectionPadding ?? undefined,
+                  paddingBottom: content.sectionPadding ?? undefined,
+                });
+                if (styleResult.success) {
+                  styled = true;
+                  logger.info({ updatedFields: styleResult.updatedFields, api: true }, 'template: section styling applied via API');
+                }
+              }
+            }
+          }
+        }
+        if (!styled) {
+          const { handleEditSectionStyle } = await import('../../automation/actions/section-management-handlers.js');
+          const heading = content.heading ?? category;
+          await handleEditSectionStyle(page, {
+            action: 'editSectionStyle',
+            searchText: heading,
+            sectionTheme: content.sectionTheme,
+            sectionHeight: content.sectionHeight,
+            contentWidth: content.contentWidth,
+            verticalAlignment: content.verticalAlignment,
+            sectionPadding: content.sectionPadding,
+            blockSpacing: content.blockSpacing,
+          });
+        }
       } catch (styleErr) {
         logger.warn({ error: errMsg(styleErr) }, 'template: section styling failed (non-blocking)');
       }
@@ -1744,13 +2002,17 @@ async function executeGalleryBlock(
 
     for (let i = 0; i < uploadResults.length; i++) {
       const uploadResult = uploadResults[i];
-      if (!uploadResult.success || !uploadResult.assetUrl) {
+      if (!uploadResult.success || (!uploadResult.assetUrl && !uploadResult.assetId)) {
         logger.warn(
-          { originalPath: uploadResult.originalPath, error: uploadResult.error },
+          { originalPath: uploadResult.originalPath, error: uploadResult.error, success: uploadResult.success, hasUrl: !!uploadResult.assetUrl, hasId: !!uploadResult.assetId },
           'Gallery: image upload failed — skipping this image',
         );
         continue;
       }
+
+      // If we have assetId but no assetUrl, construct the CDN URL
+      const assetUrl = uploadResult.assetUrl
+        ?? `https://images.squarespace-cdn.com/content/v1/${uploadResult.assetId}`;
 
       const imgSpec = validImages[i];
 
@@ -1766,7 +2028,7 @@ async function executeGalleryBlock(
       const endY = startY + rowHeight;
 
       imageSpecs.push({
-        assetUrl: uploadResult.assetUrl,
+        assetUrl,
         altText: imgSpec.altText,
         title: imgSpec.title,
         layout: { startX, endX, startY, endY },
@@ -2093,18 +2355,20 @@ async function executeTwoPassPlan(
 
       try {
         if (op.operationType === 'create_page') {
-          // Page creation requires the browser agent
-          const siteCtx = { pages: client.site.pages, siteName: client.name };
-          const createResult = await executeBrowserTask(page, op.editorInstruction, {
-            maxSteps: 50,
-            model: MODEL_SONNET,
-            siteId: primaryTask.siteId,
-            targetPage: primaryTask.targetPage,
-          }, siteCtx);
+          // Page creation — use handleCreatePage directly with blank template
+          // to avoid the browser agent selecting a template page (e.g., Gallery)
+          // when we want a blank page for content to be added in pass 2.
+          const pageName = op.content.heading ?? label;
+          const { handleCreatePage } = await import('../../automation/actions/page-management-handlers.js');
+          const createResult = await handleCreatePage(page, {
+            action: 'createPage',
+            title: pageName,
+            template: 'Blank',
+          });
 
           if (createResult.success) {
             pass1Succeeded++;
-            logger.info({ label }, 'Two-pass pass 1: page created');
+            logger.info({ label, pageName }, 'Two-pass pass 1: page created');
 
             // After page creation, enter edit mode on the new page
             try {
@@ -2112,12 +2376,24 @@ async function executeTwoPassPlan(
             } catch {
               logger.warn('Two-pass: could not enter edit mode after page creation');
             }
+
+            // Re-measure section count — we're now on a fresh page (usually 0 sections)
+            const newSiteFrame = page.frame({ name: 'sqs-site-frame' });
+            if (newSiteFrame) {
+              sectionCountBefore = await newSiteFrame.locator('.page-section').count().catch(() => 0);
+              logger.info({ sectionCountBefore }, 'Two-pass: re-measured section count after page creation');
+            } else {
+              sectionCountBefore = 0;
+            }
           } else {
             pass1Failed++;
             logger.warn({ label, error: createResult.summary }, 'Two-pass pass 1: page creation failed');
           }
         } else if (op.operationType === 'add_section') {
-          // Add section via direct handler call (no browser agent overhead)
+          // Two-pass pass 1 MUST use the UI handler (not API) because the
+          // post-pass-1 saveChanges() pushes the editor's in-memory state to
+          // the server. API-added sections are invisible to the editor, so
+          // saveChanges() would overwrite them with the stale editor state.
           const { handleAddSection } = await import('../../automation/actions/section-management-handlers.js');
 
           const strategy = op.content.contentStrategy;
@@ -2219,7 +2495,20 @@ async function executeTwoPassPlan(
       if (pageSectionsId) {
         try {
           const apiClient = createContentSaveClient(subdomain);
-          const pageSlug = primaryTask.targetPage ?? '';
+          // Derive page slug: prefer the content operation's targetPage (since
+          // task.targetPage may be empty for create_page plans), then fall back
+          // to extracting it from the current browser URL.
+          const opTargetPage = content[0]?.targetPage;
+          // Extract slug from browser URL (outer frame or iframe) — editor URL
+          // may be /config/pages/gallery or just /gallery in the iframe
+          const outerUrl = page.url();
+          const iframeUrl = page.frame({ name: 'sqs-site-frame' })?.url() ?? '';
+          const urlSlug = iframeUrl.match(/squarespace\.com\/([^?#/]+)/)?.[1]
+            ?? outerUrl.match(/squarespace\.com\/([^?#/]+)/)?.[1]
+            ?? '';
+          const pageSlug = opTargetPage || primaryTask.targetPage || urlSlug || '';
+          logger.info({ opTargetPage, taskTargetPage: primaryTask.targetPage, urlSlug, pageSlug },
+            'Two-pass pass 2: resolving page slug for collectionId');
           const ids = await apiClient.getPageIds(pageSlug);
           if (ids) {
             collectionId = ids.collectionId;
@@ -2380,7 +2669,7 @@ async function executeTwoPassPlan(
       }
     }
 
-    // Apply section styling after content operations (must be done in browser)
+    // Apply section styling after content operations (API fast path via handler)
     const styledOps = content.filter(op =>
       op.content.sectionTheme || op.content.sectionPadding ||
       op.content.blockSpacing || op.content.sectionHeight || op.content.contentWidth,
@@ -2496,6 +2785,8 @@ async function executeContentOnlyTemplate(
 ): Promise<{ success: boolean; replacementsDone: number; error?: string }> {
   const replacements = operation.content.replacements;
   if (!replacements) {
+    logger.warn({ placement: operation.placement, strategy: operation.content.contentStrategy },
+      'Template operation has no replacements — section will have placeholder content');
     return { success: true, replacementsDone: 0 };
   }
 
@@ -2670,14 +2961,20 @@ async function executeContentOnlyBlankApi(
 
   // Determine the actual section index to target
   let sectionIndex = targetSectionIndex;
-  if (sectionIndex < 0) {
-    // Fall back to last section
-    try {
-      const sectionsData = await apiClient.getPageSections(pageSectionsId);
-      sectionIndex = sectionsData.sections.length - 1;
-    } catch (err) {
+  try {
+    const sectionsData = await apiClient.getPageSections(pageSectionsId);
+    const totalSections = sectionsData.sections.length;
+    if (sectionIndex < 0 || sectionIndex >= totalSections) {
+      // Fall back to last section — handles stale index from page creation
+      sectionIndex = Math.max(0, totalSections - 1);
+      logger.info({ targetSectionIndex, correctedIndex: sectionIndex, totalSections },
+        'Content-only blank_api: section index out of range — using last section');
+    }
+  } catch (err) {
+    if (sectionIndex < 0) {
       return { success: false, blocksAdded: 0, error: `Failed to fetch sections: ${errMsg(err)}` };
     }
+    // If fetch fails but we have a non-negative index, try it anyway
   }
 
   if (sectionIndex < 0) {

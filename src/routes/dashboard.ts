@@ -1377,8 +1377,12 @@ function renderChatPage(): string {
                 break;
               case 'conversation_update':
                 updateConversationStatus(evt.data.conversationId, evt.data.status);
-                // Track the most recently updated conversation
-                if (evt.data.conversationId) activeConversationId = evt.data.conversationId;
+                // Track the most recently updated conversation — but clear when done
+                if (evt.data.status === 'completed' || evt.data.status === 'rejected') {
+                  activeConversationId = null;
+                } else if (evt.data.conversationId) {
+                  activeConversationId = evt.data.conversationId;
+                }
                 break;
             }
           } catch (err) {
@@ -1418,16 +1422,50 @@ function renderChatPage(): string {
           }
         });
 
-        // ── Load History ──
-        fetch('/dashboard/chat/history')
+        // ── Load Conversation State + History ──
+        // Load conversations first so we know the status when rendering history
+        var loadedConvStatus = null;
+        fetch('/dashboard/chat/conversations')
           .then(function(r) { return r.json(); })
+          .then(function(convs) {
+            if (convs && convs.length > 0) {
+              var conv = convs[0];
+              activeConversationId = conv.id;
+              loadedConvStatus = conv.status;
+              updateConversationStatus(conv.id, conv.status);
+              (conv.taskIds || []).forEach(function(tid) {
+                fetch('/dashboard/api/task/' + tid)
+                  .then(function(r) { return r.json(); })
+                  .then(function(t) { if (t && t.id) updateTaskCard(t.id, t.status, t.errorMessage); })
+                  .catch(function() {});
+              });
+              if (convs.length > 1) {
+                convStatusEl.innerHTML += ' <span class="badge" style="background:#3b82f6;font-size:0.7rem;margin-left:0.25rem;">' + convs.length + ' active</span>';
+              }
+            }
+          })
+          .then(function() {
+            // Now load history with conversation status available
+            return fetch('/dashboard/chat/history').then(function(r) { return r.json(); });
+          })
           .then(function(messages) {
             if (!messages || !messages.length) return;
             if (emptyEl) emptyEl.remove();
-            messages.forEach(function(m) {
+            var awaitingStatuses = ['awaiting_confirm', 'awaiting_plan_approval'];
+            var isAwaiting = awaitingStatuses.indexOf(loadedConvStatus) !== -1;
+            messages.forEach(function(m, idx) {
               if (m.body.startsWith('[BUTTONS] ')) {
-                // Historical buttons render as plain text
-                addBubble(m.body.replace('[BUTTONS] ', ''), m.direction, 'text');
+                var isLast = idx === messages.length - 1;
+                if (isLast && isAwaiting) {
+                  // Last buttons message in an awaiting conversation — render interactive
+                  var btnText = m.body.replace('[BUTTONS] ', '');
+                  var btns = loadedConvStatus === 'awaiting_plan_approval'
+                    ? [{ id: 'plan_approve', title: 'Looks good!' }, { id: 'plan_revise', title: 'Change something' }]
+                    : [{ id: 'confirm_yes', title: 'Go ahead' }, { id: 'confirm_no', title: 'Cancel' }];
+                  addButtons(btnText, btns);
+                } else {
+                  addBubble(m.body.replace('[BUTTONS] ', ''), m.direction, 'text');
+                }
               } else if (m.mediaUrl) {
                 var filename = m.mediaUrl.split('/').pop() || '';
                 addImageBubble('/screenshots/' + filename, m.body !== '[image]' ? m.body : '');
@@ -1436,30 +1474,7 @@ function renderChatPage(): string {
               }
             });
           })
-          .catch(function(err) { console.warn('History load failed:', err); });
-
-        // ── Load Conversation State ──
-        fetch('/dashboard/chat/conversations')
-          .then(function(r) { return r.json(); })
-          .then(function(convs) {
-            if (!convs || !convs.length) return;
-            // Use the most recent active conversation as default
-            var conv = convs[0];
-            activeConversationId = conv.id;
-            updateConversationStatus(conv.id, conv.status);
-            // Load task statuses for sidebar
-            (conv.taskIds || []).forEach(function(tid) {
-              fetch('/dashboard/api/task/' + tid)
-                .then(function(r) { return r.json(); })
-                .then(function(t) { if (t && t.id) updateTaskCard(t.id, t.status, t.errorMessage); })
-                .catch(function() {});
-            });
-            // Show conversation count if multiple
-            if (convs.length > 1) {
-              convStatusEl.innerHTML += ' <span class="badge" style="background:#3b82f6;font-size:0.7rem;margin-left:0.25rem;">' + convs.length + ' active</span>';
-            }
-          })
-          .catch(function(err) { console.warn('Conversation load failed:', err); });
+          .catch(function(err) { console.warn('History/conversation load failed:', err); });
       })();
     </script>`;
 }

@@ -77,6 +77,15 @@ interface JobStatusEntry {
   isSuccess: boolean;
   failureReasonCode?: string;
   shouldRetry: boolean;
+  // Squarespace returns asset info in two different shapes:
+  // Newer format: top-level assetId + assetRecord
+  assetId?: string;
+  assetRecord?: {
+    assetType: string;
+    logicalPath?: string;
+    stringMetaData?: Record<string, string>;
+  };
+  // Older format: nested asset object
   asset?: {
     id: string;
     contentType: string;
@@ -517,7 +526,7 @@ export class MediaUploadClient {
       }
 
       logger.debug(
-        { jobId, status: job.status, isActive: job.isActive, isSuccess: job.isSuccess, asset: job.asset },
+        { jobId, status: job.status, isActive: job.isActive, isSuccess: job.isSuccess, assetId: job.assetId, asset: job.asset },
         'Upload status poll',
       );
 
@@ -528,14 +537,29 @@ export class MediaUploadClient {
 
       // Job completed
       if (job.isSuccess) {
+        // Squarespace returns asset info in two formats:
+        // 1. Newer: top-level `assetId` + `assetRecord` (no URL)
+        // 2. Older: nested `asset: { id, url }` object
+        const assetId = job.assetId ?? job.asset?.id;
+        let assetUrl = job.asset?.url;
+
+        // Construct CDN URL from asset ID if no direct URL provided
+        if (!assetUrl && assetId) {
+          assetUrl = `https://images.squarespace-cdn.com/content/v1/${this.libraryId}/${assetId}`;
+          logger.info({ assetId, constructedUrl: assetUrl }, 'Constructed asset URL from ID');
+        }
+
         const result: MediaUploadResult = {
           jobId,
           libraryId: this.libraryId,
           status: 'success',
-          assetId: job.asset?.id,
-          assetUrl: job.asset?.url,
+          assetId,
+          assetUrl,
         };
-        logger.info(result, 'Image upload completed successfully');
+        logger.info(
+          { jobId, libraryId: this.libraryId, assetId, assetUrl },
+          'Image upload completed successfully',
+        );
         return result;
       }
 
