@@ -11,7 +11,7 @@ import {
   saveChanges,
 } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
-import { isFluidEngineActive, clickEditorButton, trySectionMoveApi } from './handler-utils.js';
+import { isFluidEngineActive, clickEditorButton, trySectionMoveApi, trySectionStyleApi } from './handler-utils.js';
 import type { ActionResult } from './types.js';
 // Cross-module handler imports for handleAddSectionFromTemplate
 import { handleEditTextBlock, handleEditButtonBlock } from './text-editing-handlers.js';
@@ -736,6 +736,23 @@ export async function handleEditSectionStyle(
       success: false,
       message: 'editSectionStyle: Must provide at least one style property (backgroundColor, backgroundImage, sectionTheme, sectionHeight, contentWidth, verticalAlignment, overlayOpacity, sectionPadding, or blockSpacing).',
     };
+  }
+
+  // ── API Fast Path: try Content Save API first (~200ms vs 15-20 UI steps) ──
+  // Note: backgroundImage and overlayOpacity are not supported via API (need UI)
+  if (!backgroundImage && overlayOpacity === undefined) {
+    const apiResult = await trySectionStyleApi(page, searchText, {
+      sectionTheme,
+      backgroundColor,
+      sectionHeight,
+      contentWidth,
+      verticalAlignment,
+      blockSpacing: blockSpacing ?? undefined,
+      paddingTop: sectionPadding ?? undefined,
+      paddingBottom: sectionPadding ?? undefined,
+    });
+    if (apiResult) return apiResult;
+    logger.info({ searchText }, 'editSectionStyle: API fast path failed, falling back to UI');
   }
 
   // ── Step 1: Find the section ──────────────────────────────────────────

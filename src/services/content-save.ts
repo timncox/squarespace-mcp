@@ -38,6 +38,8 @@ const BLOCK_TYPE_IMAGE = 1337;
 const BLOCK_TYPE_BUTTON = 46;
 // Menu block type
 const BLOCK_TYPE_MENU = 18;
+// Gallery block type
+const BLOCK_TYPE_GALLERY = 8;
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -295,6 +297,203 @@ export interface TextPatchResult {
   blockId?: string;
   patchedSegment?: string;
   oldText?: string;
+  error?: string;
+}
+
+/** Gallery display settings (type 8 block properties) */
+export interface GallerySettings {
+  'thumbnails-per-row'?: number;
+  'aspect-ratio'?: string;
+  design?: string;
+  padding?: number;
+  lightbox?: boolean;
+  'auto-crop'?: boolean;
+  'square-thumbs'?: boolean;
+  'show-meta'?: boolean;
+  'show-meta-basic'?: boolean;
+  'show-meta-only-title'?: boolean;
+  'show-meta-only-description'?: boolean;
+}
+
+/** Result of updating gallery settings */
+export interface GallerySettingsUpdateResult {
+  success: boolean;
+  blockId?: string;
+  updatedFields?: string[];
+  error?: string;
+}
+
+/** Result of adding a blank section via API */
+export interface AddBlankSectionResult {
+  success: boolean;
+  sectionId?: string;
+  error?: string;
+}
+
+/** Result of copying a template section via API */
+export interface CopyTemplateSectionResult {
+  success: boolean;
+  sectionId?: string;
+  sectionData?: unknown;
+  error?: string;
+}
+
+/** Result of adding an image to a gallery */
+export interface AddGalleryImageResult {
+  success: boolean;
+  itemId?: string;
+  error?: string;
+}
+
+/** Gallery collection item */
+export interface GalleryItem {
+  id: string;
+  title?: string;
+  description?: string;
+  assetUrl?: string;
+  [key: string]: unknown;
+}
+
+/** Section catalog entry from GET /api/section-catalog/sections */
+export interface SectionCatalogEntry {
+  websiteId: string;
+  collectionId: string;
+  sectionId: string;
+  taxonomy?: { tags?: string[]; categories?: string[] };
+  catalogWebsiteRev?: number;
+  componentReplacements?: unknown[];
+  [key: string]: unknown;
+}
+
+/** Section catalog response — keyed by category (e.g., "CONTACT", "MENUS") */
+export interface SectionCatalogResponse {
+  success: boolean;
+  /** Category → entries map (e.g., { "CONTACT": [...], "MENUS": [...] }) */
+  catalog?: Record<string, SectionCatalogEntry[]>;
+  /** Flattened array of all entries across categories */
+  sections?: SectionCatalogEntry[];
+  /** Category names */
+  categories?: string[];
+  error?: string;
+}
+
+/** Options for editSectionStyle */
+export interface SectionStyleOptions {
+  sectionTheme?: string;
+  backgroundColor?: string;
+  sectionHeight?: 'auto' | 'small' | 'medium' | 'large' | 'full';
+  paddingTop?: string;
+  paddingBottom?: string;
+  blockSpacing?: string;
+  contentWidth?: 'inset' | 'full';
+  verticalAlignment?: 'top' | 'middle' | 'bottom';
+}
+
+/** Result of editSectionStyle */
+export interface SectionStyleResult {
+  success: boolean;
+  sectionId?: string;
+  sectionIndex?: number;
+  updatedFields?: string[];
+  error?: string;
+}
+
+/** Result of duplicateSection */
+export interface SectionDuplicateResult {
+  success: boolean;
+  originalSectionId?: string;
+  newSectionId?: string;
+  newSectionIndex?: number;
+  error?: string;
+}
+
+/** Result of reorderSections */
+export interface SectionReorderResult {
+  success: boolean;
+  newOrder?: number[];
+  sectionsCount?: number;
+  error?: string;
+}
+
+/** Result of duplicateBlock */
+export interface BlockDuplicateResult {
+  success: boolean;
+  originalBlockId?: string;
+  newBlockId?: string;
+  sectionId?: string;
+  error?: string;
+}
+
+/** Collection info from GetCollections API */
+export interface CollectionInfo {
+  id: string;
+  urlId: string;
+  title: string;
+  type: number;
+  typeName: string;
+  itemCount?: number;
+  enabled?: boolean;
+  ordering?: number;
+  navigationTitle?: string;
+  description?: string;
+}
+
+/** Page metadata (enriched collection info) */
+export interface PageMetadata {
+  collectionId: string;
+  urlId: string;
+  title: string;
+  type: number;
+  typeName: string;
+  enabled?: boolean;
+  navigationTitle?: string;
+}
+
+/** Collection item (blog post, gallery item, etc.) */
+export interface CollectionItem {
+  id: string;
+  title: string;
+  urlId?: string;
+  body?: string;
+  excerpt?: string;
+  status?: string;
+  publishOn?: number;
+  updatedOn?: number;
+  tags?: string[];
+  categories?: string[];
+  [key: string]: unknown;
+}
+
+/** Options for getCollectionItems */
+export interface CollectionItemsOptions {
+  limit?: number;
+  offset?: number;
+  filter?: 'published' | 'draft' | 'all';
+}
+
+/** Result of getCollectionItems */
+export interface CollectionItemsResult {
+  success: boolean;
+  items?: CollectionItem[];
+  total?: number;
+  error?: string;
+}
+
+/** Result of createPageViaApi */
+export interface PageCreateResult {
+  success: boolean;
+  pageId?: string;
+  urlId?: string;
+  endpointAvailable: boolean;
+  error?: string;
+}
+
+/** Result of createBlogPost */
+export interface BlogPostCreateResult {
+  success: boolean;
+  itemId?: string;
+  urlId?: string;
+  endpointAvailable: boolean;
   error?: string;
 }
 
@@ -3086,6 +3285,669 @@ export class ContentSaveClient {
     }
   }
 
+  // ── Collection & Page Management ────────────────────────────────────────
+
+  /** Type number → human-readable name mapping for Squarespace collections */
+  private static readonly TYPE_NAMES: Record<number, string> = {
+    1: 'page',
+    2: 'blog',
+    5: 'store',
+    7: 'gallery',
+    11: 'folder',
+    12: 'index',
+  };
+
+  /**
+   * List all collections (pages, blogs, galleries, etc.) for the site.
+   * Uses the same GetCollections endpoint as getPageIds but returns full metadata.
+   */
+  async listCollections(): Promise<CollectionInfo[]> {
+    this.ensureCookies();
+
+    try {
+      const url = this.buildApiUrl('/api/commondata/GetCollections/');
+      const response = await fetch(url, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        logger.warn({ status: response.status }, 'listCollections: API returned error');
+        return [];
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+      const collections = (data.collections ?? data) as Record<string, unknown>[] | Record<string, unknown>;
+      const collList = Array.isArray(collections)
+        ? collections
+        : Object.values(collections);
+
+      return collList.map((c) => {
+        const coll = c as Record<string, unknown>;
+        const typeNum = Number(coll.type ?? 0);
+        return {
+          id: String(coll.id ?? ''),
+          urlId: String(coll.urlId ?? ''),
+          title: String(coll.title ?? ''),
+          type: typeNum,
+          typeName: ContentSaveClient.TYPE_NAMES[typeNum] ?? 'unknown',
+          ...(coll.itemCount != null ? { itemCount: Number(coll.itemCount) } : {}),
+          ...(coll.enabled != null ? { enabled: Boolean(coll.enabled) } : {}),
+          ...(coll.ordering != null ? { ordering: Number(coll.ordering) } : {}),
+          ...(coll.navigationTitle != null ? { navigationTitle: String(coll.navigationTitle) } : {}),
+          ...(coll.description != null ? { description: String(coll.description) } : {}),
+        };
+      });
+    } catch (err) {
+      logger.warn({ error: errMsg(err) }, 'listCollections: failed');
+      return [];
+    }
+  }
+
+  /**
+   * Get metadata for a specific page by slug.
+   * Wraps listCollections() with slug normalization and filtering.
+   */
+  async getPageMetadata(slug: string): Promise<PageMetadata | null> {
+    const normalizedSlug = this.normalizeSlug(slug);
+    const targetSlug = normalizedSlug || 'home';
+
+    try {
+      const collections = await this.listCollections();
+
+      for (const coll of collections) {
+        if (coll.urlId.toLowerCase() === targetSlug.toLowerCase()) {
+          return {
+            collectionId: coll.id,
+            urlId: coll.urlId,
+            title: coll.title,
+            type: coll.type,
+            typeName: coll.typeName,
+            ...(coll.enabled != null ? { enabled: coll.enabled } : {}),
+            ...(coll.navigationTitle != null ? { navigationTitle: coll.navigationTitle } : {}),
+          };
+        }
+      }
+
+      return null;
+    } catch (err) {
+      logger.warn({ error: errMsg(err), slug }, 'getPageMetadata: failed');
+      return null;
+    }
+  }
+
+  /**
+   * Get items (blog posts, gallery items, etc.) from a collection.
+   * Uses the content-collections endpoint.
+   */
+  async getCollectionItems(
+    collectionId: string,
+    options?: CollectionItemsOptions,
+  ): Promise<CollectionItemsResult> {
+    this.ensureCookies();
+
+    try {
+      const params = new URLSearchParams();
+      if (options?.limit != null) params.set('limit', String(options.limit));
+      if (options?.offset != null) params.set('offset', String(options.offset));
+
+      const qs = params.toString();
+      const path = `/api/content-collections/${collectionId}/content-items${qs ? `?${qs}` : ''}`;
+      const url = this.buildApiUrl(path);
+
+      const response = await fetch(url, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        return { success: false, error: `API returned ${response.status}` };
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+      let items = (Array.isArray(data.items) ? data.items : Array.isArray(data) ? data : []) as CollectionItem[];
+
+      // Apply status filter if requested
+      if (options?.filter === 'published') {
+        items = items.filter((item) => (item as Record<string, unknown>).status === 1);
+      } else if (options?.filter === 'draft') {
+        items = items.filter((item) => (item as Record<string, unknown>).status === 0);
+      }
+
+      return {
+        success: true,
+        items,
+        total: typeof data.total === 'number' ? data.total : items.length,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * SPECULATIVE: Attempt to create a page via API.
+   * Tries multiple endpoint candidates — returns endpointAvailable: false if none work (404/405).
+   * Never throws.
+   */
+  async createPageViaApi(
+    title: string,
+    slug?: string,
+    options?: { type?: number },
+  ): Promise<PageCreateResult> {
+    this.ensureCookies();
+
+    const body = JSON.stringify({
+      title,
+      ...(slug ? { urlId: slug } : {}),
+      ...(options?.type != null ? { type: options.type } : {}),
+    });
+
+    const endpoints = [
+      '/api/content/add/page',
+      '/api/pages',
+      '/api/collections',
+    ];
+
+    // For collections endpoint, always include type: 1 (page)
+    const bodiesForEndpoint: Record<string, string> = {
+      '/api/collections': JSON.stringify({
+        title,
+        ...(slug ? { urlId: slug } : {}),
+        type: options?.type ?? 1,
+      }),
+    };
+
+    for (const endpoint of endpoints) {
+      try {
+        const url = this.buildApiUrl(endpoint, true);
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            ...this.buildHeaders(),
+            'Content-Type': 'application/json',
+          },
+          body: bodiesForEndpoint[endpoint] ?? body,
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+
+        // 404/405 means this endpoint doesn't exist — try next
+        if (response.status === 404 || response.status === 405) {
+          logger.debug({ endpoint, status: response.status }, 'createPageViaApi: endpoint not available, trying next');
+          continue;
+        }
+
+        // Other errors (401, 500, etc.) — endpoint exists but failed
+        if (!response.ok) {
+          return {
+            success: false,
+            endpointAvailable: true,
+            error: `${endpoint} returned ${response.status}`,
+          };
+        }
+
+        const data = (await response.json()) as Record<string, unknown>;
+        logger.info({ endpoint, pageId: data.id, urlId: data.urlId }, 'createPageViaApi: page created');
+
+        return {
+          success: true,
+          endpointAvailable: true,
+          pageId: data.id ? String(data.id) : undefined,
+          urlId: data.urlId ? String(data.urlId) : undefined,
+        };
+      } catch (err) {
+        // Network/timeout error — endpoint might exist, just unreachable
+        return {
+          success: false,
+          endpointAvailable: true,
+          error: errMsg(err),
+        };
+      }
+    }
+
+    // All endpoints returned 404/405
+    return {
+      success: false,
+      endpointAvailable: false,
+      error: 'No page creation endpoint found',
+    };
+  }
+
+  /**
+   * SPECULATIVE: Attempt to create a blog post via API.
+   * Uses the content-collections endpoint. Returns endpointAvailable: false on 404/405.
+   * Never throws.
+   */
+  async createBlogPost(
+    collectionId: string,
+    title: string,
+    options?: {
+      body?: string;
+      slug?: string;
+      tags?: string[];
+      categories?: string[];
+      excerpt?: string;
+      draft?: boolean;
+    },
+  ): Promise<BlogPostCreateResult> {
+    this.ensureCookies();
+
+    try {
+      const path = `/api/content-collections/${collectionId}/content-items`;
+      const url = this.buildApiUrl(path, true);
+
+      const postBody = JSON.stringify({
+        title,
+        ...(options?.body != null ? { body: options.body } : {}),
+        ...(options?.slug ? { urlId: options.slug } : {}),
+        ...(options?.tags ? { tags: options.tags } : {}),
+        ...(options?.categories ? { categories: options.categories } : {}),
+        ...(options?.excerpt != null ? { excerpt: options.excerpt } : {}),
+        draft: options?.draft ?? true,
+      });
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: postBody,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (response.status === 404 || response.status === 405) {
+        return {
+          success: false,
+          endpointAvailable: false,
+          error: `Endpoint returned ${response.status}`,
+        };
+      }
+
+      if (!response.ok) {
+        return {
+          success: false,
+          endpointAvailable: true,
+          error: `API returned ${response.status}`,
+        };
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+      logger.info({ collectionId, itemId: data.id, urlId: data.urlId }, 'createBlogPost: post created');
+
+      return {
+        success: true,
+        endpointAvailable: true,
+        itemId: data.id ? String(data.id) : undefined,
+        urlId: data.urlId ? String(data.urlId) : undefined,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        endpointAvailable: true,
+        error: errMsg(err),
+      };
+    }
+  }
+
+  // ── Section Style / Duplicate / Reorder ──────────────────────────────────
+
+  /**
+   * Edit a section's style properties (theme, background, height, padding, etc.).
+   * Read-modify-write: GET → find section → update properties → PUT.
+   *
+   * @param sectionSearch - section index (number) or text content to search for (string)
+   */
+  async editSectionStyle(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionSearch: number | string,
+    styles: SectionStyleOptions,
+  ): Promise<SectionStyleResult> {
+    try {
+      this.ensureCookies();
+
+      // Validate that at least one style property was provided
+      const styleKeys = Object.keys(styles).filter(
+        (k) => styles[k as keyof SectionStyleOptions] !== undefined,
+      );
+      if (styleKeys.length === 0) {
+        return { success: false, error: 'No style properties provided' };
+      }
+
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      if (!sections || sections.length === 0) {
+        return { success: false, error: 'Page has no sections' };
+      }
+
+      // Step 2: Find the target section
+      let sectionIndex: number;
+      if (typeof sectionSearch === 'number') {
+        if (sectionSearch < 0 || sectionSearch >= sections.length) {
+          return {
+            success: false,
+            error: `Section index ${sectionSearch} out of range (0-${sections.length - 1})`,
+          };
+        }
+        sectionIndex = sectionSearch;
+      } else {
+        const match = this.findBlock(sections, sectionSearch);
+        if (!match) {
+          return { success: false, error: `No section found containing text "${sectionSearch}"` };
+        }
+        sectionIndex = match.sectionIndex;
+      }
+
+      const section = sections[sectionIndex];
+      const updatedFields: string[] = [];
+
+      // Step 3: Apply style properties
+      if (styles.sectionTheme !== undefined) {
+        (section as Record<string, unknown>).sectionTheme = styles.sectionTheme;
+        updatedFields.push('sectionTheme');
+      }
+      if (styles.backgroundColor !== undefined) {
+        (section as Record<string, unknown>).backgroundColor = styles.backgroundColor;
+        updatedFields.push('backgroundColor');
+      }
+      if (styles.sectionHeight !== undefined) {
+        (section as Record<string, unknown>).sectionHeight = styles.sectionHeight;
+        updatedFields.push('sectionHeight');
+      }
+      if (styles.paddingTop !== undefined) {
+        (section as Record<string, unknown>).paddingTop = styles.paddingTop;
+        updatedFields.push('paddingTop');
+      }
+      if (styles.paddingBottom !== undefined) {
+        (section as Record<string, unknown>).paddingBottom = styles.paddingBottom;
+        updatedFields.push('paddingBottom');
+      }
+      if (styles.blockSpacing !== undefined) {
+        (section as Record<string, unknown>).blockSpacing = styles.blockSpacing;
+        updatedFields.push('blockSpacing');
+      }
+      if (styles.contentWidth !== undefined) {
+        (section as Record<string, unknown>).contentWidth = styles.contentWidth;
+        updatedFields.push('contentWidth');
+      }
+      if (styles.verticalAlignment !== undefined) {
+        (section as Record<string, unknown>).verticalAlignment = styles.verticalAlignment;
+        updatedFields.push('verticalAlignment');
+      }
+
+      logger.info(
+        { sectionId: section.id, sectionIndex, updatedFields },
+        'Editing section style via Content Save API',
+      );
+
+      // Step 4: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return {
+        success: true,
+        sectionId: section.id,
+        sectionIndex,
+        updatedFields,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Duplicate a section (deep clone with regenerated IDs).
+   * The clone is inserted immediately after the original.
+   *
+   * @param sectionSearch - section index (number) or text content to search for (string)
+   */
+  async duplicateSection(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionSearch: number | string,
+  ): Promise<SectionDuplicateResult> {
+    try {
+      this.ensureCookies();
+
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      if (!sections || sections.length === 0) {
+        return { success: false, error: 'Page has no sections' };
+      }
+
+      // Step 2: Find the target section
+      let sectionIndex: number;
+      if (typeof sectionSearch === 'number') {
+        if (sectionSearch < 0 || sectionSearch >= sections.length) {
+          return {
+            success: false,
+            error: `Section index ${sectionSearch} out of range (0-${sections.length - 1})`,
+          };
+        }
+        sectionIndex = sectionSearch;
+      } else {
+        const match = this.findBlock(sections, sectionSearch);
+        if (!match) {
+          return { success: false, error: `No section found containing text "${sectionSearch}"` };
+        }
+        sectionIndex = match.sectionIndex;
+      }
+
+      const originalSection = sections[sectionIndex];
+
+      // Step 3: Deep clone the section
+      const cloned: PageSection = JSON.parse(JSON.stringify(originalSection));
+
+      // Step 4: Generate new section ID
+      const newSectionId = ContentSaveClient.generateBlockId();
+      cloned.id = newSectionId;
+
+      // Step 5: Regenerate fluidEngineContext.id if present
+      if (cloned.fluidEngineContext) {
+        (cloned.fluidEngineContext as Record<string, unknown>).id = ContentSaveClient.generateBlockId();
+
+        // Step 6: Regenerate ALL block IDs in the cloned section
+        const gridContents = cloned.fluidEngineContext.gridContents;
+        if (gridContents) {
+          for (const gc of gridContents) {
+            if (gc.content?.value?.id) {
+              gc.content.value.id = ContentSaveClient.generateBlockId();
+            }
+          }
+        }
+      }
+
+      // Step 7: Insert clone after original
+      const newIndex = sectionIndex + 1;
+      sections.splice(newIndex, 0, cloned);
+
+      logger.info(
+        { originalSectionId: originalSection.id, newSectionId, newIndex, totalSections: sections.length },
+        'Duplicating section via Content Save API',
+      );
+
+      // Step 8: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return {
+        success: true,
+        originalSectionId: originalSection.id,
+        newSectionId,
+        newSectionIndex: newIndex,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Reorder sections on a page by specifying the desired order as an array of current indices.
+   * e.g., [2, 0, 1] means "section at index 2 goes first, then 0, then 1".
+   */
+  async reorderSections(
+    pageSectionsId: string,
+    collectionId: string,
+    newOrder: number[],
+  ): Promise<SectionReorderResult> {
+    try {
+      this.ensureCookies();
+
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      if (!sections || sections.length === 0) {
+        return { success: false, error: 'Page has no sections' };
+      }
+
+      // Step 2: Validate newOrder
+      if (newOrder.length !== sections.length) {
+        return {
+          success: false,
+          error: `newOrder length (${newOrder.length}) does not match sections count (${sections.length})`,
+        };
+      }
+
+      // Check for duplicates and out-of-range
+      const seen = new Set<number>();
+      for (const idx of newOrder) {
+        if (idx < 0 || idx >= sections.length) {
+          return { success: false, error: `Index ${idx} out of range (0-${sections.length - 1})` };
+        }
+        if (seen.has(idx)) {
+          return { success: false, error: `Duplicate index ${idx} in newOrder` };
+        }
+        seen.add(idx);
+      }
+
+      // Step 3: Rearrange sections
+      const reordered = newOrder.map((idx) => sections[idx]);
+      data.sections = reordered;
+
+      logger.info(
+        { newOrder, sectionsCount: sections.length },
+        'Reordering sections via Content Save API',
+      );
+
+      // Step 4: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, reordered);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return {
+        success: true,
+        newOrder,
+        sectionsCount: sections.length,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Duplicate a block within its section (deep clone with new ID, positioned below original).
+   * Backfills verticalAlignment and zIndex on all existing blocks before adding.
+   */
+  async duplicateBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+  ): Promise<BlockDuplicateResult> {
+    try {
+      this.ensureCookies();
+
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the block
+      const match = this.findBlock(data.sections, searchText);
+      if (!match) {
+        return { success: false, error: `No block found matching "${searchText}"` };
+      }
+
+      const { section, gridContent, sectionIndex } = match;
+      const gridContents = section.fluidEngineContext?.gridContents;
+      if (!gridContents) {
+        return { success: false, error: 'Section has no gridContents' };
+      }
+
+      const originalBlockId = gridContent.content.value.id;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      // Squarespace validates ALL blocks on PUT, so any block missing these fields will cause a 400 error.
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Deep clone the block
+      const cloned: GridContent = JSON.parse(JSON.stringify(gridContent));
+
+      // Step 4: Generate new block ID
+      const newBlockId = ContentSaveClient.generateBlockId();
+      cloned.content.value.id = newBlockId;
+
+      // Step 5: Position below original (same X, Y = original end Y + 2 gap rows)
+      const GAP_ROWS = 2;
+      if (cloned.layout?.desktop && gridContent.layout?.desktop) {
+        const origDesktop = gridContent.layout.desktop;
+        const height = origDesktop.end.y - origDesktop.start.y;
+        const newStartY = origDesktop.end.y + GAP_ROWS;
+        cloned.layout.desktop.start = { x: origDesktop.start.x, y: newStartY };
+        cloned.layout.desktop.end = { x: origDesktop.end.x, y: newStartY + height };
+        cloned.layout.desktop.zIndex = gridContents.length;
+      }
+      if (cloned.layout?.mobile && gridContent.layout?.mobile) {
+        const origMobile = gridContent.layout.mobile;
+        const height = origMobile.end.y - origMobile.start.y;
+        const newStartY = origMobile.end.y + GAP_ROWS;
+        cloned.layout.mobile.start = { x: origMobile.start.x, y: newStartY };
+        cloned.layout.mobile.end = { x: origMobile.end.x, y: newStartY + height };
+        cloned.layout.mobile.zIndex = gridContents.length;
+      }
+
+      // Step 6: Push to section
+      gridContents.push(cloned);
+
+      logger.info(
+        { originalBlockId, newBlockId, sectionId: section.id, sectionIndex },
+        'Duplicating block via Content Save API',
+      );
+
+      // Step 7: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return {
+        success: true,
+        originalBlockId,
+        newBlockId,
+        sectionId: section.id,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
   // ── Private Methods ──────────────────────────────────────────────────────
 
   private ensureCookies(): void {
@@ -3219,6 +4081,579 @@ export class ContentSaveClient {
     const HOME_SLUGS = ['homepage', 'home-page', 'home', 'landing', 'index', 'main', ''];
     if (HOME_SLUGS.includes(lower)) return '';
     return slug.replace(/^\/+/, '');
+  }
+
+  /** Build a site-relative API URL with optional crumb token */
+  private buildApiUrl(path: string, includeCrumb = false): string {
+    const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
+    let url = `${siteUrl}${path}`;
+    if (includeCrumb && this.crumbToken) {
+      const sep = url.includes('?') ? '&' : '?';
+      url += `${sep}crumb=${encodeURIComponent(this.crumbToken)}`;
+    }
+    return url;
+  }
+
+  // ── Gallery Settings ───────────────────────────────────────────────────────
+
+  /**
+   * Update gallery block display settings (type 8 block).
+   *
+   * Uses read-modify-write: GET sections → find gallery block → update settings → PUT.
+   * Gallery blocks are type 8 and store settings like thumbnails-per-row,
+   * aspect-ratio, design, padding, lightbox directly in content.value.value.
+   *
+   * @param pageSectionsId  Page sections ID
+   * @param collectionId    Collection ID
+   * @param searchText      Gallery collection ID or block ID prefix to find the gallery block
+   * @param settings        Gallery settings to update (partial — only provided fields are changed)
+   */
+  async updateGallerySettings(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    settings: GallerySettings,
+  ): Promise<GallerySettingsUpdateResult> {
+    try {
+      this.ensureCookies();
+
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Find gallery block (type 8) — search by collectionId or block ID prefix
+      let found: { gridContent: GridContent; sectionIndex: number; blockIndex: number } | null = null;
+      const needle = searchText.toLowerCase();
+
+      for (let si = 0; si < data.sections.length; si++) {
+        const section = data.sections[si];
+        const gridContents = section.fluidEngineContext?.gridContents;
+        if (!gridContents) continue;
+
+        for (let bi = 0; bi < gridContents.length; bi++) {
+          const gc = gridContents[bi];
+          const bv = gc.content?.value;
+          if (!bv || bv.type !== BLOCK_TYPE_GALLERY) continue;
+
+          // Match by collectionId, transientGalleryId, or block ID prefix
+          const val = bv.value ?? {};
+          if (
+            val.collectionId === searchText ||
+            val.transientGalleryId === searchText ||
+            bv.id.toLowerCase().startsWith(needle)
+          ) {
+            found = { gridContent: gc, sectionIndex: si, blockIndex: bi };
+            break;
+          }
+        }
+        if (found) break;
+      }
+
+      // Fallback: if only one gallery block exists, use it
+      if (!found) {
+        for (let si = 0; si < data.sections.length; si++) {
+          const section = data.sections[si];
+          const gridContents = section.fluidEngineContext?.gridContents;
+          if (!gridContents) continue;
+          for (let bi = 0; bi < gridContents.length; bi++) {
+            const gc = gridContents[bi];
+            if (gc.content?.value?.type === BLOCK_TYPE_GALLERY) {
+              found = { gridContent: gc, sectionIndex: si, blockIndex: bi };
+              break;
+            }
+          }
+          if (found) break;
+        }
+      }
+
+      if (!found) {
+        return { success: false, error: `No gallery block found matching: ${searchText}` };
+      }
+
+      const blockValue = found.gridContent.content.value;
+      if (!blockValue.value) blockValue.value = {};
+
+      const updatedFields: string[] = [];
+      for (const [key, value] of Object.entries(settings)) {
+        if (value !== undefined) {
+          (blockValue.value as Record<string, unknown>)[key] = value;
+          updatedFields.push(key);
+        }
+      }
+
+      logger.info(
+        { blockId: blockValue.id, updatedFields },
+        'Updating gallery settings',
+      );
+
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId: blockValue.id, updatedFields };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Find a gallery block (type 8) in sections and return its collection ID.
+   */
+  findGalleryBlock(
+    sections: PageSection[],
+    searchText?: string,
+  ): { gridContent: GridContent; sectionIndex: number; blockIndex: number; galleryCollectionId: string } | null {
+    for (let si = 0; si < sections.length; si++) {
+      const section = sections[si];
+      const gridContents = section.fluidEngineContext?.gridContents;
+      if (!gridContents) continue;
+
+      for (let bi = 0; bi < gridContents.length; bi++) {
+        const gc = gridContents[bi];
+        const bv = gc.content?.value;
+        if (!bv || bv.type !== BLOCK_TYPE_GALLERY) continue;
+
+        const val = bv.value ?? {};
+        const galleryCollectionId = (val.collectionId ?? val.transientGalleryId ?? '') as string;
+
+        if (!searchText) {
+          return { gridContent: gc, sectionIndex: si, blockIndex: bi, galleryCollectionId };
+        }
+
+        const needle = searchText.toLowerCase();
+        if (
+          galleryCollectionId === searchText ||
+          bv.id.toLowerCase().startsWith(needle)
+        ) {
+          return { gridContent: gc, sectionIndex: si, blockIndex: bi, galleryCollectionId };
+        }
+      }
+    }
+    return null;
+  }
+
+  // ── Blank Section (API) ────────────────────────────────────────────────────
+
+  /**
+   * Add a blank Fluid Engine section via API.
+   *
+   * Discovered from captured traffic:
+   *   1. GET /api/catalog-preview/blankFluidEngineSection — get blank section template
+   *   2. POST /api/content/add/fluidEngineSection?sectionId=... — add to page
+   *
+   * This replaces the UI automation path for adding blank sections.
+   */
+  async addBlankSection(pageSectionsId: string): Promise<AddBlankSectionResult> {
+    try {
+      this.ensureCookies();
+
+      const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
+
+      // Step 1: Get blank section template
+      const templateUrl = `${siteUrl}/api/catalog-preview/blankFluidEngineSection`;
+      logger.info('Fetching blank section template');
+
+      const templateResponse = await fetch(templateUrl, {
+        method: 'GET',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!templateResponse.ok) {
+        const body = await templateResponse.text().catch(() => '');
+        return { success: false, error: `Failed to get blank section template: ${templateResponse.status}. ${body}` };
+      }
+
+      const templateData = await templateResponse.json() as { id?: string; [key: string]: unknown };
+      const sectionId = templateData.id ?? pageSectionsId;
+
+      // Step 2: Add the blank section to the page
+      const addUrl = this.buildApiUrl(
+        `/api/content/add/fluidEngineSection?sectionId=${encodeURIComponent(pageSectionsId)}`,
+        true,
+      );
+
+      logger.info({ pageSectionsId }, 'Adding blank section via API');
+
+      const addResponse = await fetch(addUrl, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(templateData),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!addResponse.ok) {
+        const body = await addResponse.text().catch(() => '');
+        return { success: false, error: `Failed to add blank section: ${addResponse.status}. ${body}` };
+      }
+
+      const resultData = await addResponse.json().catch(() => ({})) as { id?: string };
+      const newSectionId = resultData.id ?? sectionId;
+
+      logger.info({ newSectionId }, 'Blank section added via API');
+      return { success: true, sectionId: newSectionId as string };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Template Section Copy (API) ────────────────────────────────────────────
+
+  /**
+   * Copy a template section from Squarespace's section catalog into the current site.
+   *
+   * Discovered from captured traffic:
+   *   POST /api/content/copy/section?sourceWebsiteId=...&sourceCollectionId=...&sourceSectionId=...
+   *
+   * Template source IDs come from GET /api/section-catalog/sections?engine=FLUID.
+   * This replaces the UI template picker entirely.
+   */
+  async copyTemplateSection(
+    sourceWebsiteId: string,
+    sourceCollectionId: string,
+    sourceSectionId: string,
+  ): Promise<CopyTemplateSectionResult> {
+    try {
+      this.ensureCookies();
+
+      const path = `/api/content/copy/section?sourceWebsiteId=${encodeURIComponent(sourceWebsiteId)}&sourceCollectionId=${encodeURIComponent(sourceCollectionId)}&sourceSectionId=${encodeURIComponent(sourceSectionId)}`;
+      const url = this.buildApiUrl(path, true);
+
+      logger.info(
+        { sourceWebsiteId, sourceCollectionId, sourceSectionId },
+        'Copying template section via API',
+      );
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: '',
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `Failed to copy template section: ${response.status}. ${body}` };
+      }
+
+      const data = await response.json().catch(() => ({})) as Record<string, unknown>;
+
+      // Handle crumb refresh if needed
+      if (data.crumbFail) {
+        return { success: false, error: `Crumb validation failed. ${data.error || ''}` };
+      }
+
+      const sectionId = data.id as string | undefined;
+
+      logger.info({ sectionId }, 'Template section copied via API');
+      return { success: true, sectionId, sectionData: data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Get the section catalog — all available template sections.
+   *
+   * Endpoint: GET /api/section-catalog/sections?engine=FLUID
+   *
+   * Returns the template entries with sourceWebsiteId, sourceCollectionId,
+   * sourceSectionId that can be used with copyTemplateSection().
+   */
+  async getSectionCatalog(): Promise<SectionCatalogResponse> {
+    try {
+      this.ensureCookies();
+
+      const url = this.buildApiUrl('/api/section-catalog/sections?engine=FLUID');
+      logger.info('Fetching section catalog');
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `Failed to fetch section catalog: ${response.status}. ${body}` };
+      }
+
+      const data = await response.json() as Record<string, unknown>;
+
+      // Response is an object keyed by category: { "CONTACT": [...], "MENUS": [...], ... }
+      // Each value is an array of SectionCatalogEntry objects
+      const catalog: Record<string, SectionCatalogEntry[]> = {};
+      const allSections: SectionCatalogEntry[] = [];
+      const categories: string[] = [];
+
+      for (const [category, entries] of Object.entries(data)) {
+        if (Array.isArray(entries)) {
+          categories.push(category);
+          const typed = entries as SectionCatalogEntry[];
+          catalog[category] = typed;
+          allSections.push(...typed);
+        }
+      }
+
+      logger.info(
+        { categories: categories.length, totalSections: allSections.length },
+        'Section catalog fetched',
+      );
+      return { success: true, catalog, sections: allSections, categories };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Gallery Image Management ───────────────────────────────────────────────
+
+  /**
+   * Get items in a gallery collection.
+   *
+   * Endpoint: GET /api/content-collections/{collectionId}/content-items?crumb=...&limit=250
+   */
+  async getGalleryItems(
+    galleryCollectionId: string,
+  ): Promise<{ success: boolean; items?: GalleryItem[]; hasMore?: boolean; error?: string }> {
+    try {
+      this.ensureCookies();
+
+      const path = `/api/content-collections/${encodeURIComponent(galleryCollectionId)}/content-items?limit=250`;
+      const url = this.buildApiUrl(path, true);
+
+      logger.info({ galleryCollectionId }, 'Fetching gallery items');
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `Failed to fetch gallery items: ${response.status}. ${body}` };
+      }
+
+      const data = await response.json() as Record<string, unknown>;
+
+      // Response shape: { results: [...], hasPreviousPage: bool, hasNextPage: bool }
+      const items = Array.isArray(data)
+        ? data
+        : Array.isArray(data.results)
+          ? data.results
+          : [];
+
+      const hasMore = data.hasNextPage === true;
+
+      logger.info(
+        { galleryCollectionId, count: items.length, hasMore },
+        'Gallery items fetched',
+      );
+      return { success: true, items: items as GalleryItem[], hasMore };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Get the number of items in a gallery collection.
+   *
+   * Endpoint: GET /api/content-collections/{collectionId}/item-count?crumb=...
+   */
+  async getGalleryItemCount(
+    galleryCollectionId: string,
+  ): Promise<{ success: boolean; count?: number; error?: string }> {
+    try {
+      this.ensureCookies();
+
+      const path = `/api/content-collections/${encodeURIComponent(galleryCollectionId)}/item-count`;
+      const url = this.buildApiUrl(path, true);
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `Failed to fetch gallery item count: ${response.status}. ${body}` };
+      }
+
+      const data = await response.json();
+      const count = typeof data === 'number' ? data : (data as Record<string, unknown>).count as number;
+
+      return { success: true, count };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Add an image to a gallery collection.
+   *
+   * Discovered from captured traffic:
+   *   POST /api/galleries/{collectionId}/images?crumb=...
+   *
+   * The image must already be uploaded (via media upload API).
+   * Pass the asset ID from a completed upload job.
+   *
+   * @param galleryCollectionId  The gallery collection ID (from gallery block's collectionId)
+   * @param assetId              The uploaded image asset ID (from media upload job)
+   * @param metadata             Optional title/description for the gallery image
+   */
+  async addGalleryImage(
+    galleryCollectionId: string,
+    assetId: string,
+    metadata?: { title?: string; description?: string },
+  ): Promise<AddGalleryImageResult> {
+    try {
+      this.ensureCookies();
+
+      const path = `/api/galleries/${encodeURIComponent(galleryCollectionId)}/images`;
+      const url = this.buildApiUrl(path, true);
+
+      const body: Record<string, unknown> = { assetId };
+      if (metadata?.title) body.title = metadata.title;
+      if (metadata?.description) body.description = metadata.description;
+
+      logger.info(
+        { galleryCollectionId, assetId, hasTitle: !!metadata?.title },
+        'Adding image to gallery',
+      );
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const respBody = await response.text().catch(() => '');
+        return { success: false, error: `Failed to add gallery image: ${response.status}. ${respBody}` };
+      }
+
+      const data = await response.json().catch(() => ({}));
+      const itemId = (data as Record<string, unknown>).id as string | undefined;
+
+      logger.info({ galleryCollectionId, itemId }, 'Gallery image added');
+      return { success: true, itemId };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Upload an image to a gallery using the /api/uploads/images endpoint.
+   *
+   * Discovered from captured traffic:
+   *   POST /api/uploads/images → returns job ID
+   *   GET /api/rest/jobs/?id=... → poll until done
+   *   Then add to gallery via addGalleryImage()
+   *
+   * @param imageUrl  URL of the image to upload (can be a CDN URL or data URL)
+   */
+  async uploadImageToSite(
+    imageUrl: string,
+  ): Promise<{ success: boolean; assetId?: string; contentItemId?: string; error?: string }> {
+    try {
+      this.ensureCookies();
+
+      const url = this.buildApiUrl('/api/uploads/images', true);
+
+      logger.info({ imageUrl: imageUrl.substring(0, 100) }, 'Uploading image to site');
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ url: imageUrl }),
+        signal: AbortSignal.timeout(30_000), // Longer timeout for uploads
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `Image upload failed: ${response.status}. ${body}` };
+      }
+
+      const data = await response.json() as Record<string, unknown>;
+
+      // Poll the job if we got a job ID
+      const jobId = data.id as string | undefined;
+      if (jobId) {
+        const jobResult = await this.pollJob(jobId);
+        if (!jobResult.success) {
+          return { success: false, error: jobResult.error };
+        }
+        return {
+          success: true,
+          assetId: jobResult.assetId,
+          contentItemId: jobResult.contentItemId,
+        };
+      }
+
+      return {
+        success: true,
+        assetId: data.assetId as string | undefined,
+        contentItemId: data.contentItemId as string | undefined,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Poll a Squarespace job until it completes.
+   * Used for image uploads and other async operations.
+   */
+  private async pollJob(
+    jobId: string,
+    maxAttempts = 15,
+    intervalMs = 2000,
+  ): Promise<{ success: boolean; assetId?: string; contentItemId?: string; error?: string }> {
+    const url = this.buildApiUrl(`/api/rest/jobs/?id=${encodeURIComponent(jobId)}`);
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) continue;
+
+      const data = await response.json() as Record<string, unknown>;
+      const status = data.status as string | undefined;
+
+      if (status === 'COMPLETED' || status === 'completed') {
+        return {
+          success: true,
+          assetId: data.assetId as string | undefined,
+          contentItemId: data.contentItemId as string | undefined,
+        };
+      }
+
+      if (status === 'FAILED' || status === 'failed') {
+        return { success: false, error: `Job ${jobId} failed: ${JSON.stringify(data)}` };
+      }
+
+      logger.debug({ jobId, attempt, status }, 'Polling job...');
+    }
+
+    return { success: false, error: `Job ${jobId} timed out after ${maxAttempts} attempts` };
   }
 }
 

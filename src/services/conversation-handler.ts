@@ -191,6 +191,13 @@ export async function handleIncomingMessage(msg: IncomingWhatsAppMessage): Promi
     timestamp: msg.timestamp ? new Date(parseInt(msg.timestamp) * 1000).toISOString() : new Date().toISOString(),
   });
 
+  // Treat finished conversations as no conversation — start fresh
+  if (conversation && (conversation.status === 'completed' || conversation.status === 'rejected')) {
+    logger.info({ conversationId: conversation.id, status: conversation.status },
+      'Ignoring finished conversation — treating as new request');
+    conversation = undefined;
+  }
+
   if (!conversation) {
     // Try to buffer image messages for multi-image grouping
     if (!isDashboard && msg.type === 'image' && bufferImageMessage(msg)) {

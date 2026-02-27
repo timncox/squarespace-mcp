@@ -20,6 +20,7 @@ import { getBrowserManager } from '../automation/browser-manager.js';
 import { ensureLoggedIn } from '../automation/squarespace-auth.js';
 import { resolveSite, navigateToSite, navigateToPage, enterEditMode } from '../automation/site-navigator.js';
 import { getOrDiscoverTemplates, getCachedDiscovery, type TemplateDiscoveryResult } from '../services/template-discovery.js';
+import { getOrFetchCatalog, catalogToDiscoveryResult } from '../services/section-catalog.js';
 import { sendToTim } from '../services/whatsapp.js';
 import { logger } from '../utils/logger.js';
 import { join } from 'path';
@@ -238,9 +239,8 @@ export async function runContentPipeline(
       logger.warn({ error: errMsg(err) }, 'Content pipeline: page structure fetch failed, continuing without');
     }
 
-    // ── Step 2c: Template Discovery (reuse browser session) ─────────────
-    // Discover available templates while the browser is still open.
-    // Uses cache (7-day TTL) to avoid re-probing on every pipeline run.
+    // ── Step 2c: Template Discovery ─────────────────────────────────────
+    // Try API catalog first (~1.5s), fall back to UI probing (~30s).
     try {
       dashboardEvents.emit('dashboard', {
         type: 'agent_activity' as const,
@@ -248,20 +248,46 @@ export async function runContentPipeline(
         timestamp: new Date().toISOString(),
       });
 
-      // Enter edit mode for template discovery (picker requires edit mode)
-      await enterEditMode(page);
-      discoveredTemplates = await getOrDiscoverTemplates(page, siteId);
+      // Try API-based section catalog first (much faster than UI probing)
+      const subdomain = page.url().match(/https?:\/\/([a-z0-9-]+)\.squarespace\.com/i)?.[1];
+      if (subdomain) {
+        const catalog = await getOrFetchCatalog(subdomain);
+        if (catalog) {
+          discoveredTemplates = catalogToDiscoveryResult(catalog);
+          const totalTemplates = discoveredTemplates.categories.reduce((sum, c) => sum + c.templates.length, 0);
+          logger.info(
+            { totalTemplates, categories: discoveredTemplates.categories.length },
+            'Content pipeline: template discovery via API catalog',
+          );
+          dashboardEvents.emit('dashboard', {
+            type: 'agent_activity' as const,
+            data: {
+              agent: 'template_discovery',
+              status: 'completed',
+              message: `Discovered ${totalTemplates} templates across ${discoveredTemplates.categories.length} categories (via API)`,
+            },
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
 
-      const totalTemplates = discoveredTemplates.categories.reduce((sum, c) => sum + c.templates.length, 0);
-      dashboardEvents.emit('dashboard', {
-        type: 'agent_activity' as const,
-        data: {
-          agent: 'template_discovery',
-          status: 'completed',
-          message: `Discovered ${totalTemplates} templates across ${discoveredTemplates.categories.length} categories`,
-        },
-        timestamp: new Date().toISOString(),
-      });
+      // Fall back to UI probing if API catalog failed
+      if (!discoveredTemplates) {
+        logger.info('Content pipeline: API catalog unavailable, falling back to UI discovery');
+        await enterEditMode(page);
+        discoveredTemplates = await getOrDiscoverTemplates(page, siteId);
+
+        const totalTemplates = discoveredTemplates.categories.reduce((sum, c) => sum + c.templates.length, 0);
+        dashboardEvents.emit('dashboard', {
+          type: 'agent_activity' as const,
+          data: {
+            agent: 'template_discovery',
+            status: 'completed',
+            message: `Discovered ${totalTemplates} templates across ${discoveredTemplates.categories.length} categories (via UI)`,
+          },
+          timestamp: new Date().toISOString(),
+        });
+      }
     } catch (err) {
       logger.warn({ error: errMsg(err) }, 'Content pipeline: template discovery failed, falling back to static catalog');
       dashboardEvents.emit('dashboard', {

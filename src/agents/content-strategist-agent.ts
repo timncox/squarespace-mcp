@@ -719,6 +719,36 @@ Blank+API example with gallery (multiple images in a grid):
   "editorInstruction": "Add a blank section with a heading and 3-column image gallery via API. This operation uses the blank_api strategy — the execution pipeline handles it automatically."
 }
 
+Page creation example (when the user asks to create a new page):
+When the task says "create a new page" or "add a gallery page", you MUST include a create_page operation FIRST, followed by add_section operations for content on that page. The create_page operation tells the browser agent to create the page before adding sections to it.
+{
+  "operationType": "create_page",
+  "targetPage": "new",
+  "placement": "New page in site navigation",
+  "content": {
+    "heading": "Gallery",
+    "contentStrategy": "manual"
+  },
+  "editorInstruction": "1. Navigate to Pages panel. 2. Click '+ Add Page'. 3. Select 'Blank Page'. 4. Name the page 'Gallery'. 5. The page is now created and ready for content."
+}
+
+Then follow with add_section operations that reference the new page:
+{
+  "operationType": "add_section",
+  "targetPage": "gallery",
+  "placement": "First section on new Gallery page",
+  "content": {
+    "heading": "Gallery",
+    "contentStrategy": "blank_api",
+    "apiBlocks": [
+      { "type": "gallery", "images": [...], "galleryStyle": "grid", "columns": 3 }
+    ]
+  },
+  "editorInstruction": "Add blank section with gallery images via API."
+}
+
+IMPORTANT: If the task involves creating a NEW page (not editing an existing one), you MUST include an operation with "operationType": "create_page" and "targetPage": "new". Without this, the execution pipeline will try to navigate to a page that doesn't exist and fail.
+
 Fallback example (blank section when no template fits):
 {
   "operationType": "add_section",
@@ -728,19 +758,20 @@ Fallback example (blank section when no template fits):
 }
 
 IMPORTANT:
+- **ONLY do what was explicitly requested.** Do NOT add extra sections, pages, or content beyond what the task describes. If the user says "add a gallery page with photos", create ONE gallery operation — do NOT also add "Featured Work", "Get In Touch", "About", or other sections you think might be nice. The user will ask for additional sections if they want them. Stick strictly to the task scope.
 - **Content Strategy Routing** — choose the right strategy per operation:
-  - **template**: Use \`addSectionFromTemplate\` for standard layouts (About, Contact, Team, Services, FAQ). Best when: the template closely matches the desired layout, few text replacements needed, design/visual layout matters. Set \`contentStrategy: "template"\` and provide \`templateIndex\`.
+  - **template**: Use \`addSectionFromTemplate\` for standard layouts (About, Contact, Team, Services, FAQ). Best when: the template closely matches the desired layout, few text replacements needed, design/visual layout matters. Set \`contentStrategy: "template"\` and provide \`templateIndex\`. **CRITICAL: You MUST also include \`replacements\`** with ALL placeholder text mapped to real content. Without \`replacements\`, the template will appear on the site with generic placeholder text (e.g., "Lorem ipsum", "About Us"). Every template operation MUST have \`replacements.texts\` at minimum.
   - **blank_api**: Use for content-heavy sections (CV, resume, long-form text, user-provided exact copy) OR simple button additions. Best when: 3+ text blocks per section, user provides exact text content, layout is simple (stacked text blocks), or it's just a button with optional heading. Set \`contentStrategy: "blank_api"\` and provide \`apiBlocks\` array. For text blocks use \`{ html: "..." }\`. For button blocks use \`{ type: "button", label: "Button Text", url: "https://..." }\`. The execution pipeline will add a blank section and populate via API (no browser agent needed — ~1 second vs ~60 seconds for browser agent).
   - **blank_api with buttons**: When the task is a simple button addition (one button, maybe a heading), use \`contentStrategy: "blank_api"\`. In \`apiBlocks\`, use the button format: \`{ type: "button", label: "Click Me", url: "https://example.com" }\`. You can mix text and button blocks in the same section. This gets routed to the API fast path.
   - **blank_api with images**: When the task provides image files (via \`imagePaths\`), use \`contentStrategy: "blank_api"\` with \`{ type: "image", imagePath: "/path/to/image.jpg", altText: "..." }\` apiBlocks. The pipeline uploads and adds images via API (~2-5s per image).
   - **blank_api with gallery**: For multiple images (portfolio, gallery page, photo grid), use \`contentStrategy: "blank_api"\` with a single \`{ type: "gallery", images: [...], galleryStyle: "grid", columns: 3 }\` apiBlock. All images are uploaded in parallel and arranged in a grid layout. This is far faster than UI automation for multi-image tasks.
   - **manual**: Use for custom layouts, code/embed blocks, interactive elements, or anything that doesn't fit the above. Set \`contentStrategy: "manual"\` and write detailed \`editorInstruction\`.
-  - **Default to "template"** unless the content is clearly text-heavy (3+ paragraphs of user-provided text) or requires no visual template.
+  - **Default to "blank_api"** for most operations — it is faster and more reliable. Only use "template" when the visual layout of a specific template (About, Contact, Team, etc.) is clearly what the user wants AND you can provide complete \`replacements\` for ALL placeholder text in that template.
 - The addSectionFromTemplate action handles: add template + replace all placeholder content in ONE step. Write it as a SINGLE instruction step, not separate steps.
 - Write the EXACT heading and body text to use. No placeholders.
 - The "editorInstruction" must be NUMBERED step-by-step instructions for a browser automation agent. Use the Squarespace editor reference above to write precise instructions with exact button names and locations.
 - Match the tone and style of the existing site (${siteAnalysis?.brandTone ?? 'professional'}).
-- Keep promotional text concise and compelling.
+- Keep promotional text concise and compelling. Do not invent sections or content the user did not ask for.
 - If the task involves an image change but no image file is available, describe the ideal image and note that the owner should provide one, or suggest using a stock photo.
 - When an image file path is provided in the content spec (imagePath), include it in the addSectionFromTemplate replacements.images array. If adding an image to a blank section, use the "addImageBlock" compound action.
 - For button URLs, use a reasonable default (e.g., the business's booking platform) or note that the owner should confirm the URL.
@@ -852,6 +883,20 @@ function parseContentSpec(raw: Record<string, unknown> | undefined): ContentOper
     apiBlocks: Array.isArray(raw.apiBlocks) ? (raw.apiBlocks as ContentOperation['content']['apiBlocks']) : undefined,
     templateIndex: typeof raw.templateIndex === 'number' ? raw.templateIndex : undefined,
     layoutPreset: typeof raw.layoutPreset === 'string' ? raw.layoutPreset : undefined,
+    replacements: parseReplacements(raw.replacements),
+    galleryImageCount: typeof raw.galleryImageCount === 'number' ? raw.galleryImageCount : undefined,
+    galleryAltTexts: Array.isArray(raw.galleryAltTexts) ? (raw.galleryAltTexts as string[]) : undefined,
+  };
+}
+
+function parseReplacements(raw: unknown): ContentOperation['content']['replacements'] {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const r = raw as Record<string, unknown>;
+  return {
+    texts: Array.isArray(r.texts) ? (r.texts as Array<{ searchText: string; newText: string }>) : undefined,
+    buttons: Array.isArray(r.buttons) ? (r.buttons as Array<{ searchText: string; newLabel?: string; url?: string }>) : undefined,
+    images: Array.isArray(r.images) ? (r.images as Array<{ searchText: string; imagePath: string; altText?: string }>) : undefined,
+    removeBlocks: Array.isArray(r.removeBlocks) ? (r.removeBlocks as string[]) : undefined,
   };
 }
 
