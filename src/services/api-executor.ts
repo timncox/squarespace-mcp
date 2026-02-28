@@ -3,7 +3,7 @@
  *
  * Eliminates browser automation for all common operations:
  *   - Page creation/deletion/metadata (createPageViaApi / deletePageViaApi / updatePageMetadata)
- *   - Section addition (addBlankSection / copyTemplateSection)
+ *   - Section addition (addBlankSection)
  *   - Content fill (addTextBlock / addButtonBlock / addImageBlock / addImageBlockBatch
  *                    / addDividerBlock / addVideoBlock / addQuoteBlock / addCodeBlock)
  *   - Content modification (patchTextBlock / updateButtonBlock / updateImageBlock / removeBlock
@@ -39,7 +39,6 @@ import {
   type PageMetadataUpdateOptions,
 } from './content-save.js';
 import { resolvePageIds, cachePageIds } from './page-id-resolver.js';
-import { getOrFetchCatalog, lookupCatalogEntry } from './section-catalog.js';
 import {
   capturePreSnapshot,
   validateOperation,
@@ -53,6 +52,10 @@ import {
   isApiButtonBlock,
   isApiImageBlock,
   isApiGalleryBlock,
+  isApiDividerBlock,
+  isApiVideoBlock,
+  isApiQuoteBlock,
+  isApiCodeBlock,
 } from '../agents/types.js';
 import type {
   ContentPlan,
@@ -242,6 +245,33 @@ async function executeAddSectionBlankApi(
       );
       if (batchResult.success) blocksAdded += batchResult.blocks.length;
       else logger.warn({ error: batchResult.error }, 'api-executor: addImageBlockBatch failed');
+    } else if (isApiDividerBlock(block)) {
+      const result = await client.addDividerBlock(
+        ctx.pageSectionsId, ctx.collectionId, newSectionIndex, block.layout,
+      );
+      if (result.success) blocksAdded++;
+      else logger.warn({ error: result.error }, 'api-executor: addDividerBlock failed');
+    } else if (isApiVideoBlock(block)) {
+      const result = await client.addVideoBlock(
+        ctx.pageSectionsId, ctx.collectionId, newSectionIndex,
+        block.videoUrl, { title: block.title, description: block.description, layout: block.layout },
+      );
+      if (result.success) blocksAdded++;
+      else logger.warn({ error: result.error }, 'api-executor: addVideoBlock failed');
+    } else if (isApiQuoteBlock(block)) {
+      const result = await client.addQuoteBlock(
+        ctx.pageSectionsId, ctx.collectionId, newSectionIndex,
+        block.quoteText, block.attribution, block.layout,
+      );
+      if (result.success) blocksAdded++;
+      else logger.warn({ error: result.error }, 'api-executor: addQuoteBlock failed');
+    } else if (isApiCodeBlock(block)) {
+      const result = await client.addCodeBlock(
+        ctx.pageSectionsId, ctx.collectionId, newSectionIndex,
+        block.code, block.language, block.layout,
+      );
+      if (result.success) blocksAdded++;
+      else logger.warn({ error: result.error }, 'api-executor: addCodeBlock failed');
     } else {
       // Text block
       const textBlock = block as ApiTextBlock;
@@ -263,118 +293,6 @@ async function executeAddSectionBlankApi(
 
   const heading = op.content.heading ?? `Section ${opIndex + 1}`;
   return `Added blank section "${heading}" with ${blocksAdded} blocks`;
-}
-
-async function executeAddSectionTemplate(
-  client: ContentSaveClient,
-  ctx: PageContext,
-  op: ContentOperation,
-  opIndex: number,
-  tracker: SectionTracker,
-  subdomain: string,
-): Promise<string> {
-  const { templateCategory, templateIndex } = op.content;
-  if (!templateCategory || templateIndex == null) {
-    throw new Error('Template operations require templateCategory and templateIndex');
-  }
-
-  // Look up catalog entry
-  const catalog = await getOrFetchCatalog(subdomain);
-  if (!catalog) {
-    throw new Error('Could not fetch section catalog');
-  }
-
-  const entry = lookupCatalogEntry(catalog, templateCategory, templateIndex);
-  if (!entry) {
-    throw new Error(`No catalog entry for ${templateCategory}[${templateIndex}]`);
-  }
-
-  // Copy template section
-  const copyResult = await client.copyTemplateSection(
-    entry.websiteId, entry.collectionId, entry.sectionId,
-  );
-  if (!copyResult.success) {
-    throw new Error(copyResult.error ?? 'copyTemplateSection failed');
-  }
-
-  // Track the new section index
-  const newSectionIndex = tracker.sectionCount;
-  tracker.sectionIndices.set(opIndex, newSectionIndex);
-  tracker.sectionCount++;
-
-  // Apply replacements if present
-  const replacements = op.content.replacements;
-  if (replacements) {
-    // Text replacements
-    if (replacements.texts) {
-      for (const { searchText, newText } of replacements.texts) {
-        const result = await client.updateTextBlock(
-          ctx.pageSectionsId, ctx.collectionId, searchText, newText,
-        );
-        if (!result.success) {
-          logger.warn(
-            { searchText, error: result.error },
-            'api-executor: text replacement failed',
-          );
-        }
-      }
-    }
-
-    // Button replacements
-    if (replacements.buttons) {
-      for (const { searchText, newLabel, url } of replacements.buttons) {
-        const updates: { newLabel?: string; url?: string } = {};
-        if (newLabel) updates.newLabel = newLabel;
-        if (url) updates.url = url;
-        const result = await client.updateButtonBlock(
-          ctx.pageSectionsId, ctx.collectionId, searchText, updates,
-        );
-        if (!result.success) {
-          logger.warn(
-            { searchText, error: result.error },
-            'api-executor: button replacement failed',
-          );
-        }
-      }
-    }
-
-    // Image replacements
-    if (replacements.images) {
-      for (const { searchText, imagePath, altText } of replacements.images) {
-        try {
-          const assetUrl = await uploadImageForBlock(subdomain, imagePath);
-          // Update the image block metadata (assetUrl update requires a different approach)
-          const result = await client.updateImageBlock(
-            ctx.pageSectionsId, ctx.collectionId, searchText,
-            { altText: altText ?? '', title: altText ?? '' },
-          );
-          if (!result.success) {
-            logger.warn({ searchText, error: result.error }, 'api-executor: image replacement failed');
-          }
-        } catch (err) {
-          logger.warn({ searchText, error: errMsg(err) }, 'api-executor: image upload/replace failed');
-        }
-      }
-    }
-
-    // Block removals
-    if (replacements.removeBlocks) {
-      for (const blockText of replacements.removeBlocks) {
-        const result = await client.removeBlock(
-          ctx.pageSectionsId, ctx.collectionId, blockText,
-        );
-        if (!result.success) {
-          logger.warn({ blockText, error: result.error }, 'api-executor: block removal failed');
-        }
-      }
-    }
-  }
-
-  // Apply section styling
-  await applySectionStyle(client, ctx, newSectionIndex, op.content);
-
-  const heading = op.content.heading ?? `Template ${templateCategory}[${templateIndex}]`;
-  return `Added template section "${heading}" with replacements applied`;
 }
 
 async function executeModifyText(
@@ -916,17 +834,13 @@ export async function executeContentPlanViaApi(
         preSnapshot = await capturePreSnapshot(client, ctx.pageSectionsId, op);
       } catch { /* non-fatal */ }
 
-      let summary: string;
       // Infer blank_api when apiBlocks are present but strategy wasn't explicitly set
       const effectiveStrategy = op.content.contentStrategy
         ?? (op.content.apiBlocks?.length ? 'blank_api' : undefined);
-      if (effectiveStrategy === 'blank_api') {
-        summary = await executeAddSectionBlankApi(client, ctx, op, index, tracker, subdomain);
-      } else if (effectiveStrategy === 'template') {
-        summary = await executeAddSectionTemplate(client, ctx, op, index, tracker, subdomain);
-      } else {
-        throw new Error(`Unknown content strategy: ${op.content.contentStrategy}`);
+      if (effectiveStrategy !== 'blank_api') {
+        throw new Error(`Unsupported content strategy: ${op.content.contentStrategy ?? 'none'}`);
       }
+      const summary = await executeAddSectionBlankApi(client, ctx, op, index, tracker, subdomain);
 
       // Post-operation validation
       let validation: ValidationResult | undefined;

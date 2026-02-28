@@ -62,7 +62,7 @@ describe('classifyPlanForApi', () => {
       expect(result.capability).toBe('full_api');
     });
 
-    it('classifies add_section template with category+index as full_api', () => {
+    it('classifies add_section template as browser_required', () => {
       const plan = makePlan([
         makeOp({
           operationType: 'add_section',
@@ -74,7 +74,7 @@ describe('classifyPlanForApi', () => {
         }),
       ]);
       const result = classifyPlanForApi(plan);
-      expect(result.capability).toBe('full_api');
+      expect(result.capability).toBe('browser_required');
     });
 
     it('classifies replace_image as full_api', () => {

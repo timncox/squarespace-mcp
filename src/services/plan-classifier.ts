@@ -32,7 +32,6 @@ export interface PlanClassification {
  * API-capable operations:
  *   - create_page (via createPageViaApi)
  *   - add_section with contentStrategy 'blank_api' (addBlankSection + content fill)
- *   - add_section with contentStrategy 'template' and replacements (copyTemplateSection + replacements)
  *   - add_block (addTextBlock / addButtonBlock / addImageBlock)
  *   - add_gallery (addImageBlockBatch)
  *   - modify_text (patchTextBlock / updateTextBlock)
@@ -67,13 +66,9 @@ function canRunViaApi(op: ContentOperation): boolean {
 
     case 'add_section': {
       if (content.contentStrategy === 'blank_api') return true;
-      if (content.contentStrategy === 'template') {
-        // Template ops need category + index to look up catalog entry
-        return !!(content.templateCategory && content.templateIndex != null);
-      }
       // Infer blank_api when apiBlocks are present but strategy wasn't explicitly set
       if (content.apiBlocks && content.apiBlocks.length > 0) return true;
-      // No strategy specified — can't route
+      // No strategy specified (or template) — can't route via API
       return false;
     }
 

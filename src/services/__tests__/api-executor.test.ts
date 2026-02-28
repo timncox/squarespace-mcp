@@ -33,14 +33,6 @@ vi.mock('../page-id-resolver.js', () => ({
   cachePageIds: (...args: unknown[]) => mockCachePageIds(...args),
 }));
 
-// Mock section-catalog
-const mockGetOrFetchCatalog = vi.fn();
-const mockLookupCatalogEntry = vi.fn();
-vi.mock('../section-catalog.js', () => ({
-  getOrFetchCatalog: (...args: unknown[]) => mockGetOrFetchCatalog(...args),
-  lookupCatalogEntry: (...args: unknown[]) => mockLookupCatalogEntry(...args),
-}));
-
 // Mock content-validator
 vi.mock('../content-validator.js', () => ({
   capturePreSnapshot: vi.fn().mockResolvedValue(null),
@@ -60,7 +52,6 @@ const mockUpdateImageBlock = vi.fn();
 const mockRemoveBlock = vi.fn();
 const mockEditSectionStyle = vi.fn();
 const mockAddBlankSection = vi.fn();
-const mockCopyTemplateSection = vi.fn();
 const mockCreatePageViaApi = vi.fn();
 const mockMoveSection = vi.fn();
 const mockCheckSessionHealth = vi.fn();
@@ -79,7 +70,6 @@ vi.mock('../content-save.js', () => ({
     removeBlock: mockRemoveBlock,
     editSectionStyle: mockEditSectionStyle,
     addBlankSection: mockAddBlankSection,
-    copyTemplateSection: mockCopyTemplateSection,
     createPageViaApi: mockCreatePageViaApi,
     moveSection: mockMoveSection,
   }),
@@ -343,58 +333,6 @@ describe('executeContentPlanViaApi', () => {
         makeOp({
           operationType: 'add_section',
           content: { contentStrategy: 'blank_api' },
-        }),
-      ]);
-      const result = await executeContentPlanViaApi(plan, 'test-site');
-
-      expect(result.success).toBe(false);
-      expect(result.failedOperations).toHaveLength(1);
-    });
-  });
-
-  describe('add_section template', () => {
-    it('copies a template section with replacements', async () => {
-      mockGetOrFetchCatalog.mockResolvedValue({
-        CONTACT: [{ websiteId: 'w1', collectionId: 'c1', sectionId: 's1' }],
-      });
-      mockLookupCatalogEntry.mockReturnValue({ websiteId: 'w1', collectionId: 'c1', sectionId: 's1' });
-      mockCopyTemplateSection.mockResolvedValue({ success: true, sectionId: 'new-s1' });
-      mockUpdateTextBlock.mockResolvedValue({ success: true });
-      mockRemoveBlock.mockResolvedValue({ success: true });
-
-      const plan = makePlan([
-        makeOp({
-          operationType: 'add_section',
-          content: {
-            contentStrategy: 'template',
-            templateCategory: 'CONTACT',
-            templateIndex: 0,
-            replacements: {
-              texts: [{ searchText: 'Lorem ipsum', newText: 'Contact us today' }],
-              removeBlocks: ['Sign Up'],
-            },
-          },
-        }),
-      ]);
-      const result = await executeContentPlanViaApi(plan, 'test-site');
-
-      expect(result.success).toBe(true);
-      expect(mockCopyTemplateSection).toHaveBeenCalledWith('w1', 'c1', 's1');
-      expect(mockUpdateTextBlock).toHaveBeenCalledWith('ps-123', 'col-456', 'Lorem ipsum', 'Contact us today');
-      expect(mockRemoveBlock).toHaveBeenCalledWith('ps-123', 'col-456', 'Sign Up');
-    });
-
-    it('fails when catalog lookup fails', async () => {
-      mockGetOrFetchCatalog.mockResolvedValue(null);
-
-      const plan = makePlan([
-        makeOp({
-          operationType: 'add_section',
-          content: {
-            contentStrategy: 'template',
-            templateCategory: 'CONTACT',
-            templateIndex: 0,
-          },
         }),
       ]);
       const result = await executeContentPlanViaApi(plan, 'test-site');
