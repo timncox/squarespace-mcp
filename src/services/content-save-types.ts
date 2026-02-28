@@ -473,6 +473,25 @@ export interface BlogPostCreateResult {
   error?: string;
 }
 
+/** Options for updateBlogPost */
+export interface BlogPostUpdateOptions {
+  title?: string;
+  body?: string;
+  excerpt?: string;
+  tags?: string[];
+  categories?: string[];
+  urlId?: string;
+  draft?: boolean;
+}
+
+/** Result of updateBlogPost */
+export interface BlogPostUpdateResult {
+  success: boolean;
+  itemId: string;
+  updatedFields: string[];
+  error?: string;
+}
+
 // ── Page Deletion/Update Types ──────────────────────────────────────────────
 
 /** Result of deletePageViaApi */
