@@ -66,6 +66,85 @@ export function extractSubdomain(page: Page): string | null {
 }
 
 /**
+ * Pure helper: apply formatting transformations to a Squarespace text block's HTML.
+ *
+ * Processes each block-level element (<p>, <h1>-<h6>) independently:
+ * - formatLevel: replaces the element tag (heading1→h1, heading2→h2, etc.)
+ * - alignment: adds/replaces text-align in the style attribute
+ * - bold: wraps inner content in <strong> (no-ops if already present)
+ * - italic: wraps inner content in <em> (no-ops if already present)
+ *
+ * Returns html unchanged if no opts are provided.
+ * Only handles heading1-4 for formatLevel — paragraph variants are not supported
+ * (class names vary by site theme). Falls through to UI for those cases.
+ */
+export function applyFormattingToHtml(
+  html: string,
+  opts: {
+    formatLevel?: 'heading1' | 'heading2' | 'heading3' | 'heading4';
+    bold?: boolean;
+    italic?: boolean;
+    alignment?: 'left' | 'center' | 'right';
+  },
+): string {
+  const { formatLevel, bold, italic, alignment } = opts;
+
+  const tagMap: Record<string, string> = {
+    heading1: 'h1', heading2: 'h2', heading3: 'h3', heading4: 'h4',
+  };
+  const newTag = formatLevel ? tagMap[formatLevel] : undefined;
+
+  // Match each block-level element: opening tag + content + closing tag
+  // Non-greedy so multiple elements in a row are processed separately
+  return html.replace(
+    /<(p|h[1-6])(\s[^>]*)?>[\s\S]*?<\/\1>/gi,
+    (match, tag, rawAttrs) => {
+      const attrs: string = rawAttrs ?? '';
+
+      // ── 1. Compute the new tag ───────────────────────────────────────
+      const finalTag = newTag ?? tag.toLowerCase();
+
+      // ── 2. Compute new style attribute ──────────────────────────────
+      // Extract existing style value (always present in SQS HTML)
+      const styleMatch = attrs.match(/style="([^"]*)"/i);
+      let style = styleMatch ? styleMatch[1] : 'white-space:pre-wrap;';
+
+      if (alignment) {
+        // Remove any existing text-align, then append new one
+        style = style.replace(/;?\s*text-align:[^;]+/gi, '').replace(/;$/, '');
+        style = `${style};text-align:${alignment};`.replace(/^;/, '');
+      }
+
+      // Rebuild attrs: keep class, replace style
+      const classMatch = attrs.match(/class="([^"]*)"/i);
+      const className = classMatch ? classMatch[1] : '';
+      const newAttrs = ` class="${className}" style="${style}"`;
+
+      // ── 3. Extract inner content (everything between opening & closing tag) ──
+      const innerMatch = match.match(
+        /^<(?:p|h[1-6])(?:\s[^>]*)?>([\s\S]*?)<\/(?:p|h[1-6])>$/i,
+      );
+      let inner = innerMatch ? innerMatch[1] : '';
+
+      // ── 4. Apply italic (inner wrapper) ─────────────────────────────
+      if (italic !== undefined) {
+        inner = inner.replace(/<em>([\s\S]*?)<\/em>/gi, '$1');
+        if (italic) inner = `<em>${inner}</em>`;
+      }
+
+      // ── 5. Apply bold (outer wrapper) ───────────────────────────────
+      if (bold !== undefined) {
+        // Strip existing <strong> wrappers, then re-apply if bold=true
+        inner = inner.replace(/<strong>([\s\S]*?)<\/strong>/gi, '$1');
+        if (bold) inner = `<strong>${inner}</strong>`;
+      }
+
+      return `<${finalTag}${newAttrs}>${inner}</${finalTag}>`;
+    },
+  );
+}
+
+/**
  * Common API context needed by all try*Api() functions.
  * Extracts subdomain, pageSectionsId, collectionId from the Playwright page.
  * Returns null if any extraction step fails (caller should return null to fall through to UI).
