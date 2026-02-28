@@ -22,6 +22,123 @@ import { join } from 'path';
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
 
+// ── Re-export all types from content-save-types.ts for backward compatibility ─
+export type {
+  RichHtmlElement,
+  GridCoord,
+  BreakpointLayout,
+  BlockLayout,
+  BlockMoveResult,
+  BlockResizeResult,
+  BlockRemoveResult,
+  SectionMoveResult,
+  ImageBlockUpdateResult,
+  FooterTextUpdateResult,
+  HeaderFooterConfig,
+  TextBlockAddResult,
+  ButtonBlockAddResult,
+  ImageBlockAddResult,
+  ImageBlockBatchResult,
+  ButtonBlockUpdateResult,
+  FillBlockResult,
+  GridContent,
+  GridSettings,
+  PageSection,
+  PageSectionsData,
+  ContentSaveResult,
+  MenuBlockUpdateResult,
+  TextUpdateResult,
+  TextPatchResult,
+  GallerySettings,
+  GallerySettingsUpdateResult,
+  AddBlankSectionResult,
+  CopyTemplateSectionResult,
+  AddGalleryImageResult,
+  GalleryItem,
+  SectionCatalogEntry,
+  SectionCatalogResponse,
+  SectionStyleOptions,
+  SectionStyleResult,
+  SectionDuplicateResult,
+  SectionReorderResult,
+  BlockDuplicateResult,
+  CollectionInfo,
+  PageMetadata,
+  CollectionItem,
+  CollectionItemsOptions,
+  CollectionItemsResult,
+  PageCreateResult,
+  BlogPostCreateResult,
+  PageDeleteResult,
+  PageMetadataUpdateOptions,
+  PageMetadataUpdateResult,
+  QuoteBlockAddResult,
+  QuoteBlockUpdateResult,
+  CodeBlockAddResult,
+  CodeBlockUpdateResult,
+  DividerBlockAddResult,
+  VideoBlockAddResult,
+  VideoBlockUpdateResult,
+} from './content-save-types.js';
+
+import type {
+  RichHtmlElement,
+  GridCoord,
+  BreakpointLayout,
+  BlockLayout,
+  BlockMoveResult,
+  BlockResizeResult,
+  BlockRemoveResult,
+  SectionMoveResult,
+  ImageBlockUpdateResult,
+  FooterTextUpdateResult,
+  HeaderFooterConfig,
+  TextBlockAddResult,
+  ButtonBlockAddResult,
+  ImageBlockAddResult,
+  ImageBlockBatchResult,
+  ButtonBlockUpdateResult,
+  FillBlockResult,
+  GridContent,
+  GridSettings,
+  PageSection,
+  PageSectionsData,
+  ContentSaveResult,
+  MenuBlockUpdateResult,
+  TextUpdateResult,
+  TextPatchResult,
+  GallerySettings,
+  GallerySettingsUpdateResult,
+  AddBlankSectionResult,
+  CopyTemplateSectionResult,
+  AddGalleryImageResult,
+  GalleryItem,
+  SectionCatalogEntry,
+  SectionCatalogResponse,
+  SectionStyleOptions,
+  SectionStyleResult,
+  SectionDuplicateResult,
+  SectionReorderResult,
+  BlockDuplicateResult,
+  CollectionInfo,
+  PageMetadata,
+  CollectionItem,
+  CollectionItemsOptions,
+  CollectionItemsResult,
+  PageCreateResult,
+  BlogPostCreateResult,
+  PageDeleteResult,
+  PageMetadataUpdateOptions,
+  PageMetadataUpdateResult,
+  QuoteBlockAddResult,
+  QuoteBlockUpdateResult,
+  CodeBlockAddResult,
+  CodeBlockUpdateResult,
+  DividerBlockAddResult,
+  VideoBlockAddResult,
+  VideoBlockUpdateResult,
+} from './content-save-types.js';
+
 // ── Config ──────────────────────────────────────────────────────────────────
 
 const SESSION_PATH = join(process.cwd(), 'storage', 'auth', 'sqsp-session.json');
@@ -40,462 +157,14 @@ const BLOCK_TYPE_BUTTON = 46;
 const BLOCK_TYPE_MENU = 18;
 // Gallery block type
 const BLOCK_TYPE_GALLERY = 8;
-
-// ── Types ───────────────────────────────────────────────────────────────────
-
-/** Element descriptor for buildRichHtml() */
-export interface RichHtmlElement {
-  text: string;
-  tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p' | 'li';
-  style?: Record<string, string>;
-  bold?: boolean;
-  italic?: boolean;
-  link?: { href: string; target?: string };
-  className?: string;
-}
-
-/** Grid coordinate (column/row position) */
-export interface GridCoord { x: number; y: number }
-
-/** Layout for a single breakpoint (mobile or desktop) */
-export interface BreakpointLayout {
-  start: GridCoord; end: GridCoord;
-  verticalAlignment?: string; visible?: boolean; zIndex?: number;
-  stickyScroll?: { enabled: boolean; position?: string; offset?: { unit: string; value: number } };
-}
-
-/** Full block layout across breakpoints */
-export interface BlockLayout { mobile: BreakpointLayout; desktop: BreakpointLayout }
-
-/** Result of a block move operation */
-export interface BlockMoveResult {
-  success: boolean; blockId?: string; direction?: string;
-  oldPosition?: { desktop: { start: GridCoord; end: GridCoord } };
-  newPosition?: { desktop: { start: GridCoord; end: GridCoord } };
-  clamped?: boolean; error?: string;
-}
-
-/** Result of a block resize operation */
-export interface BlockResizeResult {
-  success: boolean; blockId?: string;
-  oldSize?: { width: number; height: number; desktop: { start: GridCoord; end: GridCoord } };
-  newSize?: { width: number; height: number; desktop: { start: GridCoord; end: GridCoord } };
-  clamped?: boolean; error?: string;
-}
-
-/** Result of a block remove operation */
-export interface BlockRemoveResult {
-  success: boolean;
-  blockId?: string;
-  blockType?: number;
-  sectionId?: string;
-  error?: string;
-}
-
-/** Result of a section move operation */
-export interface SectionMoveResult {
-  success: boolean;
-  sectionId?: string;
-  sectionName?: string;
-  oldIndex?: number;
-  newIndex?: number;
-  error?: string;
-}
-
-/** Result of an image block update operation */
-export interface ImageBlockUpdateResult {
-  success: boolean;
-  blockId?: string;
-  updatedFields?: string[];
-  error?: string;
-}
-
-/** Result of a footer text update operation */
-export interface FooterTextUpdateResult {
-  success: boolean;
-  blockId?: string;
-  oldText?: string;
-  newHtml?: string;
-  error?: string;
-}
-
-/** The site header/footer configuration from GET /api/site-header-footer */
-export interface HeaderFooterConfig {
-  footer?: {
-    pageSectionsId?: string;
-    [key: string]: unknown;
-  };
-  header?: Record<string, unknown>;
-  [key: string]: unknown;
-}
-
-/** Result of adding a text block to a section */
-export interface TextBlockAddResult {
-  success: boolean;
-  blockId?: string;
-  sectionId?: string;
-  sectionIndex?: number;
-  error?: string;
-}
-
-/** Result of adding a button block to a section */
-export interface ButtonBlockAddResult {
-  success: boolean;
-  blockId?: string;
-  sectionId?: string;
-  sectionIndex?: number;
-  error?: string;
-}
-
-/** Result of adding an image block to a section */
-export interface ImageBlockAddResult {
-  success: boolean;
-  blockId?: string;
-  sectionId?: string;
-  sectionIndex?: number;
-  error?: string;
-}
-
-/** Result of batch-adding image blocks to a section */
-export interface ImageBlockBatchResult {
-  success: boolean;
-  blocks: Array<{ blockId: string; assetUrl: string }>;
-  sectionId?: string;
-  sectionIndex?: number;
-  error?: string;
-}
-
-/** Result of updating a button block */
-export interface ButtonBlockUpdateResult {
-  success: boolean;
-  blockId?: string;
-  oldLabel?: string;
-  newLabel?: string;
-  oldUrl?: string;
-  newUrl?: string;
-  error?: string;
-}
-
-/** Result of filling a placeholder text block in a section */
-export interface FillBlockResult {
-  success: boolean;
-  blockId?: string;
-  error?: string;
-}
-
-/**
- * A Fluid Engine grid content item (block within a section).
- *
- * Real structure from GET /api/page-sections:
- * ```json
- * {
- *   "layout": { "mobile": {...}, "desktop": {...} },
- *   "content": {
- *     "value": {
- *       "id": "a7a6278d708bd0f7265c",
- *       "type": 2,
- *       "value": {
- *         "engine": "wysiwyg",
- *         "source": "<p>text</p>",
- *         "html": "<p>text</p>",
- *         "textAttributes": []
- *       },
- *       "containerStyles": {...}
- *     }
- *   }
- * }
- * ```
- */
-export interface GridContent {
-  layout?: BlockLayout;
-  content: {
-    value: {
-      id: string;
-      type: number; // 2 = text/html, 1337 = image, etc.
-      value?: {
-        engine?: string;
-        source?: string;
-        html?: string;
-        textAttributes?: unknown[];
-        text?: string;
-        label?: string;
-        title?: string;
-        description?: string;
-        subtitle?: string;
-        [key: string]: unknown;
-      };
-      containerStyles?: unknown;
-      [key: string]: unknown;
-    };
-  };
-  [key: string]: unknown;
-}
-
-/** Grid settings within a section's fluidEngineContext */
-export interface GridSettings {
-  breakpointSettings?: {
-    desktop?: { columns?: number };
-    mobile?: { columns?: number };
-  };
-}
-
-/** A section in the page-sections data */
-export interface PageSection {
-  id: string;
-  sectionName: string;
-  fluidEngineContext?: {
-    gridContents: GridContent[];
-    gridSettings?: GridSettings;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
-
-/** The full page-sections payload (sent and received on PUT) */
-export interface PageSectionsData {
-  id?: string;
-  websiteId?: string;
-  collectionId?: string;
-  sections: PageSection[];
-  updatedOn?: number;
-  [key: string]: unknown;
-}
-
-/** Result of a content save operation */
-export interface ContentSaveResult {
-  success: boolean;
-  pageSectionsId: string;
-  collectionId: string;
-  sectionsCount: number;
-  error?: string;
-}
-
-/** Result of a menu block update operation */
-export interface MenuBlockUpdateResult {
-  success: boolean;
-  blockId?: string;
-  sectionId?: string;
-  oldTabCount?: number;
-  newTabCount?: number;
-  oldItemCount?: number;
-  newItemCount?: number;
-  error?: string;
-}
-
-/** Result of a text block update */
-export interface TextUpdateResult {
-  success: boolean;
-  blockId?: string;
-  oldText?: string;
-  newHtml?: string;
-  error?: string;
-}
-
-/** Result of a surgical text patch (substring replacement within a block) */
-export interface TextPatchResult {
-  success: boolean;
-  blockId?: string;
-  patchedSegment?: string;
-  oldText?: string;
-  error?: string;
-}
-
-/** Gallery display settings (type 8 block properties) */
-export interface GallerySettings {
-  'thumbnails-per-row'?: number;
-  'aspect-ratio'?: string;
-  design?: string;
-  padding?: number;
-  lightbox?: boolean;
-  'auto-crop'?: boolean;
-  'square-thumbs'?: boolean;
-  'show-meta'?: boolean;
-  'show-meta-basic'?: boolean;
-  'show-meta-only-title'?: boolean;
-  'show-meta-only-description'?: boolean;
-}
-
-/** Result of updating gallery settings */
-export interface GallerySettingsUpdateResult {
-  success: boolean;
-  blockId?: string;
-  updatedFields?: string[];
-  error?: string;
-}
-
-/** Result of adding a blank section via API */
-export interface AddBlankSectionResult {
-  success: boolean;
-  sectionId?: string;
-  error?: string;
-}
-
-/** Result of copying a template section via API */
-export interface CopyTemplateSectionResult {
-  success: boolean;
-  sectionId?: string;
-  sectionData?: unknown;
-  error?: string;
-}
-
-/** Result of adding an image to a gallery */
-export interface AddGalleryImageResult {
-  success: boolean;
-  itemId?: string;
-  error?: string;
-}
-
-/** Gallery collection item */
-export interface GalleryItem {
-  id: string;
-  title?: string;
-  description?: string;
-  assetUrl?: string;
-  [key: string]: unknown;
-}
-
-/** Section catalog entry from GET /api/section-catalog/sections */
-export interface SectionCatalogEntry {
-  websiteId: string;
-  collectionId: string;
-  sectionId: string;
-  taxonomy?: { tags?: string[]; categories?: string[] };
-  catalogWebsiteRev?: number;
-  componentReplacements?: unknown[];
-  [key: string]: unknown;
-}
-
-/** Section catalog response — keyed by category (e.g., "CONTACT", "MENUS") */
-export interface SectionCatalogResponse {
-  success: boolean;
-  /** Category → entries map (e.g., { "CONTACT": [...], "MENUS": [...] }) */
-  catalog?: Record<string, SectionCatalogEntry[]>;
-  /** Flattened array of all entries across categories */
-  sections?: SectionCatalogEntry[];
-  /** Category names */
-  categories?: string[];
-  error?: string;
-}
-
-/** Options for editSectionStyle */
-export interface SectionStyleOptions {
-  sectionTheme?: string;
-  backgroundColor?: string;
-  sectionHeight?: 'auto' | 'small' | 'medium' | 'large' | 'full';
-  paddingTop?: string;
-  paddingBottom?: string;
-  blockSpacing?: string;
-  contentWidth?: 'inset' | 'full';
-  verticalAlignment?: 'top' | 'middle' | 'bottom';
-}
-
-/** Result of editSectionStyle */
-export interface SectionStyleResult {
-  success: boolean;
-  sectionId?: string;
-  sectionIndex?: number;
-  updatedFields?: string[];
-  error?: string;
-}
-
-/** Result of duplicateSection */
-export interface SectionDuplicateResult {
-  success: boolean;
-  originalSectionId?: string;
-  newSectionId?: string;
-  newSectionIndex?: number;
-  error?: string;
-}
-
-/** Result of reorderSections */
-export interface SectionReorderResult {
-  success: boolean;
-  newOrder?: number[];
-  sectionsCount?: number;
-  error?: string;
-}
-
-/** Result of duplicateBlock */
-export interface BlockDuplicateResult {
-  success: boolean;
-  originalBlockId?: string;
-  newBlockId?: string;
-  sectionId?: string;
-  error?: string;
-}
-
-/** Collection info from GetCollections API */
-export interface CollectionInfo {
-  id: string;
-  urlId: string;
-  title: string;
-  type: number;
-  typeName: string;
-  itemCount?: number;
-  enabled?: boolean;
-  ordering?: number;
-  navigationTitle?: string;
-  description?: string;
-}
-
-/** Page metadata (enriched collection info) */
-export interface PageMetadata {
-  collectionId: string;
-  urlId: string;
-  title: string;
-  type: number;
-  typeName: string;
-  enabled?: boolean;
-  navigationTitle?: string;
-}
-
-/** Collection item (blog post, gallery item, etc.) */
-export interface CollectionItem {
-  id: string;
-  title: string;
-  urlId?: string;
-  body?: string;
-  excerpt?: string;
-  status?: string;
-  publishOn?: number;
-  updatedOn?: number;
-  tags?: string[];
-  categories?: string[];
-  [key: string]: unknown;
-}
-
-/** Options for getCollectionItems */
-export interface CollectionItemsOptions {
-  limit?: number;
-  offset?: number;
-  filter?: 'published' | 'draft' | 'all';
-}
-
-/** Result of getCollectionItems */
-export interface CollectionItemsResult {
-  success: boolean;
-  items?: CollectionItem[];
-  total?: number;
-  error?: string;
-}
-
-/** Result of createPageViaApi */
-export interface PageCreateResult {
-  success: boolean;
-  pageId?: string;
-  urlId?: string;
-  endpointAvailable: boolean;
-  error?: string;
-}
-
-/** Result of createBlogPost */
-export interface BlogPostCreateResult {
-  success: boolean;
-  itemId?: string;
-  urlId?: string;
-  endpointAvailable: boolean;
-  error?: string;
-}
+// Quote block type
+const BLOCK_TYPE_QUOTE = 44;
+// Code block type
+const BLOCK_TYPE_CODE = 23;
+// Divider/spacer block type (suspected — verify via discovery)
+const BLOCK_TYPE_DIVIDER = 52;
+// Video embed block type (suspected — verify via discovery)
+const BLOCK_TYPE_VIDEO = 50;
 
 interface SessionCookie {
   name: string;
@@ -1226,6 +895,34 @@ export class ContentSaveClient {
           const fields = [bv.value?.title, bv.value?.description, bv.value?.subtitle].filter(Boolean);
           for (const field of fields) {
             if (this.stripHtml(String(field)).toLowerCase().includes(needle)) {
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+            }
+          }
+        }
+
+        // Quote blocks (type 44): match html and source (attribution)
+        if (bv.type === BLOCK_TYPE_QUOTE) {
+          const html = bv.value?.html ?? '';
+          const source = bv.value?.source ?? '';
+          if ((html && this.stripHtml(html).toLowerCase().includes(needle)) ||
+              (source && this.stripHtml(String(source)).toLowerCase().includes(needle))) {
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
+        // Code blocks (type 23): match html (code content)
+        if (bv.type === BLOCK_TYPE_CODE) {
+          const html = bv.value?.html ?? '';
+          if (html && html.toLowerCase().includes(needle)) {
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
+        // Video blocks (type 50): match url, title, description
+        if (bv.type === BLOCK_TYPE_VIDEO) {
+          const fields = [bv.value?.url, bv.value?.title, bv.value?.description].filter(Boolean);
+          for (const field of fields) {
+            if (String(field).toLowerCase().includes(needle)) {
               return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
             }
           }
@@ -3057,6 +2754,809 @@ export class ContentSaveClient {
     }
   }
 
+  // ── Divider Block Operations ────────────────────────────────────────────
+
+  /**
+   * Add a divider/spacer block to a section via Content Save API.
+   * Dividers are structural blocks with no editable content.
+   *
+   * Default layout: 24 cols wide (full width), 1 row tall (thin divider).
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param layout          Optional layout overrides
+   */
+  async addDividerBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    },
+  ): Promise<DividerBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      // Default divider: full width (24 cols), 1 row tall
+      const rowHeight = layout?.rowHeight ?? 1;
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? maxColumns;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and create GridContent
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: {
+            id: blockId,
+            type: BLOCK_TYPE_DIVIDER,
+            value: {},
+          },
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, position: { startX, startY, endX, endY } },
+        'Adding divider block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionId: section.id, sectionIndex };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Video Block Operations ────────────────────────────────────────────
+
+  /**
+   * Add a video embed block to a section via Content Save API.
+   *
+   * Default layout: 24 cols wide (full width), 8 rows tall.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param videoUrl        The video URL (YouTube, Vimeo, etc.)
+   * @param options         Optional title, description, and layout overrides
+   */
+  async addVideoBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    videoUrl: string,
+    options?: {
+      title?: string;
+      description?: string;
+      layout?: {
+        columns?: number;
+        rowHeight?: number;
+        gapRows?: number;
+        startX?: number;
+        endX?: number;
+        startY?: number;
+        endY?: number;
+      };
+    },
+  ): Promise<VideoBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      const layout = options?.layout;
+
+      // Default video block: full width (24 cols), 8 rows tall
+      const rowHeight = layout?.rowHeight ?? 8;
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? maxColumns;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and create GridContent
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: {
+            id: blockId,
+            type: BLOCK_TYPE_VIDEO,
+            value: {
+              url: videoUrl,
+              title: options?.title,
+              description: options?.description,
+            },
+          },
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, videoUrl, position: { startX, startY, endX, endY } },
+        'Adding video block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionId: section.id, sectionIndex };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update a video block's URL, title, and/or description.
+   * Uses findBlock() to locate the video block by search text.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param searchText      Text to find the video block by (matches url, title, or description)
+   * @param updates         Fields to update: url, title, description
+   */
+  async updateVideoBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    updates: { url?: string; title?: string; description?: string },
+  ): Promise<VideoBlockUpdateResult> {
+    if (!updates.url && !updates.title && !updates.description) {
+      return { success: false, error: 'Must provide at least url, title, or description to update' };
+    }
+
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the video block
+      const match = this.findBlock(data.sections, searchText);
+      if (!match) {
+        return { success: false, error: `No block found matching "${searchText}"` };
+      }
+
+      const { gridContent } = match;
+      const blockValue = gridContent.content.value;
+
+      // Step 3: Verify block type is video (50)
+      if (blockValue.type !== BLOCK_TYPE_VIDEO) {
+        return {
+          success: false,
+          error: `Block "${searchText}" is type ${blockValue.type}, not a video block (expected ${BLOCK_TYPE_VIDEO})`,
+        };
+      }
+
+      const blockId = blockValue.id;
+      const updatedFields: string[] = [];
+
+      // Ensure value sub-object exists
+      if (!blockValue.value) {
+        blockValue.value = {};
+      }
+
+      // Step 4: Update provided fields
+      if (updates.url !== undefined) {
+        blockValue.value.url = updates.url;
+        updatedFields.push('url');
+      }
+      if (updates.title !== undefined) {
+        blockValue.value.title = updates.title;
+        updatedFields.push('title');
+      }
+      if (updates.description !== undefined) {
+        blockValue.value.description = updates.description;
+        updatedFields.push('description');
+      }
+
+      logger.info(
+        { blockId, updatedFields, searchText },
+        'Updating video block via Content Save API',
+      );
+
+      // Step 5: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, updatedFields };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Quote Block Operations ────────────────────────────────────────────
+
+  /**
+   * Add a quote block to a section via Content Save API.
+   * Same grid positioning logic as addTextBlock/addButtonBlock.
+   *
+   * Default quote size: full width (24 columns), 3 rows tall.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param quoteText       The quote text (HTML)
+   * @param attribution     Optional attribution/source text
+   * @param layout          Optional layout overrides (same as addTextBlock)
+   */
+  async addQuoteBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    quoteText: string,
+    attribution?: string,
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    },
+  ): Promise<QuoteBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      const rowHeight = layout?.rowHeight ?? 3;
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? maxColumns;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and create GridContent
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      const quoteValue: Record<string, unknown> = { html: quoteText };
+      if (attribution !== undefined) {
+        quoteValue.source = attribution;
+      }
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: {
+            id: blockId,
+            type: BLOCK_TYPE_QUOTE,
+            value: quoteValue,
+          },
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, quoteText: quoteText.substring(0, 100), attribution, position: { startX, startY, endX, endY } },
+        'Adding quote block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionId: section.id, sectionIndex };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update a quote block's text and/or attribution.
+   * Uses findBlock() which matches on value.html and value.source for type 44 blocks.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param searchText      Text to find the quote by (matches html or source/attribution)
+   * @param updates         Fields to update: quoteText and/or attribution
+   */
+  async updateQuoteBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    updates: { quoteText?: string; attribution?: string },
+  ): Promise<QuoteBlockUpdateResult> {
+    if (!updates.quoteText && updates.attribution === undefined) {
+      return { success: false, error: 'Must provide at least quoteText or attribution to update' };
+    }
+
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the quote block
+      const match = this.findBlock(data.sections, searchText);
+      if (!match) {
+        return { success: false, error: `No block found matching "${searchText}"` };
+      }
+
+      const { gridContent } = match;
+      const blockValue = gridContent.content.value;
+
+      // Step 3: Verify block type is quote (44)
+      if (blockValue.type !== BLOCK_TYPE_QUOTE) {
+        return {
+          success: false,
+          error: `Block "${searchText}" is type ${blockValue.type}, not a quote block (expected ${BLOCK_TYPE_QUOTE})`,
+        };
+      }
+
+      const blockId = blockValue.id;
+      const oldQuote = blockValue.value?.html as string | undefined;
+
+      // Ensure value sub-object exists
+      if (!blockValue.value) {
+        blockValue.value = {};
+      }
+
+      // Step 4: Update provided fields
+      if (updates.quoteText !== undefined) {
+        blockValue.value.html = updates.quoteText;
+      }
+      if (updates.attribution !== undefined) {
+        blockValue.value.source = updates.attribution;
+      }
+
+      logger.info(
+        { blockId, searchText, oldQuote: oldQuote?.substring(0, 100), newQuote: updates.quoteText?.substring(0, 100), attribution: updates.attribution },
+        'Updating quote block via Content Save API',
+      );
+
+      // Step 5: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return {
+        success: true,
+        blockId,
+        oldQuote,
+        newQuote: updates.quoteText ?? oldQuote,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Code Block Operations ─────────────────────────────────────────────
+
+  /**
+   * Add a code block to a section via Content Save API.
+   * Same grid positioning logic as addTextBlock/addButtonBlock.
+   *
+   * Default code block size: full width (24 columns), 3 rows tall.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param code            The code content
+   * @param language        Optional language identifier (defaults to 'plain')
+   * @param layout          Optional layout overrides (same as addTextBlock)
+   */
+  async addCodeBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    code: string,
+    language?: string,
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    },
+  ): Promise<CodeBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      const rowHeight = layout?.rowHeight ?? 3;
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? maxColumns;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and create GridContent
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: {
+            id: blockId,
+            type: BLOCK_TYPE_CODE,
+            value: { html: code, codeLanguage: language ?? 'plain' },
+          },
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, language: language ?? 'plain', codeLength: code.length, position: { startX, startY, endX, endY } },
+        'Adding code block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionId: section.id, sectionIndex };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update a code block's content and/or language.
+   * Uses findBlock() which matches on value.html for type 23 blocks.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param searchText      Text to find the code block by (matches code content)
+   * @param updates         Fields to update: code and/or language
+   */
+  async updateCodeBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    updates: { code?: string; language?: string },
+  ): Promise<CodeBlockUpdateResult> {
+    if (!updates.code && !updates.language) {
+      return { success: false, error: 'Must provide at least code or language to update' };
+    }
+
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the code block
+      const match = this.findBlock(data.sections, searchText);
+      if (!match) {
+        return { success: false, error: `No block found matching "${searchText}"` };
+      }
+
+      const { gridContent } = match;
+      const blockValue = gridContent.content.value;
+
+      // Step 3: Verify block type is code (23)
+      if (blockValue.type !== BLOCK_TYPE_CODE) {
+        return {
+          success: false,
+          error: `Block "${searchText}" is type ${blockValue.type}, not a code block (expected ${BLOCK_TYPE_CODE})`,
+        };
+      }
+
+      const blockId = blockValue.id;
+
+      // Ensure value sub-object exists
+      if (!blockValue.value) {
+        blockValue.value = {};
+      }
+
+      // Step 4: Update provided fields
+      if (updates.code !== undefined) {
+        blockValue.value.html = updates.code;
+      }
+      if (updates.language !== undefined) {
+        blockValue.value.codeLanguage = updates.language;
+      }
+
+      logger.info(
+        { blockId, searchText, language: updates.language, codeLength: updates.code?.length },
+        'Updating code block via Content Save API',
+      );
+
+      // Step 5: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
   // ── Fill Placeholder Block ──────────────────────────────────────────────
 
   /**
@@ -3476,7 +3976,16 @@ export class ContentSaveClient {
           continue;
         }
 
-        // Other errors (401, 500, etc.) — endpoint exists but failed
+        // 401 means session expired — don't try other endpoints
+        if (response.status === 401) {
+          return {
+            success: false,
+            endpointAvailable: true,
+            error: 'Session expired — re-authenticate via browser to refresh cookies',
+          };
+        }
+
+        // Other errors (500, etc.) — endpoint exists but failed
         if (!response.ok) {
           return {
             success: false,
@@ -3486,6 +3995,17 @@ export class ContentSaveClient {
         }
 
         const data = (await response.json()) as Record<string, unknown>;
+
+        // Check for crumb failure
+        if (data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
+          const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
+          return {
+            success: false,
+            endpointAvailable: true,
+            error: `createPageViaApi rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.`,
+          };
+        }
+
         logger.info({ endpoint, pageId: data.id, urlId: data.urlId }, 'createPageViaApi: page created');
 
         return {
@@ -3584,6 +4104,166 @@ export class ContentSaveClient {
       return {
         success: false,
         endpointAvailable: true,
+        error: errMsg(err),
+      };
+    }
+  }
+
+  // ── Page Delete / Update ────────────────────────────────────────────────
+
+  /**
+   * Delete a page (collection) via API.
+   * DELETE /api/collections/{collectionId} with crumb token.
+   * Never throws.
+   */
+  async deletePageViaApi(collectionId: string): Promise<PageDeleteResult> {
+    this.ensureCookies();
+
+    try {
+      const path = `/api/collections/${collectionId}`;
+      const url = this.buildApiUrl(path, true);
+
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (response.status === 401) {
+        return {
+          success: false,
+          collectionId,
+          error: 'Session expired — re-authenticate via browser to refresh cookies',
+        };
+      }
+
+      if (!response.ok) {
+        return {
+          success: false,
+          collectionId,
+          error: `API returned ${response.status}`,
+        };
+      }
+
+      // Check for crumb failure in response body
+      let data: Record<string, unknown> = {};
+      try {
+        data = (await response.json()) as Record<string, unknown>;
+      } catch {
+        // Some DELETE endpoints return empty body on success — that's fine
+      }
+
+      if (data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
+        const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
+        return {
+          success: false,
+          collectionId,
+          error: `deletePageViaApi rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.`,
+        };
+      }
+
+      logger.info({ collectionId }, 'deletePageViaApi: page deleted');
+
+      return {
+        success: true,
+        collectionId,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        collectionId,
+        error: errMsg(err),
+      };
+    }
+  }
+
+  /**
+   * Update page metadata (title, slug, description, SEO fields, visibility).
+   * PUT /api/collections/{collectionId} with crumb token.
+   * Never throws.
+   */
+  async updatePageMetadata(
+    collectionId: string,
+    updates: PageMetadataUpdateOptions,
+  ): Promise<PageMetadataUpdateResult> {
+    this.ensureCookies();
+
+    try {
+      const path = `/api/collections/${collectionId}`;
+      const url = this.buildApiUrl(path, true);
+
+      const body: Record<string, unknown> = {};
+      const updatedFields: string[] = [];
+
+      if (updates.title != null) { body.title = updates.title; updatedFields.push('title'); }
+      if (updates.urlId != null) { body.urlId = updates.urlId; updatedFields.push('urlId'); }
+      if (updates.description != null) { body.description = updates.description; updatedFields.push('description'); }
+      if (updates.seoTitle != null) { body.seoTitle = updates.seoTitle; updatedFields.push('seoTitle'); }
+      if (updates.seoDescription != null) { body.seoDescription = updates.seoDescription; updatedFields.push('seoDescription'); }
+      if (updates.navigationTitle != null) { body.navigationTitle = updates.navigationTitle; updatedFields.push('navigationTitle'); }
+      if (updates.enabled != null) { body.enabled = updates.enabled; updatedFields.push('enabled'); }
+
+      if (updatedFields.length === 0) {
+        return {
+          success: false,
+          collectionId,
+          updatedFields: [],
+          error: 'No fields provided for update',
+        };
+      }
+
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (response.status === 401) {
+        return {
+          success: false,
+          collectionId,
+          updatedFields: [],
+          error: 'Session expired — re-authenticate via browser to refresh cookies',
+        };
+      }
+
+      if (!response.ok) {
+        return {
+          success: false,
+          collectionId,
+          updatedFields: [],
+          error: `API returned ${response.status}`,
+        };
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+
+      if (data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
+        const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
+        return {
+          success: false,
+          collectionId,
+          updatedFields: [],
+          error: `updatePageMetadata rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.`,
+        };
+      }
+
+      logger.info({ collectionId, updatedFields }, 'updatePageMetadata: metadata updated');
+
+      return {
+        success: true,
+        collectionId,
+        updatedFields,
+      };
+    } catch (err) {
+      return {
+        success: false,
+        collectionId,
+        updatedFields: [],
         error: errMsg(err),
       };
     }
@@ -4284,13 +4964,24 @@ export class ContentSaveClient {
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
 
+      if (addResponse.status === 401) {
+        return { success: false, error: 'Session expired — re-authenticate via browser to refresh cookies' };
+      }
+
       if (!addResponse.ok) {
         const body = await addResponse.text().catch(() => '');
         return { success: false, error: `Failed to add blank section: ${addResponse.status}. ${body}` };
       }
 
-      const resultData = await addResponse.json().catch(() => ({})) as { id?: string };
-      const newSectionId = resultData.id ?? sectionId;
+      const resultData = await addResponse.json().catch(() => ({})) as Record<string, unknown>;
+
+      // Check for crumb failure (Squarespace may return 200 with error in body)
+      if (resultData.crumbFail || (typeof resultData.error === 'string' && resultData.error.includes('Invalid session crumb'))) {
+        const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
+        return { success: false, error: `addBlankSection rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.` };
+      }
+
+      const newSectionId = (resultData.id as string | undefined) ?? sectionId;
 
       logger.info({ newSectionId }, 'Blank section added via API');
       return { success: true, sectionId: newSectionId as string };
@@ -4378,12 +5069,22 @@ export class ContentSaveClient {
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
 
+      if (response.status === 401) {
+        return { success: false, error: 'Session expired — re-authenticate via browser to refresh cookies' };
+      }
+
       if (!response.ok) {
         const body = await response.text().catch(() => '');
         return { success: false, error: `Failed to fetch section catalog: ${response.status}. ${body}` };
       }
 
       const data = await response.json() as Record<string, unknown>;
+
+      // Check for crumb failure
+      if (data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
+        const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
+        return { success: false, error: `getSectionCatalog rejected: invalid or expired session crumb.${ageInfo}` };
+      }
 
       // Response is an object keyed by category: { "CONTACT": [...], "MENUS": [...], ... }
       // Each value is an array of SectionCatalogEntry objects
@@ -4407,6 +5108,37 @@ export class ContentSaveClient {
       return { success: true, catalog, sections: allSections, categories };
     } catch (err) {
       return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Section Verification ────────────────────────────────────────────────────
+
+  /**
+   * Verify that a section was successfully added by re-fetching page sections
+   * and comparing the section count.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param expectedCount   The expected section count after addition
+   * @returns The actual section count and whether it matches
+   */
+  async verifySectionAdded(
+    pageSectionsId: string,
+    expectedCount: number,
+  ): Promise<{ verified: boolean; actualCount: number; sections: PageSection[] }> {
+    try {
+      const data = await this.getPageSections(pageSectionsId);
+      const actualCount = data.sections?.length ?? 0;
+      const verified = actualCount >= expectedCount;
+      if (!verified) {
+        logger.warn(
+          { pageSectionsId, expectedCount, actualCount },
+          'verifySectionAdded: section count mismatch — section may not have persisted',
+        );
+      }
+      return { verified, actualCount, sections: data.sections ?? [] };
+    } catch (err) {
+      logger.warn({ pageSectionsId, error: errMsg(err) }, 'verifySectionAdded: failed to re-fetch sections');
+      return { verified: false, actualCount: -1, sections: [] };
     }
   }
 

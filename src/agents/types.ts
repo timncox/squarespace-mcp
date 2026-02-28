@@ -29,6 +29,8 @@ export interface ContentOperation {
   /** What type of edit */
   operationType:
     | 'create_page'
+    | 'delete_page'
+    | 'update_page_metadata'
     | 'add_section'
     | 'add_block'
     | 'add_gallery'

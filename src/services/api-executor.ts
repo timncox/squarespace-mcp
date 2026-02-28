@@ -22,6 +22,7 @@ import {
   createContentSaveClient,
   ContentSaveClient,
   type SectionStyleOptions,
+  type PageMetadataUpdateOptions,
 } from './content-save.js';
 import { resolvePageIds, cachePageIds } from './page-id-resolver.js';
 import { getOrFetchCatalog, lookupCatalogEntry } from './section-catalog.js';
@@ -48,6 +49,18 @@ import type {
   ApiImageBlock,
   ApiGalleryBlock,
 } from '../agents/types.js';
+
+// ── Config ───────────────────────────────────────────────────────────────────
+
+/** Delay (ms) between sequential API operations to prevent Squarespace throttling */
+const API_THROTTLE_MS = parseInt(process.env.API_THROTTLE_MS ?? '100', 10);
+
+/** Throttle helper — waits API_THROTTLE_MS between operations */
+async function throttle(): Promise<void> {
+  if (API_THROTTLE_MS > 0) {
+    await new Promise(resolve => setTimeout(resolve, API_THROTTLE_MS));
+  }
+}
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -553,6 +566,42 @@ async function executeAddGallery(
   return `Added gallery with ${result.blocks.length} images to section ${lastSectionIndex}`;
 }
 
+async function executeDeletePage(
+  client: ContentSaveClient,
+  ctx: PageContext,
+  op: ContentOperation,
+): Promise<string> {
+  const result = await client.deletePageViaApi(ctx.collectionId);
+  if (!result.success) throw new Error(result.error ?? 'deletePageViaApi failed');
+  return `Deleted page (collectionId: ${ctx.collectionId})`;
+}
+
+async function executeUpdatePageMetadata(
+  client: ContentSaveClient,
+  ctx: PageContext,
+  op: ContentOperation,
+): Promise<string> {
+  const updates: PageMetadataUpdateOptions = {};
+
+  if (op.content.heading) updates.title = op.content.heading;
+  if (op.content.bodyText) updates.description = op.content.bodyText;
+  if (op.content.button?.url) updates.urlId = op.content.button.url;
+
+  // Check for SEO-specific fields in editorInstruction (common pattern)
+  // The content strategist may put seoTitle/seoDescription in the ContentSpec
+  // via heading/bodyText, but we also support explicit SEO fields from simple edits
+  const spec = op.content as Record<string, unknown>;
+  if (typeof spec.seoTitle === 'string') updates.seoTitle = spec.seoTitle;
+  if (typeof spec.seoDescription === 'string') updates.seoDescription = spec.seoDescription;
+  if (typeof spec.navigationTitle === 'string') updates.navigationTitle = spec.navigationTitle;
+  if (typeof spec.urlId === 'string') updates.urlId = spec.urlId;
+  if (typeof spec.enabled === 'boolean') updates.enabled = spec.enabled;
+
+  const result = await client.updatePageMetadata(ctx.collectionId, updates);
+  if (!result.success) throw new Error(result.error ?? 'updatePageMetadata failed');
+  return `Updated page metadata (${result.updatedFields?.join(', ') ?? 'fields'})`;
+}
+
 async function executeModifyStyle(
   client: ContentSaveClient,
   ctx: PageContext,
@@ -709,7 +758,11 @@ export async function executeContentPlanViaApi(
 
   // ── Phase 1: Create Pages ─────────────────────────────────────────────
 
+  let isFirstOp = true;
+
   for (const { op, index } of createPageOps) {
+    if (!isFirstOp) await throttle();
+    isFirstOp = false;
     const opStartMs = Date.now();
     const tracked = findTrackedOp(index);
     if (tracked) updateOperationStatus(tracked.id, 'executing');
@@ -738,6 +791,8 @@ export async function executeContentPlanViaApi(
   // ── Phase 2: Add Sections ─────────────────────────────────────────────
 
   for (const { op, index } of addSectionOps) {
+    if (!isFirstOp) await throttle();
+    isFirstOp = false;
     const opStartMs = Date.now();
     const tracked = findTrackedOp(index);
     if (tracked) updateOperationStatus(tracked.id, 'executing');
@@ -787,6 +842,8 @@ export async function executeContentPlanViaApi(
   // ── Phase 3: Content Operations ───────────────────────────────────────
 
   for (const { op, index } of contentOps) {
+    if (!isFirstOp) await throttle();
+    isFirstOp = false;
     const opStartMs = Date.now();
     const tracked = findTrackedOp(index);
     if (tracked) updateOperationStatus(tracked.id, 'executing');
@@ -821,6 +878,12 @@ export async function executeContentPlanViaApi(
           break;
         case 'modify_style':
           summary = await executeModifyStyle(client, ctx, op);
+          break;
+        case 'delete_page':
+          summary = await executeDeletePage(client, ctx, op);
+          break;
+        case 'update_page_metadata':
+          summary = await executeUpdatePageMetadata(client, ctx, op);
           break;
         default:
           throw new Error(`Unsupported operation type: ${op.operationType}`);

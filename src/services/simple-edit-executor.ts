@@ -11,7 +11,7 @@
 
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
-import { ContentSaveClient, createContentSaveClient, type SectionStyleOptions } from './content-save.js';
+import { ContentSaveClient, createContentSaveClient, type SectionStyleOptions, type PageMetadataUpdateOptions } from './content-save.js';
 import { resolvePageIds } from './page-id-resolver.js';
 import type { Task } from '../models/task.js';
 import type { SimpleEditType, SimpleEditClassification } from './simple-edit-classifier.js';
@@ -40,7 +40,7 @@ function normalizeSlug(slug: string): string {
 
 // ── Edit type does NOT need page IDs ─────────────────────────────────────────
 
-const NO_PAGE_ID_TYPES: ReadonlySet<SimpleEditType> = new Set(['footer_edit', 'css_change']);
+const NO_PAGE_ID_TYPES: ReadonlySet<SimpleEditType> = new Set(['footer_edit', 'css_change', 'page_seo']);
 
 // ── Dispatch helpers ─────────────────────────────────────────────────────────
 
@@ -301,6 +301,33 @@ async function execBlockMove(
   return `Moved block "${params.searchText}" ${params.moveDirection}`;
 }
 
+async function execPageSeo(
+  client: ContentSaveClient,
+  params: SimpleEditClassification['params'],
+  slug: string,
+): Promise<string> {
+  // Resolve the collectionId for this page
+  const metadata = await client.getPageMetadata(slug);
+  if (!metadata) throw new Error(`Could not find page "${slug}"`);
+
+  const updates: PageMetadataUpdateOptions = {};
+  const updatedFields: string[] = [];
+
+  if (params.seoTitle) { updates.seoTitle = params.seoTitle; updatedFields.push('seoTitle'); }
+  if (params.seoDescription) { updates.seoDescription = params.seoDescription; updatedFields.push('seoDescription'); }
+  if (params.navigationTitle) { updates.navigationTitle = params.navigationTitle; updatedFields.push('navigationTitle'); }
+  if (params.urlId) { updates.urlId = params.urlId; updatedFields.push('urlId'); }
+  if (params.enabled != null) { updates.enabled = params.enabled; updatedFields.push('enabled'); }
+  // Also support newContent as a title update
+  if (params.newContent && !params.seoTitle) { updates.title = params.newContent; updatedFields.push('title'); }
+
+  if (updatedFields.length === 0) throw new Error('No SEO fields provided for update');
+
+  const result = await client.updatePageMetadata(metadata.collectionId, updates);
+  if (!result.success) throw new Error(result.error ?? 'updatePageMetadata failed');
+  return `Updated page SEO (${result.updatedFields?.join(', ') ?? updatedFields.join(', ')})`;
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export async function executeSimpleEdit(
@@ -391,6 +418,9 @@ export async function executeSimpleEdit(
         break;
       case 'block_move':
         summary = await execBlockMove(client, pageSectionsId, collectionId, classification.params);
+        break;
+      case 'page_seo':
+        summary = await execPageSeo(client, classification.params, slug);
         break;
       default:
         throw new Error(`Unknown edit type: ${editType}`);
