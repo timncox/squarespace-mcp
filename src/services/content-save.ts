@@ -1611,10 +1611,6 @@ export class ContentSaveClient {
 
       const { sections, pageSectionsId, collectionId } = footerResult;
 
-      if (!pageSectionsId) {
-        return { success: false, error: 'Footer pageSectionsId not available — cannot save changes' };
-      }
-
       // Step 2: Find the text block
       const match = this.findTextBlock(sections, searchText);
       if (!match) {
@@ -1635,15 +1631,33 @@ export class ContentSaveClient {
       );
 
       // Step 3: Replace the HTML
-      const formattedHtml = this.formatHtml(newText.includes('<') ? newText : newText);
       const newHtml = newText.includes('<') ? newText : `<p class="" style="white-space:pre-wrap;">${newText}</p>`;
       if (blockValue.value) {
         blockValue.value.html = newHtml;
         blockValue.value.source = newHtml;
       }
 
-      // Step 4: Save — we need collectionId for the save endpoint
-      // If we don't have a collectionId, try to get it from GetCollections
+      // Step 4: Save
+      if (!pageSectionsId) {
+        // Embedded footer path: sections live inside the header-footer config.
+        // Must re-fetch config, update footer.sections in-place, and PUT it back.
+        const configResult = await this.getHeaderFooter();
+        if (!configResult.success || !configResult.config) {
+          return { success: false, error: configResult.error ?? 'Failed to get header-footer config for save' };
+        }
+        const config = configResult.config as Record<string, unknown>;
+        if (config.footer && typeof config.footer === 'object') {
+          (config.footer as Record<string, unknown>).sections = sections;
+        }
+        const saveResult = await this.saveHeaderFooter(config);
+        if (!saveResult.success) {
+          return { success: false, error: saveResult.error };
+        }
+        return { success: true, blockId, oldText: this.stripHtml(oldHtml), newHtml };
+      }
+
+      // Regular path: save via page-sections API
+      // We need collectionId for the save endpoint.
       let saveCollectionId = collectionId;
       if (!saveCollectionId) {
         // For footer, the collectionId might not be needed — try using the websiteId
@@ -1699,10 +1713,6 @@ export class ContentSaveClient {
 
       const { sections, pageSectionsId, collectionId } = footerResult;
 
-      if (!pageSectionsId) {
-        return { success: false, error: 'Footer pageSectionsId not available — cannot save changes' };
-      }
-
       // Step 2: Find the text block containing the search text
       const match = this.findTextBlock(sections, searchText);
       if (!match) {
@@ -1756,6 +1766,25 @@ export class ContentSaveClient {
       }
 
       // Step 4: Save
+      if (!pageSectionsId) {
+        // Embedded footer path: sections live inside the header-footer config.
+        // Must re-fetch config, update footer.sections in-place, and PUT it back.
+        const configResult = await this.getHeaderFooter();
+        if (!configResult.success || !configResult.config) {
+          return { success: false, error: configResult.error ?? 'Failed to get header-footer config for save' };
+        }
+        const config = configResult.config as Record<string, unknown>;
+        if (config.footer && typeof config.footer === 'object') {
+          (config.footer as Record<string, unknown>).sections = sections;
+        }
+        const saveResult = await this.saveHeaderFooter(config);
+        if (!saveResult.success) {
+          return { success: false, error: saveResult.error };
+        }
+        return { success: true, blockId, oldText: this.stripHtml(oldHtml), newHtml: patchedHtml };
+      }
+
+      // Regular path: save via page-sections API
       let saveCollectionId = collectionId;
       if (!saveCollectionId) {
         const configResult = await this.getHeaderFooter();

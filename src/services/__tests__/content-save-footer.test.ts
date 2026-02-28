@@ -506,4 +506,220 @@ describe('ContentSaveClient — Footer API', () => {
       fetchSpy.mockRestore();
     });
   });
+
+  // ── Embedded footer sections path ──────────────────────────────────────
+  // These tests cover the case where config.footer.sections is an inline
+  // array rather than pointing to a separate pageSectionsId resource.
+
+  describe('patchFooterTextBlock — embedded sections path', () => {
+    function makeEmbeddedConfig(sections: PageSection[]) {
+      return {
+        header: { enabled: true },
+        footer: {
+          enabled: true,
+          // No pageSectionsId — sections are embedded directly
+          sections,
+        },
+      };
+    }
+
+    it('saves via saveHeaderFooter when pageSectionsId is absent', async () => {
+      const embeddedSections = makeFooterSections(
+        makeTextBlock('e-block-1', '<p>Call us: (555) 111-2222</p>'),
+      );
+      const config = makeEmbeddedConfig(embeddedSections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        // getFooterSections: GET /api/site-header-footer (returns embedded sections)
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        // patchFooterTextBlock re-fetches config before saving: GET /api/site-header-footer
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        // saveHeaderFooter: PUT /api/site-header-footer
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      const result = await client.patchFooterTextBlock('(555) 111-2222', '(555) 999-8888');
+
+      expect(result.success).toBe(true);
+      expect(result.blockId).toBe('e-block-1');
+      expect(result.newHtml).toContain('(555) 999-8888');
+      expect(result.newHtml).not.toContain('(555) 111-2222');
+
+      // Verify that the PUT went to /api/site-header-footer (not page-sections)
+      const putCall = fetchSpy.mock.calls.find(
+        (call) => (call[1] as RequestInit)?.method === 'PUT',
+      );
+      expect(putCall).toBeDefined();
+      expect(putCall![0] as string).toContain('/api/site-header-footer');
+
+      fetchSpy.mockRestore();
+    });
+
+    it('does NOT call savePageSections for the embedded path', async () => {
+      const embeddedSections = makeFooterSections(
+        makeTextBlock('e-block-2', '<p>Hours: 9am-5pm</p>'),
+      );
+      const config = makeEmbeddedConfig(embeddedSections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.patchFooterTextBlock('9am-5pm', '10am-6pm');
+
+      // None of the fetch calls should be to /api/page-sections/...
+      const pageSecCalls = fetchSpy.mock.calls.filter(
+        (call) => (call[0] as string).includes('/api/page-sections/'),
+      );
+      expect(pageSecCalls).toHaveLength(0);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('returns error when saveHeaderFooter fails on embedded path', async () => {
+      const embeddedSections = makeFooterSections(
+        makeTextBlock('e-block-3', '<p>Address: 99 Test St</p>'),
+      );
+      const config = makeEmbeddedConfig(embeddedSections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        // saveHeaderFooter fails
+        .mockResolvedValueOnce(new Response('Internal Server Error', { status: 500, statusText: 'Internal Server Error' }));
+
+      const result = await client.patchFooterTextBlock('99 Test St', '100 New St');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
+
+      fetchSpy.mockRestore();
+    });
+
+    it('puts updated sections into footer.sections on save', async () => {
+      const embeddedSections = makeFooterSections(
+        makeTextBlock('e-block-4', '<p>Old phone: (555) 000-0000</p>'),
+      );
+      const config = makeEmbeddedConfig(embeddedSections);
+
+      let capturedPutBody: Record<string, unknown> | null = null;
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        .mockImplementationOnce(async (_url, init) => {
+          capturedPutBody = JSON.parse((init as RequestInit).body as string);
+          return new Response('{}', { status: 200 });
+        });
+
+      await client.patchFooterTextBlock('(555) 000-0000', '(555) 123-4567');
+
+      // The PUT body should have the updated text in footer.sections
+      expect(capturedPutBody).not.toBeNull();
+      const footer = (capturedPutBody as Record<string, unknown>).footer as Record<string, unknown>;
+      expect(footer).toBeDefined();
+      const savedSections = footer.sections as PageSection[];
+      expect(savedSections).toBeDefined();
+      const savedHtml = savedSections[0].fluidEngineContext?.gridContents[0].content.value.value?.html ?? '';
+      expect(savedHtml).toContain('(555) 123-4567');
+      expect(savedHtml).not.toContain('(555) 000-0000');
+
+      fetchSpy.mockRestore();
+    });
+  });
+
+  describe('updateFooterTextBlock — embedded sections path', () => {
+    function makeEmbeddedConfig(sections: PageSection[]) {
+      return {
+        header: { enabled: true },
+        footer: {
+          enabled: true,
+          sections,
+        },
+      };
+    }
+
+    it('saves via saveHeaderFooter when pageSectionsId is absent', async () => {
+      const embeddedSections = makeFooterSections(
+        makeTextBlock('u-block-1', '<p>Old business hours</p>'),
+      );
+      const config = makeEmbeddedConfig(embeddedSections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        // getFooterSections: GET /api/site-header-footer
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        // updateFooterTextBlock re-fetches config: GET /api/site-header-footer
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        // saveHeaderFooter: PUT /api/site-header-footer
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      const result = await client.updateFooterTextBlock(
+        'Old business hours',
+        'New business hours: Mon-Sat 9am-7pm',
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.blockId).toBe('u-block-1');
+      expect(result.newHtml).toContain('New business hours');
+
+      // Verify the PUT went to /api/site-header-footer
+      const putCall = fetchSpy.mock.calls.find(
+        (call) => (call[1] as RequestInit)?.method === 'PUT',
+      );
+      expect(putCall).toBeDefined();
+      expect(putCall![0] as string).toContain('/api/site-header-footer');
+
+      fetchSpy.mockRestore();
+    });
+
+    it('does NOT call savePageSections for the embedded path', async () => {
+      const embeddedSections = makeFooterSections(
+        makeTextBlock('u-block-2', '<p>Contact email: old@example.com</p>'),
+      );
+      const config = makeEmbeddedConfig(embeddedSections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.updateFooterTextBlock('old@example.com', 'new@example.com');
+
+      const pageSecCalls = fetchSpy.mock.calls.filter(
+        (call) => (call[0] as string).includes('/api/page-sections/'),
+      );
+      expect(pageSecCalls).toHaveLength(0);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('regular pageSectionsId path still uses savePageSections', async () => {
+      const config = makeHeaderFooterConfig('footer-psid-1');
+      const footerSections = makeFooterSections(
+        makeTextBlock('r-block-1', '<p>Regular footer text</p>'),
+      );
+      const footerData = makePageSectionsData(footerSections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(config), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify(footerData), { status: 200 }))
+        // savePageSections PUT
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      const result = await client.updateFooterTextBlock(
+        'Regular footer text',
+        'Updated regular footer text',
+      );
+
+      expect(result.success).toBe(true);
+
+      // The PUT should go to /api/page-sections/... not /api/site-header-footer
+      const putCall = fetchSpy.mock.calls.find(
+        (call) => (call[1] as RequestInit)?.method === 'PUT',
+      );
+      expect(putCall).toBeDefined();
+      expect(putCall![0] as string).toContain('/api/page-sections/');
+
+      fetchSpy.mockRestore();
+    });
+  });
 });
