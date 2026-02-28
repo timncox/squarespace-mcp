@@ -193,6 +193,16 @@ function setupShutdownHandlers(app: Awaited<ReturnType<typeof startServer>>): vo
   process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
+process.on('uncaughtException', (err) => {
+  logger.fatal({ error: err }, 'Uncaught exception — exiting');
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.fatal({ reason }, 'Unhandled promise rejection — exiting');
+  process.exit(1);
+});
+
 main().catch((err) => {
   logger.error({ error: err }, 'Fatal error');
   process.exit(1);

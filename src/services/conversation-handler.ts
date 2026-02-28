@@ -40,6 +40,7 @@ import {
   handlePlanApproval,
 } from './conversation/message-handlers.js';
 import { formatTaskList, describeTask } from './conversation/helpers.js';
+import { errMsg } from '../utils/errors.js';
 import type { Task } from '../models/task.js';
 import type { Conversation } from '../models/conversation.js';
 
@@ -245,23 +246,27 @@ export async function handleIncomingMessage(msg: IncomingWhatsAppMessage): Promi
 
 // Register callback for when a multi-image group is ready
 onImageGroupComplete(async (messages, imageGroupId) => {
-  logger.info({ imageGroupId, count: messages.length }, 'Image group complete, processing');
+  try {
+    logger.info({ imageGroupId, count: messages.length }, 'Image group complete, processing');
 
-  // The caption on the first image becomes the task description
-  const firstMsg = messages[0];
-  const caption = messages.find((m) => m.body)?.body ?? '';
+    // The caption on the first image becomes the task description
+    const firstMsg = messages[0];
+    const caption = messages.find((m) => m.body)?.body ?? '';
 
-  // Build a synthetic message that carries all the grouped images
-  const syntheticMsg: IncomingWhatsAppMessage & { imageMessages?: IncomingWhatsAppMessage[] } = {
-    ...firstMsg,
-    body: caption,
-    isPartOfImageGroup: true,
-    imageGroupId,
-    imageMessages: messages,
-  };
+    // Build a synthetic message that carries all the grouped images
+    const syntheticMsg: IncomingWhatsAppMessage & { imageMessages?: IncomingWhatsAppMessage[] } = {
+      ...firstMsg,
+      body: caption,
+      isPartOfImageGroup: true,
+      imageGroupId,
+      imageMessages: messages,
+    };
 
-  // Route through normal handler (as a new direct request)
-  await handleDirectRequest(syntheticMsg);
+    // Route through normal handler (as a new direct request)
+    await handleDirectRequest(syntheticMsg);
+  } catch (err) {
+    logger.error({ imageGroupId, error: errMsg(err) }, 'Image group handler failed');
+  }
 });
 
 // ─── New Email Handler ──────────────────────────────────────────────────────
