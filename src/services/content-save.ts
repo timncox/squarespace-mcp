@@ -4922,69 +4922,42 @@ export class ContentSaveClient {
    *
    * This replaces the UI automation path for adding blank sections.
    */
-  async addBlankSection(pageSectionsId: string): Promise<AddBlankSectionResult> {
+  async addBlankSection(
+    pageSectionsId: string,
+    collectionId: string,
+  ): Promise<AddBlankSectionResult> {
     try {
       this.ensureCookies();
 
-      const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
+      // GET current sections
+      const data = await this.getPageSections(pageSectionsId);
 
-      // Step 1: Get blank section template
-      const templateUrl = `${siteUrl}/api/catalog-preview/blankFluidEngineSection`;
-      logger.info('Fetching blank section template');
-
-      const templateResponse = await fetch(templateUrl, {
-        method: 'GET',
-        headers: this.buildHeaders(),
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
-
-      if (!templateResponse.ok) {
-        const body = await templateResponse.text().catch(() => '');
-        return { success: false, error: `Failed to get blank section template: ${templateResponse.status}. ${body}` };
-      }
-
-      const templateData = await templateResponse.json() as { id?: string; [key: string]: unknown };
-      const sectionId = templateData.id ?? pageSectionsId;
-
-      // Step 2: Add the blank section to the page
-      const addUrl = this.buildApiUrl(
-        `/api/content/add/fluidEngineSection?sectionId=${encodeURIComponent(pageSectionsId)}`,
-        true,
-      );
-
-      logger.info({ pageSectionsId }, 'Adding blank section via API');
-
-      const addResponse = await fetch(addUrl, {
-        method: 'POST',
-        headers: {
-          ...this.buildHeaders(),
-          'Content-Type': 'application/json',
+      // Construct a minimal blank Fluid Engine section locally.
+      // The catalog-preview endpoint returns HTML (not JSON), so we build
+      // the section structure ourselves and append it via the proven PUT path.
+      const newSectionId = ContentSaveClient.generateBlockId();
+      const blankSection: PageSection = {
+        id: newSectionId,
+        sectionName: 'FLUID_ENGINE',
+        fluidEngineContext: {
+          id: ContentSaveClient.generateBlockId(),
+          gridContents: [],
+          gridSettings: { breakpointSettings: { desktop: { columns: 24 } } },
         },
-        body: JSON.stringify(templateData),
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-      });
+      };
 
-      if (addResponse.status === 401) {
-        return { success: false, error: 'Session expired — re-authenticate via browser to refresh cookies' };
+      const updatedSections = [...data.sections, blankSection];
+
+      logger.info({ pageSectionsId, newSectionId, totalSections: updatedSections.length }, 'Adding blank section via PUT');
+
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, updatedSections);
+
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error ?? 'savePageSections failed' };
       }
-
-      if (!addResponse.ok) {
-        const body = await addResponse.text().catch(() => '');
-        return { success: false, error: `Failed to add blank section: ${addResponse.status}. ${body}` };
-      }
-
-      const resultData = await addResponse.json().catch(() => ({})) as Record<string, unknown>;
-
-      // Check for crumb failure (Squarespace may return 200 with error in body)
-      if (resultData.crumbFail || (typeof resultData.error === 'string' && resultData.error.includes('Invalid session crumb'))) {
-        const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
-        return { success: false, error: `addBlankSection rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.` };
-      }
-
-      const newSectionId = (resultData.id as string | undefined) ?? sectionId;
 
       logger.info({ newSectionId }, 'Blank section added via API');
-      return { success: true, sectionId: newSectionId as string };
+      return { success: true, sectionId: newSectionId };
     } catch (err) {
       return { success: false, error: errMsg(err) };
     }
@@ -5023,7 +4996,7 @@ export class ContentSaveClient {
           ...this.buildHeaders(),
           'Content-Type': 'application/json',
         },
-        body: '',
+        body: JSON.stringify([]),
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
 

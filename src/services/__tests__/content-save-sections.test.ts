@@ -524,4 +524,72 @@ describe('ContentSaveClient — Section Operations', () => {
       expect(result.error).toBeTruthy();
     });
   });
+
+  // ── addBlankSection ───────────────────────────────────────────────────
+  // Uses GET + local section construction + PUT (no mysterious POST endpoint).
+
+  describe('addBlankSection()', () => {
+    it('uses GET+PUT (no POST to add endpoint)', async () => {
+      mockGetPut([makeSection('sec-0', [makeTextBlock('blk-0', '<p>Hello</p>')])]);
+
+      await client.addBlankSection(PS_ID, COLL_ID);
+
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[0][1].method).toBe('GET');
+      expect(mockFetch.mock.calls[1][1].method).toBe('PUT');
+    });
+
+    it('appends blank section after existing sections', async () => {
+      const sections = makeSections(
+        makeSection('sec-0', [makeTextBlock('blk-0', '<p>Existing</p>')]),
+      );
+      mockGetPut(sections);
+
+      const result = await client.addBlankSection(PS_ID, COLL_ID);
+
+      expect(result.success).toBe(true);
+      const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      expect(putBody.sections).toHaveLength(2);
+      expect(putBody.sections[0].id).toBe('sec-0');
+    });
+
+    it('new section is a blank FLUID_ENGINE with empty gridContents', async () => {
+      mockGetPut([]);
+
+      await client.addBlankSection(PS_ID, COLL_ID);
+
+      const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      const newSection = putBody.sections[0];
+      expect(newSection.sectionName).toBe('FLUID_ENGINE');
+      expect(newSection.fluidEngineContext.gridContents).toEqual([]);
+      expect(newSection.fluidEngineContext.gridSettings.breakpointSettings.desktop.columns).toBe(24);
+    });
+
+    it('returns generated sectionId matching the new section', async () => {
+      mockGetPut([]);
+
+      const result = await client.addBlankSection(PS_ID, COLL_ID);
+
+      expect(result.success).toBe(true);
+      expect(result.sectionId).toMatch(/^[0-9a-f]{20}$/);
+      const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      expect(result.sectionId).toBe(putBody.sections[0].id);
+    });
+
+    it('returns error when GET fails', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Server error' });
+
+      const result = await client.addBlankSection(PS_ID, COLL_ID);
+
+      expect(result.success).toBe(false);
+    });
+
+    it('returns error when PUT fails', async () => {
+      mockGetPutFail([]);
+
+      const result = await client.addBlankSection(PS_ID, COLL_ID);
+
+      expect(result.success).toBe(false);
+    });
+  });
 });

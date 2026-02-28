@@ -172,7 +172,7 @@ async function executeAddSectionBlankApi(
   subdomain: string,
 ): Promise<string> {
   // Add blank section
-  const addResult = await client.addBlankSection(ctx.pageSectionsId);
+  const addResult = await client.addBlankSection(ctx.pageSectionsId, ctx.collectionId);
   if (!addResult.success) {
     throw new Error(addResult.error ?? 'addBlankSection failed');
   }

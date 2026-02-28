@@ -297,54 +297,71 @@ describe('ContentSaveClient — Gallery', () => {
   // ── addBlankSection ────────────────────────────────────────────────────
 
   describe('addBlankSection()', () => {
-    it('fetches blank template and adds section', async () => {
-      const blankTemplate = { id: 'blank-section-template-id', sectionName: 'FLUID_ENGINE' };
-
+    function mockGetPut(sections: PageSection[]) {
       mockFetch
-        .mockResolvedValueOnce({ ok: true, json: async () => blankTemplate }) // GET template
-        .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'new-section-id' }) }); // POST add
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ sections, updatedOn: Date.now() }) }) // GET
+        .mockResolvedValueOnce({ ok: true, text: async () => '{}' }); // PUT
+    }
 
-      const result = await client.addBlankSection(PS_ID);
+    it('appends a blank FLUID_ENGINE section via GET+PUT', async () => {
+      const sections = [{ id: 'sec-0', sectionName: 'FLUID_ENGINE', fluidEngineContext: { id: 'ctx-0', gridContents: [], gridSettings: { breakpointSettings: { desktop: { columns: 24 } } } } }];
+      mockGetPut(sections);
+
+      const result = await client.addBlankSection(PS_ID, COLL_ID);
 
       expect(result.success).toBe(true);
-      expect(result.sectionId).toBe('new-section-id');
+      expect(result.sectionId).toMatch(/^[0-9a-f]{20}$/);
 
-      // Verify GET was called
-      expect(mockFetch.mock.calls[0][0]).toContain('/api/catalog-preview/blankFluidEngineSection');
-
-      // Verify POST was called with correct URL
-      expect(mockFetch.mock.calls[1][0]).toContain('/api/content/add/fluidEngineSection');
-      expect(mockFetch.mock.calls[1][0]).toContain('sectionId=');
-      expect(mockFetch.mock.calls[1][1].method).toBe('POST');
+      // Only 2 fetch calls: GET + PUT (no POST to add endpoint)
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      expect(mockFetch.mock.calls[0][1].method).toBe('GET');
+      expect(mockFetch.mock.calls[1][1].method).toBe('PUT');
     });
 
-    it('returns error when template fetch fails', async () => {
+    it('PUT body contains original sections plus new blank section', async () => {
+      const sections = [{ id: 'sec-0', sectionName: 'FLUID_ENGINE', fluidEngineContext: { id: 'ctx-0', gridContents: [], gridSettings: { breakpointSettings: { desktop: { columns: 24 } } } } }];
+      mockGetPut(sections);
+
+      await client.addBlankSection(PS_ID, COLL_ID);
+
+      const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      expect(putBody.sections).toHaveLength(2);
+      expect(putBody.sections[0].id).toBe('sec-0');
+      const newSection = putBody.sections[1];
+      expect(newSection.sectionName).toBe('FLUID_ENGINE');
+      expect(newSection.fluidEngineContext.gridContents).toEqual([]);
+      expect(newSection.fluidEngineContext.gridSettings.breakpointSettings.desktop.columns).toBe(24);
+    });
+
+    it('new section has unique generated IDs', async () => {
+      const sections: PageSection[] = [];
+      mockGetPut(sections);
+
+      const result = await client.addBlankSection(PS_ID, COLL_ID);
+
+      const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      const newSection = putBody.sections[0];
+      expect(newSection.id).toMatch(/^[0-9a-f]{20}$/);
+      expect(newSection.fluidEngineContext.id).toMatch(/^[0-9a-f]{20}$/);
+      expect(newSection.id).not.toBe(newSection.fluidEngineContext.id);
+      expect(result.sectionId).toBe(newSection.id);
+    });
+
+    it('returns error when GET fails', async () => {
       mockFetch.mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Server error' });
 
-      const result = await client.addBlankSection(PS_ID);
+      const result = await client.addBlankSection(PS_ID, COLL_ID);
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Failed to get blank section template');
     });
 
-    it('returns error when section add fails', async () => {
+    it('returns error when PUT fails', async () => {
+      const sections: PageSection[] = [];
       mockFetch
-        .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'template' }) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ sections, updatedOn: Date.now() }) })
         .mockResolvedValueOnce({ ok: false, status: 400, text: async () => 'Bad request' });
 
-      const result = await client.addBlankSection(PS_ID);
+      const result = await client.addBlankSection(PS_ID, COLL_ID);
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Failed to add blank section');
-    });
-
-    it('includes crumb token in POST URL', async () => {
-      mockFetch
-        .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
-        .mockResolvedValueOnce({ ok: true, json: async () => ({}) });
-
-      await client.addBlankSection(PS_ID);
-
-      const postUrl = mockFetch.mock.calls[1][0];
-      expect(postUrl).toContain('crumb=crumb-token-abc');
     });
   });
 

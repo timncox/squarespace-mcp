@@ -1373,7 +1373,7 @@ async function executeBlankApiOperation(
     if (pageSectionsId) {
       try {
         const apiClient = createContentSaveClient(subdomain);
-        const apiResult = await apiClient.addBlankSection(pageSectionsId);
+        const apiResult = await apiClient.addBlankSection(pageSectionsId, collectionId ?? '');
         if (apiResult.success) {
           usedApiPath = true;
           logger.info(

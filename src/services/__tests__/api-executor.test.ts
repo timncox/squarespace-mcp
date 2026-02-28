@@ -293,7 +293,7 @@ describe('executeContentPlanViaApi', () => {
       const result = await executeContentPlanViaApi(plan, 'test-site');
 
       expect(result.success).toBe(true);
-      expect(mockAddBlankSection).toHaveBeenCalledWith('ps-123');
+      expect(mockAddBlankSection).toHaveBeenCalledWith('ps-123', 'col-456');
       expect(mockAddTextBlock).toHaveBeenCalledTimes(2);
       expect(mockEditSectionStyle).toHaveBeenCalled();
     });

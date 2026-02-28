@@ -195,8 +195,8 @@ describe('Content Strategist Gallery Awareness', () => {
 
     const prompt = mockCreate.mock.calls[0][0].messages[0].content;
 
-    expect(prompt).toContain('blank_api with images');
-    expect(prompt).toContain('blank_api with gallery');
+    expect(prompt).toContain('type: "image"');
+    expect(prompt).toContain('type: "gallery"');
   });
 
   it('does not include imagePaths section when task has no images', async () => {
