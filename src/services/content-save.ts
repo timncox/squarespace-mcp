@@ -157,10 +157,12 @@ const BLOCK_TYPE_BUTTON = 46;
 const BLOCK_TYPE_MENU = 18;
 // Gallery block type
 const BLOCK_TYPE_GALLERY = 8;
-// Quote block type
-const BLOCK_TYPE_QUOTE = 44;
-// Code block type
-const BLOCK_TYPE_CODE = 23;
+// Quote block type — confirmed via live site discovery (Feb 28 2026, test-page grey-yellow-hbxc)
+const BLOCK_TYPE_QUOTE = 31;
+// Code HTML block type — same as IMAGE (1337), distinguished by value.wysiwyg.engine === 'code'
+const BLOCK_TYPE_CODE = 1337;
+// Identifies a code HTML block within type 1337 blocks (value.wysiwyg.engine)
+const CODE_BLOCK_ENGINE = 'code';
 // Divider/spacer block type (suspected — verify via discovery)
 const BLOCK_TYPE_DIVIDER = 52;
 // Video embed block type (suspected — verify via discovery)
@@ -890,30 +892,31 @@ export class ContentSaveClient {
           }
         }
 
-        // Image blocks (type 1337): match title/description/subtitle
+        // Type 1337: Code HTML blocks or Image blocks (same outer type, different value structure)
         if (bv.type === BLOCK_TYPE_IMAGE) {
-          const fields = [bv.value?.title, bv.value?.description, bv.value?.subtitle].filter(Boolean);
-          for (const field of fields) {
-            if (this.stripHtml(String(field)).toLowerCase().includes(needle)) {
+          if (bv.value?.wysiwyg?.engine === CODE_BLOCK_ENGINE) {
+            // Code HTML block: match on html content
+            const html = bv.value?.html ?? '';
+            if (html && html.toLowerCase().includes(needle)) {
               return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+            }
+          } else {
+            // Image block: match title/description/subtitle
+            const fields = [bv.value?.title, bv.value?.description, bv.value?.subtitle].filter(Boolean);
+            for (const field of fields) {
+              if (this.stripHtml(String(field)).toLowerCase().includes(needle)) {
+                return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+              }
             }
           }
         }
 
-        // Quote blocks (type 44): match html and source (attribution)
+        // Quote blocks (type 31): match quote text and source (attribution)
         if (bv.type === BLOCK_TYPE_QUOTE) {
-          const html = bv.value?.html ?? '';
+          const quoteText = bv.value?.quote ?? '';
           const source = bv.value?.source ?? '';
-          if ((html && this.stripHtml(html).toLowerCase().includes(needle)) ||
-              (source && this.stripHtml(String(source)).toLowerCase().includes(needle))) {
-            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
-          }
-        }
-
-        // Code blocks (type 23): match html (code content)
-        if (bv.type === BLOCK_TYPE_CODE) {
-          const html = bv.value?.html ?? '';
-          if (html && html.toLowerCase().includes(needle)) {
+          if ((quoteText && quoteText.toLowerCase().includes(needle)) ||
+              (source && source.toLowerCase().includes(needle))) {
             return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
           }
         }
@@ -3256,7 +3259,15 @@ export class ContentSaveClient {
       }, 0);
       const zIndex = maxZ + 1;
 
-      const quoteValue: Record<string, unknown> = { html: quoteText };
+      const quoteValue: Record<string, unknown> = {
+        quote: quoteText,
+        blockAnimation: 'site-default',
+        vSize: null,
+        hSize: null,
+        schemaName: null,
+        aspectRatio: null,
+        floatDir: null,
+      };
       if (attribution !== undefined) {
         quoteValue.source = attribution;
       }
@@ -3327,7 +3338,7 @@ export class ContentSaveClient {
       const { gridContent } = match;
       const blockValue = gridContent.content.value;
 
-      // Step 3: Verify block type is quote (44)
+      // Step 3: Verify block type is quote (31)
       if (blockValue.type !== BLOCK_TYPE_QUOTE) {
         return {
           success: false,
@@ -3336,7 +3347,7 @@ export class ContentSaveClient {
       }
 
       const blockId = blockValue.id;
-      const oldQuote = blockValue.value?.html as string | undefined;
+      const oldQuote = blockValue.value?.quote as string | undefined;
 
       // Ensure value sub-object exists
       if (!blockValue.value) {
@@ -3345,7 +3356,7 @@ export class ContentSaveClient {
 
       // Step 4: Update provided fields
       if (updates.quoteText !== undefined) {
-        blockValue.value.html = updates.quoteText;
+        blockValue.value.quote = updates.quoteText;
       }
       if (updates.attribution !== undefined) {
         blockValue.value.source = updates.attribution;
@@ -3489,7 +3500,7 @@ export class ContentSaveClient {
           value: {
             id: blockId,
             type: BLOCK_TYPE_CODE,
-            value: { html: code, codeLanguage: language ?? 'plain' },
+            value: { wysiwyg: { engine: CODE_BLOCK_ENGINE, mode: language ?? 'htmlmixed', isSource: false, source: code }, html: code },
           },
         },
       };
@@ -3546,11 +3557,11 @@ export class ContentSaveClient {
       const { gridContent } = match;
       const blockValue = gridContent.content.value;
 
-      // Step 3: Verify block type is code (23)
-      if (blockValue.type !== BLOCK_TYPE_CODE) {
+      // Step 3: Verify block type is code (type 1337 with wysiwyg.engine === 'code')
+      if (blockValue.type !== BLOCK_TYPE_CODE || blockValue.value?.wysiwyg?.engine !== CODE_BLOCK_ENGINE) {
         return {
           success: false,
-          error: `Block "${searchText}" is type ${blockValue.type}, not a code block (expected ${BLOCK_TYPE_CODE})`,
+          error: `Block "${searchText}" is type ${blockValue.type}, not a code block (expected ${BLOCK_TYPE_CODE} with wysiwyg.engine='${CODE_BLOCK_ENGINE}')`,
         };
       }
 
@@ -3564,9 +3575,14 @@ export class ContentSaveClient {
       // Step 4: Update provided fields
       if (updates.code !== undefined) {
         blockValue.value.html = updates.code;
+        if (blockValue.value.wysiwyg) {
+          blockValue.value.wysiwyg.source = updates.code;
+        }
       }
       if (updates.language !== undefined) {
-        blockValue.value.codeLanguage = updates.language;
+        if (blockValue.value.wysiwyg) {
+          blockValue.value.wysiwyg.mode = updates.language;
+        }
       }
 
       logger.info(

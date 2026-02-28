@@ -16,31 +16,42 @@ import { resolve } from 'path';
 const args = process.argv.slice(2);
 const siteIdx = args.indexOf('--site');
 const pageIdx = args.indexOf('--page');
+const psiIdx = args.indexOf('--pageSectionsId');
 
 if (siteIdx === -1 || pageIdx === -1) {
-  console.error('Usage: npx tsx scripts/discover-block-types.ts --site <subdomain> --page <slug>');
+  console.error('Usage: npx tsx scripts/discover-block-types.ts --site <subdomain> --page <slug> [--pageSectionsId <id>]');
   process.exit(1);
 }
 
 const subdomain = args[siteIdx + 1];
 const pageSlug = args[pageIdx + 1];
+const pageSectionsIdOverride = psiIdx !== -1 ? args[psiIdx + 1] : undefined;
 
 async function main() {
   console.log(`Discovering block types on ${subdomain} / ${pageSlug}...\n`);
 
   const client = new ContentSaveClient(subdomain);
-  await client.loadCookies();
+  client.loadSessionCookies();
 
-  // Resolve page IDs
-  const pageIds = await client.getPageIds(pageSlug);
-  if (!pageIds) {
-    console.error(`Could not resolve page IDs for slug "${pageSlug}"`);
-    process.exit(1);
+  let pageSectionsId: string;
+
+  if (pageSectionsIdOverride) {
+    pageSectionsId = pageSectionsIdOverride;
+    console.log(`Using provided pageSectionsId: ${pageSectionsId}`);
+  } else {
+    // Resolve page IDs
+    const pageIds = await client.getPageIds(pageSlug);
+    if (!pageIds?.pageSectionsId) {
+      console.error(`Could not resolve pageSectionsId for slug "${pageSlug}". Try passing --pageSectionsId directly (found in /api/page-sections/<id> calls in network tab or capture-api-traffic log).`);
+      process.exit(1);
+    }
+    pageSectionsId = pageIds.pageSectionsId;
+    console.log(`Page IDs: pageSectionsId=${pageSectionsId}, collectionId=${pageIds.collectionId}`);
   }
-  console.log(`Page IDs: pageSectionsId=${pageIds.pageSectionsId}, collectionId=${pageIds.collectionId}`);
 
   // Get all sections
-  const sections = await client.getPageSections(pageIds.pageSectionsId);
+  const data = await client.getPageSections(pageSectionsId);
+  const sections = data?.sections;
   if (!sections || sections.length === 0) {
     console.error('No sections found on page');
     process.exit(1);
@@ -52,10 +63,11 @@ async function main() {
   const KNOWN_TYPES: Record<number, string> = {
     2: 'Text',
     18: 'Menu',
-    23: 'Code (suspected)',
-    44: 'Quote (suspected)',
+    23: 'Code',
+    31: 'Quote',
+    44: 'Quote (alt)',
     46: 'Button',
-    1337: 'Image',
+    1337: 'Image/Code-HTML',
     8: 'Gallery',
   };
 
@@ -68,7 +80,7 @@ async function main() {
 
     for (let bi = 0; bi < gridContents.length; bi++) {
       const block = gridContents[bi];
-      const blockType = block?.content?.type;
+      const blockType = block?.content?.value?.type;
       const typeName = KNOWN_TYPES[blockType] || `Unknown(${blockType})`;
 
       if (!discovery[typeName]) discovery[typeName] = [];
@@ -76,15 +88,15 @@ async function main() {
       discovery[typeName].push({
         sectionIndex: si,
         blockIndex: bi,
-        blockId: block?.content?.id,
+        blockId: block?.content?.value?.id,
         type: blockType,
-        value: block?.content?.value,
+        value: block?.content?.value?.value,
         // Include layout for reference
         desktop: block?.fluidEngineLayout?.desktop,
       });
 
       // Print summary
-      const valuePreview = JSON.stringify(block?.content?.value)?.substring(0, 120);
+      const valuePreview = JSON.stringify(block?.content?.value?.value)?.substring(0, 120);
       console.log(`Section ${si}, Block ${bi}: type=${blockType} (${typeName})`);
       console.log(`  ID: ${block?.content?.id}`);
       console.log(`  Value preview: ${valuePreview}...`);
@@ -104,21 +116,23 @@ async function main() {
   }
 
   // Check for quote/code specifically
-  const quoteBlocks = discovery['Quote (suspected)'];
-  const codeBlocks = discovery['Code (suspected)'];
+  const quoteBlocks = discovery['Quote'] ?? discovery['Quote (alt)'];
+  const codeBlocks = discovery['Code'] ?? discovery['Image/Code-HTML'];
 
   if (quoteBlocks && quoteBlocks.length > 0) {
-    console.log('\n=== CONFIRMED: Quote Block (type 44) ===');
+    const qt = (quoteBlocks[0] as any).type;
+    console.log(`\n=== Quote Block (type ${qt}) ===`);
     console.log(JSON.stringify(quoteBlocks[0], null, 2));
   } else {
-    console.log('\nWARNING: No type 44 blocks found. Check all unknown types above.');
+    console.log('\nWARNING: No quote blocks found. Check unknown types above.');
   }
 
   if (codeBlocks && codeBlocks.length > 0) {
-    console.log('\n=== CONFIRMED: Code Block (type 23) ===');
+    const ct = (codeBlocks[0] as any).type;
+    console.log(`\n=== Code Block (type ${ct}) ===`);
     console.log(JSON.stringify(codeBlocks[0], null, 2));
   } else {
-    console.log('\nWARNING: No type 23 blocks found. Check all unknown types above.');
+    console.log('\nWARNING: No code blocks found. Check unknown types above.');
   }
 }
 

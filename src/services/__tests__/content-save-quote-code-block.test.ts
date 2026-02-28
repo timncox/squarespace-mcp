@@ -44,29 +44,37 @@ function makeTextBlock(blockId: string, html: string): GridContent {
   };
 }
 
-function makeQuoteBlock(blockId: string, html: string, source?: string): GridContent {
-  const value: Record<string, unknown> = { html };
+function makeQuoteBlock(blockId: string, quoteText: string, source?: string): GridContent {
+  const value: Record<string, unknown> = {
+    quote: quoteText,
+    blockAnimation: 'site-default',
+    vSize: null,
+    hSize: null,
+    schemaName: null,
+    aspectRatio: null,
+    floatDir: null,
+  };
   if (source !== undefined) value.source = source;
   return {
     layout: { ...STUB_LAYOUT },
     content: {
       value: {
         id: blockId,
-        type: 44,
+        type: 31,
         value,
       },
     },
   };
 }
 
-function makeCodeBlock(blockId: string, html: string, codeLanguage?: string): GridContent {
+function makeCodeBlock(blockId: string, html: string, mode?: string): GridContent {
   return {
     layout: { ...STUB_LAYOUT },
     content: {
       value: {
         id: blockId,
-        type: 23,
-        value: { html, codeLanguage: codeLanguage ?? 'plain' },
+        type: 1337,
+        value: { wysiwyg: { engine: 'code', mode: mode ?? 'htmlmixed', isSource: false, source: html }, html },
       },
     },
   };
@@ -162,8 +170,8 @@ describe('ContentSaveClient — addQuoteBlock', () => {
     const putBody = JSON.parse(putOptions.body as string);
     const gridContents = putBody.sections[0].fluidEngineContext.gridContents;
     expect(gridContents).toHaveLength(1);
-    expect(gridContents[0].content.value.type).toBe(44);
-    expect(gridContents[0].content.value.value.html).toBe('The only limit is your imagination.');
+    expect(gridContents[0].content.value.type).toBe(31);
+    expect(gridContents[0].content.value.value.quote).toBe('The only limit is your imagination.');
 
     fetchSpy.mockRestore();
   });
@@ -185,7 +193,7 @@ describe('ContentSaveClient — addQuoteBlock', () => {
     const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
     const putBody = JSON.parse(putOptions.body as string);
     const block = putBody.sections[0].fluidEngineContext.gridContents[0];
-    expect(block.content.value.value.html).toBe('Be the change you wish to see.');
+    expect(block.content.value.value.quote).toBe('Be the change you wish to see.');
     expect(block.content.value.value.source).toBe('Mahatma Gandhi');
 
     fetchSpy.mockRestore();
@@ -204,7 +212,7 @@ describe('ContentSaveClient — addQuoteBlock', () => {
     const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
     const putBody = JSON.parse(putOptions.body as string);
     const block = putBody.sections[0].fluidEngineContext.gridContents[0];
-    expect(block.content.value.value.html).toBe('A simple quote.');
+    expect(block.content.value.value.quote).toBe('A simple quote.');
     expect(block.content.value.value.source).toBeUndefined();
 
     fetchSpy.mockRestore();
@@ -344,7 +352,7 @@ describe('ContentSaveClient — updateQuoteBlock', () => {
     const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
     const putBody = JSON.parse(putOptions.body as string);
     const block = putBody.sections[0].fluidEngineContext.gridContents[0];
-    expect(block.content.value.value.html).toBe('New quote text');
+    expect(block.content.value.value.quote).toBe('New quote text');
     // Attribution should be preserved
     expect(block.content.value.value.source).toBe('Author');
 
@@ -370,7 +378,7 @@ describe('ContentSaveClient — updateQuoteBlock', () => {
     const putBody = JSON.parse(putOptions.body as string);
     const block = putBody.sections[0].fluidEngineContext.gridContents[0];
     expect(block.content.value.value.source).toBe('New Author');
-    expect(block.content.value.value.html).toBe('Quote text'); // unchanged
+    expect(block.content.value.value.quote).toBe('Quote text'); // unchanged
 
     fetchSpy.mockRestore();
   });
@@ -423,7 +431,7 @@ describe('ContentSaveClient — updateQuoteBlock', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('not a quote block');
-    expect(result.error).toContain('expected 44');
+    expect(result.error).toContain('expected 31');
 
     fetchSpy.mockRestore();
   });
@@ -490,9 +498,10 @@ describe('ContentSaveClient — addCodeBlock', () => {
     const putBody = JSON.parse(putOptions.body as string);
     const gridContents = putBody.sections[0].fluidEngineContext.gridContents;
     expect(gridContents).toHaveLength(1);
-    expect(gridContents[0].content.value.type).toBe(23);
+    expect(gridContents[0].content.value.type).toBe(1337);
     expect(gridContents[0].content.value.value.html).toBe('console.log("hello");');
-    expect(gridContents[0].content.value.value.codeLanguage).toBe('plain');
+    expect(gridContents[0].content.value.value.wysiwyg.engine).toBe('code');
+    expect(gridContents[0].content.value.value.wysiwyg.mode).toBe('htmlmixed');
 
     fetchSpy.mockRestore();
   });
@@ -515,7 +524,7 @@ describe('ContentSaveClient — addCodeBlock', () => {
     const putBody = JSON.parse(putOptions.body as string);
     const block = putBody.sections[0].fluidEngineContext.gridContents[0];
     expect(block.content.value.value.html).toBe('def hello():\n  print("hi")');
-    expect(block.content.value.value.codeLanguage).toBe('python');
+    expect(block.content.value.value.wysiwyg.mode).toBe('python');
 
     fetchSpy.mockRestore();
   });
@@ -533,7 +542,7 @@ describe('ContentSaveClient — addCodeBlock', () => {
     const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
     const putBody = JSON.parse(putOptions.body as string);
     const block = putBody.sections[0].fluidEngineContext.gridContents[0];
-    expect(block.content.value.value.codeLanguage).toBe('plain');
+    expect(block.content.value.value.wysiwyg.mode).toBe('htmlmixed');
 
     fetchSpy.mockRestore();
   });
@@ -654,8 +663,9 @@ describe('ContentSaveClient — updateCodeBlock', () => {
     const putBody = JSON.parse(putOptions.body as string);
     const block = putBody.sections[0].fluidEngineContext.gridContents[0];
     expect(block.content.value.value.html).toBe('console.log("new");');
+    expect(block.content.value.value.wysiwyg.source).toBe('console.log("new");');
     // Language should be preserved
-    expect(block.content.value.value.codeLanguage).toBe('javascript');
+    expect(block.content.value.value.wysiwyg.mode).toBe('javascript');
 
     fetchSpy.mockRestore();
   });
@@ -677,7 +687,7 @@ describe('ContentSaveClient — updateCodeBlock', () => {
     const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
     const putBody = JSON.parse(putOptions.body as string);
     const block = putBody.sections[0].fluidEngineContext.gridContents[0];
-    expect(block.content.value.value.codeLanguage).toBe('ruby');
+    expect(block.content.value.value.wysiwyg.mode).toBe('ruby');
     expect(block.content.value.value.html).toBe('print("hello")'); // unchanged
 
     fetchSpy.mockRestore();
@@ -701,7 +711,7 @@ describe('ContentSaveClient — updateCodeBlock', () => {
     const putBody = JSON.parse(putOptions.body as string);
     const block = putBody.sections[0].fluidEngineContext.gridContents[0];
     expect(block.content.value.value.html).toBe('fn main() {}');
-    expect(block.content.value.value.codeLanguage).toBe('rust');
+    expect(block.content.value.value.wysiwyg.mode).toBe('rust');
 
     fetchSpy.mockRestore();
   });
@@ -736,7 +746,7 @@ describe('ContentSaveClient — updateCodeBlock', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('not a code block');
-    expect(result.error).toContain('expected 23');
+    expect(result.error).toContain('expected 1337');
 
     fetchSpy.mockRestore();
   });
@@ -773,7 +783,7 @@ describe('ContentSaveClient — findBlock integration for quote and code', () =>
     const match = client.findBlock(sections, 'Wisdom is');
     expect(match).not.toBeNull();
     expect(match!.gridContent.content.value.id).toBe('q1');
-    expect(match!.gridContent.content.value.type).toBe(44);
+    expect(match!.gridContent.content.value.type).toBe(31);
   });
 
   it('findBlock finds quote block by attribution', async () => {
@@ -795,7 +805,7 @@ describe('ContentSaveClient — findBlock integration for quote and code', () =>
     const match = client.findBlock(sections, 'function greet');
     expect(match).not.toBeNull();
     expect(match!.gridContent.content.value.id).toBe('c1');
-    expect(match!.gridContent.content.value.type).toBe(23);
+    expect(match!.gridContent.content.value.type).toBe(1337);
   });
 
   it('findBlock returns null for unmatched search in quote/code blocks', async () => {
