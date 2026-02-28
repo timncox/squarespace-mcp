@@ -2,7 +2,7 @@ import { Page } from 'playwright';
 import { logger } from '../../utils/logger.js';
 import { clickThroughOverlay, dblclickThroughOverlay, findTextOnPage, getSiteFrame } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
-import { isFluidEngineActive, clickEditorButton, tryContentSaveApi, tryFooterContentSaveApi, tryButtonBlockApi } from './handler-utils.js';
+import { isFluidEngineActive, clickEditorButton, tryContentSaveApi, tryFooterContentSaveApi, tryButtonBlockApi, tryQuoteBlockApi } from './handler-utils.js';
 import type { ActionResult } from './types.js';
 import { mergeMenuContent } from '../../services/menu-merger.js';
 
@@ -2078,6 +2078,14 @@ export async function handleEditQuoteBlock(
   action: { action: 'editQuoteBlock'; searchText: string; quote: string; attribution?: string },
 ): Promise<ActionResult> {
   const { searchText, quote, attribution } = action;
+
+  // ── Fast path: try Content Save API first (no UI, ~100ms) ─────────────
+  logger.info({ searchText }, 'editQuoteBlock[0/6]: trying Content Save API fast path');
+  const apiResult = await tryQuoteBlockApi(page, searchText, { quoteText: quote, attribution });
+  if (apiResult) {
+    return apiResult;
+  }
+  logger.info('editQuoteBlock[0/6]: API fast path unavailable, falling back to UI automation');
 
   // ── Step 1: Find the quote block ────────────────────────────────────
   logger.info({ searchText }, 'editQuoteBlock[1/6]: finding quote block');

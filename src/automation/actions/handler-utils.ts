@@ -749,6 +749,46 @@ export async function tryButtonBlockApi(
 }
 
 /**
+ * Attempt to update a quote block via the Content Save API (no UI).
+ * Returns ActionResult on success/definitive failure, null to fall through to UI.
+ * Never throws.
+ */
+export async function tryQuoteBlockApi(
+  page: Page,
+  searchText: string,
+  updates: { quoteText?: string; attribution?: string },
+): Promise<ActionResult | null> {
+  const ctx = await extractApiContext(page, 'tryQuoteBlockApi');
+  if (!ctx) return null;
+
+  try {
+    const result = await ctx.client.updateQuoteBlock(
+      ctx.pageSectionsId,
+      ctx.collectionId,
+      searchText,
+      updates,
+    );
+
+    if (result.success) {
+      logger.info(
+        { blockId: result.blockId, searchText, newQuote: updates.quoteText?.substring(0, 80) },
+        'Content Save API: quote block updated successfully',
+      );
+      return {
+        success: true,
+        message: `editQuoteBlock: Updated quote via Content Save API (block ${result.blockId}). Reload the page to see the change.`,
+      };
+    }
+
+    logger.warn({ error: result.error, searchText }, 'Content Save API: quote update failed');
+    return null;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'tryQuoteBlockApi: failed');
+    return null;
+  }
+}
+
+/**
  * Attempt to edit section style via the Content Save API (no UI).
  * Replaces the 15-20 step browser agent UI automation with a single read-modify-write.
  * Returns an ActionResult on success, null on failure. Never throws.
