@@ -2,12 +2,26 @@
  * API Executor — executes multi-operation content plans entirely via API.
  *
  * Eliminates browser automation for all common operations:
- *   - Page creation (createPageViaApi)
+ *   - Page creation/deletion/metadata (createPageViaApi / deletePageViaApi / updatePageMetadata)
  *   - Section addition (addBlankSection / copyTemplateSection)
- *   - Content fill (addTextBlock / addButtonBlock / addImageBlock / addImageBlockBatch)
- *   - Content modification (patchTextBlock / updateButtonBlock / updateImageBlock / removeBlock)
+ *   - Content fill (addTextBlock / addButtonBlock / addImageBlock / addImageBlockBatch
+ *                    / addDividerBlock / addVideoBlock / addQuoteBlock / addCodeBlock)
+ *   - Content modification (patchTextBlock / updateButtonBlock / updateImageBlock / removeBlock
+ *                           / updateQuoteBlock / updateCodeBlock / updateVideoBlock / updateMenuBlock)
  *   - Section styling (editSectionStyle)
  *   - Template replacements (updateTextBlock + removeBlock)
+ *
+ * NOT yet wired (would need new operationType values or special handling):
+ *   - Footer editing (updateFooterTextBlock / patchFooterTextBlock / saveHeaderFooter)
+ *     → Footer uses site-wide header/footer config, not per-page sections
+ *   - Custom CSS (getCustomCSS / saveCustomCSS)
+ *     → Site-wide setting, not per-page
+ *   - Block layout ops (moveBlock / swapBlocks / resizeBlock)
+ *     → No operationType in ContentOperation union; used by browser agent fast paths
+ *   - Section reorder (moveSection)
+ *     → No operationType; used by browser agent fast path
+ *   - Blog posts (createBlogPost)
+ *     → Speculative endpoint, not yet used in content plans
  *
  * Key insight: the known issue "API-added sections get wiped by editor save"
  * only occurs when a browser editor is open. An API-only pipeline eliminates
@@ -446,22 +460,81 @@ async function executeModifyBlock(
   ctx: PageContext,
   op: ContentOperation,
 ): Promise<string> {
-  const { button, heading, bodyText } = op.content;
+  const { button, heading, bodyText, blockType } = op.content;
 
   // Button modification
-  if (button) {
-    const searchText = heading ?? button.label ?? op.placement;
+  if (button || blockType === 'button') {
+    const searchText = heading ?? button?.label ?? op.placement;
     if (!searchText) throw new Error('modify_block (button): need search text');
 
     const result = await client.updateButtonBlock(
       ctx.pageSectionsId, ctx.collectionId, searchText,
-      { newLabel: button.label, url: button.url },
+      { newLabel: button?.label, url: button?.url },
     );
     if (!result.success) throw new Error(result.error ?? 'updateButtonBlock failed');
     return `Updated button "${searchText.slice(0, 50)}"`;
   }
 
-  // Text modification
+  // Quote block modification
+  if (blockType === 'quote') {
+    const searchText = heading ?? bodyText ?? op.placement;
+    if (!searchText) throw new Error('modify_block (quote): need search text');
+
+    const result = await client.updateQuoteBlock(
+      ctx.pageSectionsId, ctx.collectionId, searchText,
+      { quoteText: bodyText, attribution: heading },
+    );
+    if (!result.success) throw new Error(result.error ?? 'updateQuoteBlock failed');
+    return `Updated quote "${searchText.slice(0, 50)}"`;
+  }
+
+  // Code block modification
+  if (blockType === 'code') {
+    const searchText = heading ?? bodyText ?? op.placement;
+    if (!searchText) throw new Error('modify_block (code): need search text');
+
+    const result = await client.updateCodeBlock(
+      ctx.pageSectionsId, ctx.collectionId, searchText,
+      { code: bodyText },
+    );
+    if (!result.success) throw new Error(result.error ?? 'updateCodeBlock failed');
+    return `Updated code block "${searchText.slice(0, 50)}"`;
+  }
+
+  // Video block modification
+  if (blockType === 'video') {
+    const searchText = heading ?? bodyText ?? op.placement;
+    if (!searchText) throw new Error('modify_block (video): need search text');
+
+    const result = await client.updateVideoBlock(
+      ctx.pageSectionsId, ctx.collectionId, searchText,
+      { url: bodyText, title: heading },
+    );
+    if (!result.success) throw new Error(result.error ?? 'updateVideoBlock failed');
+    return `Updated video block "${searchText.slice(0, 50)}"`;
+  }
+
+  // Menu block modification
+  if (blockType === 'menu') {
+    const searchText = heading ?? op.placement;
+    if (!searchText) throw new Error('modify_block (menu): need search text');
+    if (!bodyText) throw new Error('modify_block (menu): need bodyText with menu content');
+
+    // Parse the body text into structured menu format, then merge
+    const { parseMenuText } = await import('./menu-parser.js');
+    const { mergeMenuFromText } = await import('./menu-merger.js');
+    const currentMenu = await client.getMenuBlock(ctx.pageSectionsId, searchText);
+    if (!currentMenu) throw new Error(`modify_block (menu): menu block not found for "${searchText}"`);
+
+    const mergedMenus = mergeMenuFromText(currentMenu.menus, bodyText);
+    const result = await client.updateMenuBlock(
+      ctx.pageSectionsId, ctx.collectionId, searchText, mergedMenus,
+    );
+    if (!result.success) throw new Error(result.error ?? 'updateMenuBlock failed');
+    return `Updated menu block "${searchText.slice(0, 50)}"`;
+  }
+
+  // Text modification (default)
   if (bodyText || heading) {
     const searchText = heading ?? bodyText ?? op.placement;
     if (!searchText) throw new Error('modify_block (text): need search text');
@@ -474,7 +547,7 @@ async function executeModifyBlock(
     return `Modified block "${searchText.slice(0, 50)}"`;
   }
 
-  throw new Error('modify_block: no button or text content to apply');
+  throw new Error('modify_block: no content to apply (set blockType or provide button/heading/bodyText)');
 }
 
 async function executeAddBlock(
@@ -516,6 +589,39 @@ async function executeAddBlock(
       );
       if (!result.success) throw new Error(result.error ?? 'addImageBlock failed');
       return `Added image block to section ${lastSectionIndex}`;
+    }
+    case 'divider':
+    case 'line': {
+      const result = await client.addDividerBlock(ctx.pageSectionsId, ctx.collectionId, lastSectionIndex);
+      if (!result.success) throw new Error(result.error ?? 'addDividerBlock failed');
+      return `Added divider to section ${lastSectionIndex}`;
+    }
+    case 'video': {
+      const videoUrl = op.content.bodyText ?? op.content.button?.url;
+      if (!videoUrl) throw new Error('add_block (video): bodyText or button.url must contain the video URL');
+      const result = await client.addVideoBlock(
+        ctx.pageSectionsId, ctx.collectionId, lastSectionIndex, videoUrl,
+        { title: op.content.heading },
+      );
+      if (!result.success) throw new Error(result.error ?? 'addVideoBlock failed');
+      return `Added video block to section ${lastSectionIndex}`;
+    }
+    case 'quote': {
+      const quoteText = op.content.bodyText ?? '';
+      const attribution = op.content.heading;
+      const result = await client.addQuoteBlock(
+        ctx.pageSectionsId, ctx.collectionId, lastSectionIndex, quoteText, attribution,
+      );
+      if (!result.success) throw new Error(result.error ?? 'addQuoteBlock failed');
+      return `Added quote block to section ${lastSectionIndex}`;
+    }
+    case 'code': {
+      const code = op.content.bodyText ?? '';
+      const result = await client.addCodeBlock(
+        ctx.pageSectionsId, ctx.collectionId, lastSectionIndex, code,
+      );
+      if (!result.success) throw new Error(result.error ?? 'addCodeBlock failed');
+      return `Added code block to section ${lastSectionIndex}`;
     }
     default:
       throw new Error(`add_block: unsupported blockType "${blockType}"`);
