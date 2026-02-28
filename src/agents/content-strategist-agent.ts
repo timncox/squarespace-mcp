@@ -68,7 +68,7 @@ function formatCatalogForPrompt(): string {
   const catalog = loadCatalog();
   const lines: string[] = [];
 
-  lines.push('### Section Template Catalog (ALWAYS try templates first)');
+  lines.push('### Section Template Catalog (reference only — use blank_api strategy, not template strategy)');
   lines.push('');
   lines.push('Use the **addSectionFromTemplate** compound action to add a template AND replace its placeholder content in one step.');
   lines.push('');
@@ -442,13 +442,11 @@ The content you write will be typed VERBATIM into the Squarespace website editor
 
 Your editorInstruction fields are executed by a browser automation agent. Use these EXACT UI patterns:
 
-### Adding a Section (PREFER templates — see catalog below)
+### Adding a Section (always use blank_api strategy — NOT templates)
 1. Hover between existing sections to reveal "Add Section" button
 2. Click "Add Section" — section picker panel opens on the left
-3. Click a **category tab** (About, Services, Contact, Team, etc.) and pick a **template**
-4. The template section loads with placeholder content already laid out professionally
-5. Only use "+ Add Blank" when no template matches the content type
-6. **templateIndex** (0-based): If provided in the instruction, pass it to addSection/addSectionFromTemplate for reliable position-based selection instead of text matching.
+3. Click **"+ Add Blank"** to add a blank section (do NOT pick a template category)
+4. The blank section is then populated via the Content Save API (handled automatically by the execution pipeline)
 
 ${formatTemplateCatalogSection(discoveredTemplates)}
 
@@ -760,13 +758,9 @@ Fallback example (blank section when no template fits):
 IMPORTANT:
 - **ONLY do what was explicitly requested.** Do NOT add extra sections, pages, or content beyond what the task describes. If the user says "add a gallery page with photos", create ONE gallery operation — do NOT also add "Featured Work", "Get In Touch", "About", or other sections you think might be nice. The user will ask for additional sections if they want them. Stick strictly to the task scope.
 - **Content Strategy Routing** — choose the right strategy per operation:
-  - **template**: Use \`addSectionFromTemplate\` for standard layouts (About, Contact, Team, Services, FAQ). Best when: the template closely matches the desired layout, few text replacements needed, design/visual layout matters. Set \`contentStrategy: "template"\` and provide \`templateIndex\`. **CRITICAL: You MUST also include \`replacements\`** with ALL placeholder text mapped to real content. Without \`replacements\`, the template will appear on the site with generic placeholder text (e.g., "Lorem ipsum", "About Us"). Every template operation MUST have \`replacements.texts\` at minimum.
-  - **blank_api**: Use for content-heavy sections (CV, resume, long-form text, user-provided exact copy) OR simple button additions. Best when: 3+ text blocks per section, user provides exact text content, layout is simple (stacked text blocks), or it's just a button with optional heading. Set \`contentStrategy: "blank_api"\` and provide \`apiBlocks\` array. For text blocks use \`{ html: "..." }\`. For button blocks use \`{ type: "button", label: "Button Text", url: "https://..." }\`. The execution pipeline will add a blank section and populate via API (no browser agent needed — ~1 second vs ~60 seconds for browser agent).
-  - **blank_api with buttons**: When the task is a simple button addition (one button, maybe a heading), use \`contentStrategy: "blank_api"\`. In \`apiBlocks\`, use the button format: \`{ type: "button", label: "Click Me", url: "https://example.com" }\`. You can mix text and button blocks in the same section. This gets routed to the API fast path.
-  - **blank_api with images**: When the task provides image files (via \`imagePaths\`), use \`contentStrategy: "blank_api"\` with \`{ type: "image", imagePath: "/path/to/image.jpg", altText: "..." }\` apiBlocks. The pipeline uploads and adds images via API (~2-5s per image).
-  - **blank_api with gallery**: For multiple images (portfolio, gallery page, photo grid), use \`contentStrategy: "blank_api"\` with a single \`{ type: "gallery", images: [...], galleryStyle: "grid", columns: 3 }\` apiBlock. All images are uploaded in parallel and arranged in a grid layout. This is far faster than UI automation for multi-image tasks.
-  - **manual**: Use for custom layouts, code/embed blocks, interactive elements, or anything that doesn't fit the above. Set \`contentStrategy: "manual"\` and write detailed \`editorInstruction\`.
-  - **Default to "blank_api"** for most operations — it is faster and more reliable. Only use "template" when the visual layout of a specific template (About, Contact, Team, etc.) is clearly what the user wants AND you can provide complete \`replacements\` for ALL placeholder text in that template.
+  - **blank_api** (DEFAULT — use this for all section additions): Add a blank section and populate via API. Set \`contentStrategy: "blank_api"\` and provide \`apiBlocks\` array. For text: \`{ html: "..." }\`. For buttons: \`{ type: "button", label: "Button Text", url: "https://..." }\`. For images: \`{ type: "image", imagePath: "/path/to/image.jpg", altText: "..." }\`. For galleries: \`{ type: "gallery", images: [...], galleryStyle: "grid", columns: 3 }\`. No browser agent needed — ~1 second vs ~60 seconds for browser automation.
+  - **manual**: Use for custom layouts, code/embed blocks, interactive elements, or anything that can't be expressed as apiBlocks. Set \`contentStrategy: "manual"\` and write detailed \`editorInstruction\`.
+  - **NEVER use "template"** strategy. Always use \`blank_api\` instead, even for standard layouts (About, Contact, Team, etc.).
 - The addSectionFromTemplate action handles: add template + replace all placeholder content in ONE step. Write it as a SINGLE instruction step, not separate steps.
 - Write the EXACT heading and body text to use. No placeholders.
 - The "editorInstruction" must be NUMBERED step-by-step instructions for a browser automation agent. Use the Squarespace editor reference above to write precise instructions with exact button names and locations.
