@@ -69,6 +69,8 @@ export type {
   CollectionItemsResult,
   PageCreateResult,
   BlogPostCreateResult,
+  BlogPostUpdateOptions,
+  BlogPostUpdateResult,
   PageDeleteResult,
   PageMetadataUpdateOptions,
   PageMetadataUpdateResult,
@@ -135,6 +137,8 @@ import type {
   CollectionItemsResult,
   PageCreateResult,
   BlogPostCreateResult,
+  BlogPostUpdateOptions,
+  BlogPostUpdateResult,
   PageDeleteResult,
   PageMetadataUpdateOptions,
   PageMetadataUpdateResult,
@@ -4385,6 +4389,87 @@ export class ContentSaveClient {
         endpointAvailable: true,
         error: errMsg(err),
       };
+    }
+  }
+
+  /**
+   * Update an existing blog post by item ID.
+   * PUT /api/content-collections/{collectionId}/content-items/{itemId}
+   * Never throws.
+   */
+  async updateBlogPost(
+    collectionId: string,
+    itemId: string,
+    updates: BlogPostUpdateOptions,
+  ): Promise<BlogPostUpdateResult> {
+    this.ensureCookies();
+
+    try {
+      const body: Record<string, unknown> = {};
+      const updatedFields: string[] = [];
+
+      if (updates.title != null) { body.title = updates.title; updatedFields.push('title'); }
+      if (updates.body != null) { body.body = updates.body; updatedFields.push('body'); }
+      if (updates.excerpt != null) { body.excerpt = updates.excerpt; updatedFields.push('excerpt'); }
+      if (updates.tags != null) { body.tags = updates.tags; updatedFields.push('tags'); }
+      if (updates.categories != null) { body.categories = updates.categories; updatedFields.push('categories'); }
+      if (updates.urlId != null) { body.urlId = updates.urlId; updatedFields.push('urlId'); }
+      if (updates.draft != null) { body.draft = updates.draft; updatedFields.push('draft'); }
+
+      if (updatedFields.length === 0) {
+        return { success: false, itemId, updatedFields: [], error: 'No fields provided to update' };
+      }
+
+      const path = `/api/content-collections/${collectionId}/content-items/${itemId}`;
+      const url = this.buildApiUrl(path, true);
+
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: { ...this.buildHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (response.status === 401) {
+        return { success: false, itemId, updatedFields: [], error: 'Session expired' };
+      }
+      if (response.status === 404) {
+        return { success: false, itemId, updatedFields: [], error: 'Blog post not found' };
+      }
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        return { success: false, itemId, updatedFields: [], error: `HTTP ${response.status}: ${text}` };
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+      if (data.crumbFail || (typeof data.error === 'string' && data.error.includes('Invalid session crumb'))) {
+        return { success: false, itemId, updatedFields: [], error: 'Session crumb invalid — re-authenticate' };
+      }
+
+      logger.info({ collectionId, itemId, updatedFields }, 'updateBlogPost: post updated');
+      return { success: true, itemId, updatedFields };
+    } catch (err) {
+      return { success: false, itemId, updatedFields: [], error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Find a blog post by partial title match (case-insensitive).
+   * Returns the first matching CollectionItem, or null.
+   * Never throws.
+   */
+  async findBlogPostByTitle(
+    collectionId: string,
+    searchTitle: string,
+  ): Promise<CollectionItem | null> {
+    try {
+      const result = await this.getCollectionItems(collectionId);
+      if (!result.success || !result.items) return null;
+      const lower = searchTitle.toLowerCase().trim();
+      return result.items.find((item) => item.title?.toLowerCase().includes(lower)) ?? null;
+    } catch (err) {
+      logger.warn({ error: errMsg(err), collectionId, searchTitle }, 'findBlogPostByTitle: failed');
+      return null;
     }
   }
 
