@@ -908,6 +908,109 @@ export async function tryCodeBlockApi(
 }
 
 /**
+ * Attempt to format a text block via the Content Save API (no UI).
+ *
+ * Supported via API: heading1-4 (tag replacement), bold, italic, alignment.
+ * Unsupported via API (returns null to fall through): paragraph1-3, monospace,
+ * fontSize (class names theme-dependent; no clean API mapping).
+ *
+ * Returns ActionResult on success, null on failure. Never throws.
+ */
+export async function tryFormatTextBlockApi(
+  page: Page,
+  action: {
+    searchText: string;
+    formatLevel?: 'heading1' | 'heading2' | 'heading3' | 'heading4' | 'paragraph1' | 'paragraph2' | 'paragraph3' | 'monospace';
+    bold?: boolean;
+    italic?: boolean;
+    alignment?: 'left' | 'center' | 'right';
+    fontSize?: 'increase' | 'decrease';
+  },
+): Promise<ActionResult | null> {
+  const { searchText, formatLevel, bold, italic, alignment, fontSize } = action;
+
+  // fontSize has no clean API mapping — skip entirely
+  if (fontSize) return null;
+  // paragraph1-3 and monospace have theme-dependent class names — skip
+  if (formatLevel && !['heading1', 'heading2', 'heading3', 'heading4'].includes(formatLevel)) {
+    return null;
+  }
+  // Nothing API-eligible
+  if (!formatLevel && bold === undefined && italic === undefined && !alignment) {
+    return null;
+  }
+
+  const ctx = await extractApiContext(page, 'tryFormatTextBlockApi');
+  if (!ctx) return null;
+
+  try {
+    // GET current sections → find the block
+    const data = await ctx.client.getPageSections(ctx.pageSectionsId);
+    const blockMatch = ctx.client.findBlock(data.sections, searchText);
+    if (!blockMatch) {
+      logger.debug({ searchText }, 'tryFormatTextBlockApi: block not found');
+      return null;
+    }
+
+    // Read current HTML
+    const currentHtml: string =
+      blockMatch.gridContent.content.value.value?.html ??
+      blockMatch.gridContent.content.value.value?.source ?? '';
+
+    if (!currentHtml) {
+      logger.debug({ searchText }, 'tryFormatTextBlockApi: block has no HTML content');
+      return null;
+    }
+
+    // Apply formatting transformations
+    const newHtml = applyFormattingToHtml(currentHtml, {
+      formatLevel: formatLevel as 'heading1' | 'heading2' | 'heading3' | 'heading4' | undefined,
+      bold,
+      italic,
+      alignment,
+    });
+
+    if (newHtml === currentHtml) {
+      // Nothing changed — return success so the UI path isn't attempted unnecessarily
+      return {
+        success: true,
+        message: `formatTextBlock: No changes needed — block "${searchText}" already has the requested formatting.`,
+      };
+    }
+
+    // Write back via updateTextBlockHtml (bypasses formatHtml() wrapper — we built the HTML ourselves)
+    const result = await ctx.client.updateTextBlockHtml(
+      ctx.pageSectionsId,
+      ctx.collectionId,
+      searchText,
+      newHtml,
+    );
+
+    if (result.success) {
+      const parts: string[] = [];
+      if (formatLevel) parts.push(`format → ${formatLevel}`);
+      if (bold) parts.push('bold');
+      if (italic) parts.push('italic');
+      if (alignment) parts.push(`align → ${alignment}`);
+      logger.info(
+        { blockId: result.blockId, searchText, formatLevel, bold, italic, alignment },
+        'Format Text Block API: formatting applied successfully',
+      );
+      return {
+        success: true,
+        message: `formatTextBlock: Applied ${parts.join(', ')} to block "${searchText}" via Content Save API (block ${result.blockId}). Reload the page to see the change in the editor.`,
+      };
+    }
+
+    logger.warn({ error: result.error, searchText }, 'Format Text Block API: update failed');
+    return null;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'tryFormatTextBlockApi: failed');
+    return null;
+  }
+}
+
+/**
  * Attempt to edit section style via the Content Save API (no UI).
  * Replaces the 15-20 step browser agent UI automation with a single read-modify-write.
  * Returns an ActionResult on success, null on failure. Never throws.
