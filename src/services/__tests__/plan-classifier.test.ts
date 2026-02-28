@@ -155,9 +155,122 @@ describe('classifyPlanForApi', () => {
       expect(result.capability).toBe('browser_required');
     });
 
-    it('classifies add_section without strategy as browser_required', () => {
+    it('classifies add_section without strategy or apiBlocks as browser_required', () => {
       const plan = makePlan([
         makeOp({ operationType: 'add_section', content: {} }),
+      ]);
+      const result = classifyPlanForApi(plan);
+      expect(result.capability).toBe('browser_required');
+    });
+
+    it('rejects replace_image with imageQuery but no imagePath', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'replace_image',
+          content: { imageQuery: 'mountain landscape' },
+        }),
+      ]);
+      const result = classifyPlanForApi(plan);
+      expect(result.capability).toBe('browser_required');
+    });
+
+    it('rejects add_gallery with imageQuery but no imagePath', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'add_gallery',
+          content: { imageQuery: 'team photos' },
+        }),
+      ]);
+      const result = classifyPlanForApi(plan);
+      expect(result.capability).toBe('browser_required');
+    });
+
+    it('rejects add_block image with imageQuery but no imagePath', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'add_block',
+          content: { imageQuery: 'hero banner', blockType: 'image' },
+        }),
+      ]);
+      const result = classifyPlanForApi(plan);
+      expect(result.capability).toBe('browser_required');
+    });
+  });
+
+  describe('imageQuery on non-image operations', () => {
+    it('allows modify_text with imageQuery (non-image op, imageQuery is irrelevant)', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'modify_text',
+          content: { heading: 'New heading', imageQuery: 'decorative context' },
+        }),
+      ]);
+      const result = classifyPlanForApi(plan);
+      expect(result.capability).toBe('full_api');
+    });
+
+    it('allows remove_block with imageQuery', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'remove_block',
+          content: { heading: 'Old block', imageQuery: 'ref image' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('allows modify_block with imageQuery', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'modify_block',
+          content: { button: { label: 'Click', url: '/page' }, imageQuery: 'ref' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('allows modify_style with imageQuery', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'modify_style',
+          content: { sectionTheme: 'Dark', imageQuery: 'background ref' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('allows add_block text with imageQuery (blockType is not image)', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'add_block',
+          content: { bodyText: 'Hello', blockType: 'text', imageQuery: 'decorative' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+  });
+
+  describe('inferred blank_api from apiBlocks', () => {
+    it('classifies add_section with apiBlocks but no contentStrategy as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'add_section',
+          content: {
+            apiBlocks: [{ html: '<p>Hello</p>' }],
+          },
+        }),
+      ]);
+      const result = classifyPlanForApi(plan);
+      expect(result.capability).toBe('full_api');
+      expect(result.apiOperations).toHaveLength(1);
+    });
+
+    it('rejects add_section with empty apiBlocks and no contentStrategy', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'add_section',
+          content: { apiBlocks: [] },
+        }),
       ]);
       const result = classifyPlanForApi(plan);
       expect(result.capability).toBe('browser_required');

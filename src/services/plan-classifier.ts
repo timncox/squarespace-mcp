@@ -43,8 +43,7 @@ export interface PlanClassification {
  *
  * Browser-required:
  *   - contentStrategy 'manual' (needs full browser control)
- *   - blog posts (createBlogPost is untested via API)
- *   - operations with referenceImagePath (visual context needed)
+ *   - image operations with imageQuery but no imagePath (need stock photo search)
  */
 function canRunViaApi(op: ContentOperation): boolean {
   const { operationType, content } = op;
@@ -52,8 +51,13 @@ function canRunViaApi(op: ContentOperation): boolean {
   // Manual strategy always needs browser
   if (content.contentStrategy === 'manual') return false;
 
-  // Reference image requires visual interpretation
-  if (content.imageQuery && !content.imagePath) return false;
+  // imageQuery without imagePath only matters for image-centric operations
+  // (a modify_text op with imageQuery set as context should still route to API)
+  if (content.imageQuery && !content.imagePath) {
+    if (operationType === 'replace_image') return false;
+    if (operationType === 'add_gallery') return false;
+    if (operationType === 'add_block' && content.blockType === 'image') return false;
+  }
 
   switch (operationType) {
     case 'create_page':
@@ -67,6 +71,8 @@ function canRunViaApi(op: ContentOperation): boolean {
         // Template ops need category + index to look up catalog entry
         return !!(content.templateCategory && content.templateIndex != null);
       }
+      // Infer blank_api when apiBlocks are present but strategy wasn't explicitly set
+      if (content.apiBlocks && content.apiBlocks.length > 0) return true;
       // No strategy specified — can't route
       return false;
     }
