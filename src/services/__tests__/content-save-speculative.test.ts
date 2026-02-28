@@ -107,7 +107,7 @@ describe('ContentSaveClient — Speculative APIs', () => {
       const result = await client.createPageViaApi('Unauthorized', 'unauth');
       expect(result.success).toBe(false);
       expect(result.endpointAvailable).toBe(true);
-      expect(result.error).toContain('401');
+      expect(result.error).toContain('Session expired');
     });
 
     it('never throws on any error', async () => {

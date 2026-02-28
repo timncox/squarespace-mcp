@@ -28,7 +28,8 @@ export type SimpleEditType =
   | 'image_replace'
   | 'button_add'
   | 'section_reorder'
-  | 'block_move';
+  | 'block_move'
+  | 'page_seo';
 
 export interface SimpleEditClassification {
   isSimpleEdit: boolean;
@@ -51,6 +52,11 @@ export interface SimpleEditClassification {
     newButtonUrl?: string;
     moveDirection?: 'up' | 'down';
     moveSteps?: number;
+    seoTitle?: string;
+    seoDescription?: string;
+    navigationTitle?: string;
+    urlId?: string;
+    enabled?: boolean;
   };
   reason: string;
 }
@@ -209,6 +215,10 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are a task classifier for a Squarespace we
 13. **block_move** — Move a block within its section
     Examples: "Move the phone number below the address"
     Params: searchText (text in the block), moveDirection ("up" or "down")
+
+14. **page_seo** — Update page SEO settings (title, meta description, URL slug, navigation title, visibility)
+    Examples: "Update the about page title to 'About Our Team'", "Change the meta description for the homepage", "Set the SEO title to 'Best Restaurant in NYC'", "Rename the page URL to /our-story", "Disable the contact page"
+    Params: seoTitle (new page/SEO title), seoDescription (meta description), navigationTitle (nav menu label), urlId (URL slug), enabled (true/false for visibility)
 
 ## NOT Simple Edits (return isSimpleEdit: false)
 - Creating new pages or galleries

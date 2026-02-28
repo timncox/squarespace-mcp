@@ -57,6 +57,8 @@ function canRunViaApi(op: ContentOperation): boolean {
 
   switch (operationType) {
     case 'create_page':
+    case 'delete_page':
+    case 'update_page_metadata':
       return true;
 
     case 'add_section': {
