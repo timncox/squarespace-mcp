@@ -2,7 +2,7 @@ import { Page } from 'playwright';
 import { logger } from '../../utils/logger.js';
 import { clickThroughOverlay, dblclickThroughOverlay, findTextOnPage, getSiteFrame } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
-import { isFluidEngineActive, clickEditorButton, tryContentSaveApi, tryFooterContentSaveApi } from './handler-utils.js';
+import { isFluidEngineActive, clickEditorButton, tryContentSaveApi, tryFooterContentSaveApi, tryButtonBlockApi } from './handler-utils.js';
 import type { ActionResult } from './types.js';
 import { mergeMenuContent } from '../../services/menu-merger.js';
 
@@ -1253,6 +1253,17 @@ export async function handleEditButtonBlock(
 
   if (!newLabel && !url && !size && !style && !alignment) {
     return { success: false, message: 'editButtonBlock: must provide at least newLabel, url, size, style, or alignment' };
+  }
+
+  // ── Fast path: try Content Save API first (no UI, ~100ms) ─────────────
+  // Note: size, style, alignment require UI — only label/url can use API
+  if (newLabel !== undefined || url !== undefined) {
+    logger.info({ searchText }, 'editButtonBlock[0/6]: trying Content Save API fast path');
+    const apiResult = await tryButtonBlockApi(page, searchText, { newLabel, url });
+    if (apiResult) {
+      return apiResult;
+    }
+    logger.info('editButtonBlock[0/6]: API fast path unavailable, falling back to UI automation');
   }
 
   // ── Step 1: Find the button in the iframe ───────────────────────────
