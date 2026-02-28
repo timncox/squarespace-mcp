@@ -56,6 +56,10 @@ import {
   isApiVideoBlock,
   isApiQuoteBlock,
   isApiCodeBlock,
+  isApiNewsletterBlock,
+  isApiAccordionBlock,
+  isApiMarqueeBlock,
+  isApiFormBlock,
 } from '../agents/types.js';
 import type {
   ContentPlan,
@@ -65,6 +69,10 @@ import type {
   ApiButtonBlock,
   ApiImageBlock,
   ApiGalleryBlock,
+  ApiNewsletterBlock,
+  ApiAccordionBlock,
+  ApiMarqueeBlock,
+  ApiFormBlock,
 } from '../agents/types.js';
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -272,6 +280,45 @@ async function executeAddSectionBlankApi(
       );
       if (result.success) blocksAdded++;
       else logger.warn({ error: result.error }, 'api-executor: addCodeBlock failed');
+    } else if (isApiNewsletterBlock(block)) {
+      const result = await client.addNewsletterBlock(
+        ctx.pageSectionsId, ctx.collectionId, newSectionIndex,
+        { description: block.description, alignment: block.alignment, captchaEnabled: block.captchaEnabled },
+        block.layout,
+      );
+      if (result.success) blocksAdded++;
+      else logger.warn({ error: result.error }, 'api-executor: addNewsletterBlock failed');
+    } else if (isApiAccordionBlock(block)) {
+      const result = await client.addAccordionBlock(
+        ctx.pageSectionsId, ctx.collectionId, newSectionIndex,
+        block.items,
+        { isExpandedFirstItem: block.isExpandedFirstItem, shouldAllowMultipleOpenItems: block.shouldAllowMultipleOpenItems },
+        block.layout,
+      );
+      if (result.success) blocksAdded++;
+      else logger.warn({ error: result.error }, 'api-executor: addAccordionBlock failed');
+    } else if (isApiMarqueeBlock(block)) {
+      const result = await client.addMarqueeBlock(
+        ctx.pageSectionsId, ctx.collectionId, newSectionIndex,
+        block.items,
+        { animationDirection: block.animationDirection, animationSpeed: block.animationSpeed, textStyle: block.textStyle, pausedOnHover: block.pausedOnHover, fadeEdges: block.fadeEdges, waveFrequency: block.waveFrequency, waveIntensity: block.waveIntensity },
+        block.layout,
+      );
+      if (result.success) blocksAdded++;
+      else logger.warn({ error: result.error }, 'api-executor: addMarqueeBlock failed');
+    } else if (isApiFormBlock(block)) {
+      if (!block.formId) {
+        logger.warn({ block }, 'api-executor: addFormBlock requires formId — skipping');
+      } else {
+        const result = await client.addFormBlock(
+          ctx.pageSectionsId, ctx.collectionId, newSectionIndex,
+          block.formId,
+          { buttonVariant: block.buttonVariant, buttonAlignment: block.buttonAlignment, useLightbox: block.useLightbox },
+          block.layout,
+        );
+        if (result.success) blocksAdded++;
+        else logger.warn({ error: result.error }, 'api-executor: addFormBlock failed');
+      }
     } else {
       // Text block
       const textBlock = block as ApiTextBlock;
@@ -540,6 +587,31 @@ async function executeAddBlock(
       );
       if (!result.success) throw new Error(result.error ?? 'addCodeBlock failed');
       return `Added code block to section ${lastSectionIndex}`;
+    }
+    case 'newsletter': {
+      const result = await client.addNewsletterBlock(
+        ctx.pageSectionsId, ctx.collectionId, lastSectionIndex,
+        { description: op.content.bodyText },
+      );
+      if (!result.success) throw new Error(result.error ?? 'addNewsletterBlock failed');
+      return `Added newsletter block to section ${lastSectionIndex}`;
+    }
+    case 'accordion': {
+      logger.warn('add_block (accordion): use apiBlocks format with blank_api strategy instead');
+      throw new Error('add_block (accordion): not supported as single-block add — use blank_api strategy with apiBlocks');
+    }
+    case 'marquee': {
+      logger.warn('add_block (marquee): use apiBlocks format with blank_api strategy instead');
+      throw new Error('add_block (marquee): not supported as single-block add — use blank_api strategy with apiBlocks');
+    }
+    case 'form': {
+      const formId = op.content.bodyText;
+      if (!formId) throw new Error('add_block (form): bodyText must contain the formId');
+      const result = await client.addFormBlock(
+        ctx.pageSectionsId, ctx.collectionId, lastSectionIndex, formId,
+      );
+      if (!result.success) throw new Error(result.error ?? 'addFormBlock failed');
+      return `Added form block to section ${lastSectionIndex}`;
     }
     default:
       throw new Error(`add_block: unsupported blockType "${blockType}"`);

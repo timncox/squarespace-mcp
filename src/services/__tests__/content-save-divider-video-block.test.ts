@@ -76,7 +76,7 @@ function makeVideoBlock(blockId: string, url: string, title?: string, descriptio
     content: {
       value: {
         id: blockId,
-        type: 50,
+        type: 32,
         value: {
           url,
           title,
@@ -149,7 +149,7 @@ describe('ContentSaveClient — addDividerBlock', () => {
     const putBody = JSON.parse(putOptions.body as string);
     const gridContents = putBody.sections[0].fluidEngineContext.gridContents;
     expect(gridContents).toHaveLength(1);
-    expect(gridContents[0].content.value.type).toBe(52);
+    expect(gridContents[0].content.value.type).toBe(47);
     expect(gridContents[0].content.value.value).toEqual({});
 
     fetchSpy.mockRestore();
@@ -325,7 +325,7 @@ describe('ContentSaveClient — addVideoBlock', () => {
     const putBody = JSON.parse(putOptions.body as string);
     const gridContents = putBody.sections[0].fluidEngineContext.gridContents;
     expect(gridContents).toHaveLength(1);
-    expect(gridContents[0].content.value.type).toBe(50);
+    expect(gridContents[0].content.value.type).toBe(32);
     expect(gridContents[0].content.value.value.url).toBe('https://www.youtube.com/watch?v=abc123');
 
     fetchSpy.mockRestore();
@@ -601,7 +601,7 @@ describe('ContentSaveClient — updateVideoBlock', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('not a video block');
-    expect(result.error).toContain('expected 50');
+    expect(result.error).toContain('expected 32');
 
     fetchSpy.mockRestore();
   });

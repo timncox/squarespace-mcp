@@ -3836,6 +3836,1016 @@ export class ContentSaveClient {
     }
   }
 
+  // ── Newsletter Block Operations ───────────────────────────────────────────
+
+  /**
+   * Add a newsletter/email signup block to a section via Content Save API.
+   *
+   * Default layout: 24 cols wide (full width), 4 rows tall.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param options         Optional content and style overrides
+   * @param layout          Optional layout overrides
+   */
+  async addNewsletterBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    options?: {
+      description?: string;
+      alignment?: string;
+      captchaEnabled?: boolean;
+      captchaTheme?: number;
+      captchaAlignment?: number;
+      submitButtonText?: string;
+      title?: string;
+    },
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    },
+  ): Promise<NewsletterBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      // Default newsletter block: full width (24 cols), 4 rows tall
+      const rowHeight = layout?.rowHeight ?? 4;
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? maxColumns;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and create GridContent
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      const descHtml = options?.description
+        ? `<p>${options.description}</p>`
+        : '<p>Sign up with your email address to receive news and updates.</p>';
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: {
+            id: blockId,
+            type: BLOCK_TYPE_NEWSLETTER,
+            value: {
+              alignment: options?.alignment ?? 'alignCenter',
+              captchaEnabled: options?.captchaEnabled ?? false,
+              captchaTheme: options?.captchaTheme ?? 1,
+              captchaAlignment: options?.captchaAlignment ?? 2,
+              description: { engine: 'wysiwyg', html: descHtml, source: descHtml } as unknown as string,
+              floatDir: null,
+              hSize: null,
+              layout: 'layoutFloat',
+              submitButtonText: options?.submitButtonText ?? 'Sign Up',
+              successRedirect: '',
+              title: options?.title ?? 'Subscribe',
+              hasEnabledBackends: true,
+            },
+          },
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, title: options?.title ?? 'Subscribe', position: { startX, startY, endX, endY } },
+        'Adding newsletter block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionIndex };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update a newsletter block's content fields.
+   * Uses findBlock() to locate the block by search text.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param searchText      Text to find the newsletter block by (matches description, title, or submitButtonText)
+   * @param updates         Fields to update
+   */
+  async updateNewsletterBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    updates: {
+      description?: string;
+      alignment?: string;
+      captchaEnabled?: boolean;
+      submitButtonText?: string;
+      title?: string;
+    },
+  ): Promise<NewsletterBlockUpdateResult> {
+    if (!updates.description && !updates.alignment && updates.captchaEnabled === undefined &&
+        !updates.submitButtonText && !updates.title) {
+      return { success: false, error: 'Must provide at least one field to update' };
+    }
+
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the newsletter block
+      const match = this.findBlock(data.sections, searchText);
+      if (!match) {
+        return { success: false, error: `No block found matching "${searchText}"` };
+      }
+
+      const { gridContent } = match;
+      const blockValue = gridContent.content.value;
+
+      // Step 3: Verify block type is newsletter (51)
+      if (blockValue.type !== BLOCK_TYPE_NEWSLETTER) {
+        return {
+          success: false,
+          error: `Block "${searchText}" is type ${blockValue.type}, not a newsletter block (expected ${BLOCK_TYPE_NEWSLETTER})`,
+        };
+      }
+
+      const blockId = blockValue.id;
+
+      // Ensure value sub-object exists
+      if (!blockValue.value) {
+        blockValue.value = {};
+      }
+
+      // Step 4: Update provided fields
+      if (updates.description !== undefined) {
+        const descHtml = `<p>${updates.description}</p>`;
+        (blockValue.value as Record<string, unknown>).description = { engine: 'wysiwyg', html: descHtml, source: descHtml };
+      }
+      if (updates.alignment !== undefined) {
+        blockValue.value.alignment = updates.alignment;
+      }
+      if (updates.captchaEnabled !== undefined) {
+        blockValue.value.captchaEnabled = updates.captchaEnabled;
+      }
+      if (updates.submitButtonText !== undefined) {
+        blockValue.value.submitButtonText = updates.submitButtonText;
+      }
+      if (updates.title !== undefined) {
+        blockValue.value.title = updates.title;
+      }
+
+      logger.info(
+        { blockId, searchText, updatedFields: Object.keys(updates).filter(k => updates[k as keyof typeof updates] !== undefined) },
+        'Updating newsletter block via Content Save API',
+      );
+
+      // Step 5: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Accordion Block Operations ─────────────────────────────────────────────
+
+  /**
+   * Add an accordion block to a section via Content Save API.
+   *
+   * Default layout: 24 cols wide (full width), rowHeight = max(4, items.length * 2).
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param items           Accordion items (title + description pairs)
+   * @param options         Optional style overrides
+   * @param layout          Optional layout overrides
+   */
+  async addAccordionBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    items: Array<{ title: string; description: string }>,
+    options?: {
+      isExpandedFirstItem?: boolean;
+      shouldAllowMultipleOpenItems?: boolean;
+    },
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    },
+  ): Promise<AccordionBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      // Default accordion block: full width (24 cols), rowHeight based on item count
+      const rowHeight = layout?.rowHeight ?? Math.max(4, items.length * 2);
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? maxColumns;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and create GridContent
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: {
+            id: blockId,
+            type: BLOCK_TYPE_ACCORDION,
+            value: {
+              accordionItems: items,
+              isExpandedFirstItem: options?.isExpandedFirstItem ?? false,
+              shouldAllowMultipleOpenItems: options?.shouldAllowMultipleOpenItems ?? false,
+              accordionTitleFont: 'heading-4',
+              accordionTitleAlignment: 'left',
+              accordionDescriptionFont: 'paragraph-2',
+              accordionDescriptionAlignment: 'left',
+              isDividerEnabled: true,
+              dividerOpacity: 1,
+              isFirstDividerVisible: true,
+              isLastDividerVisible: true,
+              dividerBorderThickness: { value: 1, unit: 'px' },
+              accordionIconType: 'plus',
+              accordionIconPlacement: 'right',
+              accordionIconSize: { value: 14, unit: 'px' },
+              accordionIconThickness: { value: 1, unit: 'px' },
+              accordionItemPaddingTop: { value: 30, unit: 'px' },
+              accordionItemPaddingBottom: { value: 30, unit: 'px' },
+              accordionItemPaddingRight: { value: 0, unit: 'px' },
+              accordionItemPaddingLeft: { value: 0, unit: 'px' },
+              descriptionWidth: { value: 70, unit: '%' },
+              descriptionPaddingTop: { value: 0, unit: 'px' },
+              descriptionPaddingBottom: { value: 30, unit: 'px' },
+              descriptionPaddingRight: { value: 0, unit: 'px' },
+              descriptionPaddingLeft: { value: 0, unit: 'px' },
+              accordionDescriptionPlacement: 'left',
+            },
+          },
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, itemCount: items.length, position: { startX, startY, endX, endY } },
+        'Adding accordion block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionIndex };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update an accordion block's items and/or options.
+   * Uses findBlock() to locate the block by search text.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param searchText      Text to find the accordion block by (matches item titles/descriptions)
+   * @param updates         Fields to update
+   */
+  async updateAccordionBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    updates: {
+      items?: Array<{ title: string; description: string }>;
+      isExpandedFirstItem?: boolean;
+      shouldAllowMultipleOpenItems?: boolean;
+    },
+  ): Promise<AccordionBlockUpdateResult> {
+    if (!updates.items && updates.isExpandedFirstItem === undefined && updates.shouldAllowMultipleOpenItems === undefined) {
+      return { success: false, error: 'Must provide at least one field to update' };
+    }
+
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the accordion block
+      const match = this.findBlock(data.sections, searchText);
+      if (!match) {
+        return { success: false, error: `No block found matching "${searchText}"` };
+      }
+
+      const { gridContent } = match;
+      const blockValue = gridContent.content.value;
+
+      // Step 3: Verify block type is accordion (69)
+      if (blockValue.type !== BLOCK_TYPE_ACCORDION) {
+        return {
+          success: false,
+          error: `Block "${searchText}" is type ${blockValue.type}, not an accordion block (expected ${BLOCK_TYPE_ACCORDION})`,
+        };
+      }
+
+      const blockId = blockValue.id;
+
+      // Ensure value sub-object exists
+      if (!blockValue.value) {
+        blockValue.value = {};
+      }
+
+      // Step 4: Update provided fields
+      if (updates.items !== undefined) {
+        blockValue.value.accordionItems = updates.items;
+      }
+      if (updates.isExpandedFirstItem !== undefined) {
+        blockValue.value.isExpandedFirstItem = updates.isExpandedFirstItem;
+      }
+      if (updates.shouldAllowMultipleOpenItems !== undefined) {
+        blockValue.value.shouldAllowMultipleOpenItems = updates.shouldAllowMultipleOpenItems;
+      }
+
+      logger.info(
+        { blockId, searchText, itemCount: updates.items?.length },
+        'Updating accordion block via Content Save API',
+      );
+
+      // Step 5: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Marquee Block Operations ───────────────────────────────────────────────
+
+  /**
+   * Add a marquee (scrolling text) block to a section via Content Save API.
+   *
+   * Default layout: 24 cols wide (full width), 4 rows tall.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param items           Marquee items (text strings, optionally with linkTo)
+   * @param options         Optional animation and style overrides
+   * @param layout          Optional layout overrides
+   */
+  async addMarqueeBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    items: Array<{ text: string; linkTo?: string }>,
+    options?: {
+      animationDirection?: 'left' | 'right';
+      animationSpeed?: number;
+      textStyle?: string;
+      pausedOnHover?: boolean;
+      fadeEdges?: boolean;
+      waveFrequency?: number;
+      waveIntensity?: number;
+    },
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    },
+  ): Promise<MarqueeBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      // Default marquee block: full width (24 cols), 4 rows tall
+      const rowHeight = layout?.rowHeight ?? 4;
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? maxColumns;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and create GridContent
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: {
+            id: blockId,
+            type: BLOCK_TYPE_MARQUEE,
+            value: {
+              marqueeItems: items,
+              linkTo: '',
+              newWindow: false,
+              waveFrequency: options?.waveFrequency ?? 4,
+              waveIntensity: options?.waveIntensity ?? 0,
+              animationDirection: options?.animationDirection ?? 'left',
+              animationSpeed: options?.animationSpeed ?? 1,
+              pausedOnHover: options?.pausedOnHover ?? false,
+              fadeEdges: options?.fadeEdges ?? false,
+              textStyle: options?.textStyle ?? 'heading-1',
+              textSize: { value: 1.5, unit: 'rem' },
+              itemSpacing: { value: 0.5, unit: 'em' },
+            },
+          },
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, itemCount: items.length, animationDirection: options?.animationDirection ?? 'left', position: { startX, startY, endX, endY } },
+        'Adding marquee block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionIndex };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update a marquee block's items and/or animation settings.
+   * Uses findBlock() to locate the block by search text.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param searchText      Text to find the marquee block by (matches marqueeItems[].text)
+   * @param updates         Fields to update
+   */
+  async updateMarqueeBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    updates: {
+      items?: Array<{ text: string; linkTo?: string }>;
+      animationDirection?: 'left' | 'right';
+      animationSpeed?: number;
+      textStyle?: string;
+      pausedOnHover?: boolean;
+    },
+  ): Promise<MarqueeBlockUpdateResult> {
+    if (!updates.items && !updates.animationDirection && updates.animationSpeed === undefined &&
+        !updates.textStyle && updates.pausedOnHover === undefined) {
+      return { success: false, error: 'Must provide at least one field to update' };
+    }
+
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the marquee block
+      const match = this.findBlock(data.sections, searchText);
+      if (!match) {
+        return { success: false, error: `No block found matching "${searchText}"` };
+      }
+
+      const { gridContent } = match;
+      const blockValue = gridContent.content.value;
+
+      // Step 3: Verify block type is marquee (70)
+      if (blockValue.type !== BLOCK_TYPE_MARQUEE) {
+        return {
+          success: false,
+          error: `Block "${searchText}" is type ${blockValue.type}, not a marquee block (expected ${BLOCK_TYPE_MARQUEE})`,
+        };
+      }
+
+      const blockId = blockValue.id;
+
+      // Ensure value sub-object exists
+      if (!blockValue.value) {
+        blockValue.value = {};
+      }
+
+      // Step 4: Update provided fields
+      if (updates.items !== undefined) {
+        blockValue.value.marqueeItems = updates.items;
+      }
+      if (updates.animationDirection !== undefined) {
+        blockValue.value.animationDirection = updates.animationDirection;
+      }
+      if (updates.animationSpeed !== undefined) {
+        blockValue.value.animationSpeed = updates.animationSpeed;
+      }
+      if (updates.textStyle !== undefined) {
+        blockValue.value.textStyle = updates.textStyle;
+      }
+      if (updates.pausedOnHover !== undefined) {
+        blockValue.value.pausedOnHover = updates.pausedOnHover;
+      }
+
+      logger.info(
+        { blockId, searchText, itemCount: updates.items?.length },
+        'Updating marquee block via Content Save API',
+      );
+
+      // Step 5: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Form Block Operations ─────────────────────────────────────────────────
+
+  /**
+   * Add a form block to a section via Content Save API.
+   * Form blocks use type 1337 (same as code/image blocks) but are distinguished
+   * by having a `buttonVariant` field in their value.
+   *
+   * Default layout: 16 cols wide (narrower than full-width), 8 rows tall.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param formId          The Squarespace form ID to embed
+   * @param options         Optional button style and lightbox overrides
+   * @param layout          Optional layout overrides
+   */
+  async addFormBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    formId: string,
+    options?: {
+      buttonVariant?: 'primary' | 'secondary' | 'tertiary';
+      buttonAlignment?: 'left' | 'center' | 'right';
+      useLightbox?: boolean;
+    },
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    },
+  ): Promise<FormBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      // Default form block: 16 cols wide (narrower), 8 rows tall
+      const rowHeight = layout?.rowHeight ?? 8;
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? 16;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and create GridContent
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: {
+            id: blockId,
+            type: BLOCK_TYPE_CODE,
+            value: {
+              buttonAlignment: options?.buttonAlignment ?? 'left',
+              buttonVariant: options?.buttonVariant ?? 'primary',
+              firstFieldHighlightType: 'none',
+              submissionTextAlignment: 'left',
+              submissionVerticalAlignment: 'top',
+              submissionAnimation: 'none',
+              formId,
+              lightboxHandleText: '',
+              useLightbox: options?.useLightbox ?? false,
+              containerStyles: {
+                backgroundEnabled: false,
+                backgroundColor: { type: 'THEME_COLOR' },
+                stroke: {
+                  style: 'none',
+                  color: { type: 'THEME_COLOR' },
+                  thickness: { value: 2, unit: 'px' },
+                },
+                borderRadii: {
+                  topLeft: { value: 20, unit: 'px' },
+                  topRight: { value: 20, unit: 'px' },
+                  bottomLeft: { value: 20, unit: 'px' },
+                  bottomRight: { value: 20, unit: 'px' },
+                },
+                padding: {
+                  top: { value: 6, unit: '%' },
+                  bottom: { value: 6, unit: '%' },
+                  left: { value: 6, unit: '%' },
+                  right: { value: 6, unit: '%' },
+                },
+              },
+            },
+          },
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, formId, position: { startX, startY, endX, endY } },
+        'Adding form block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionIndex };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update a form block's button style and/or lightbox setting.
+   * Uses findBlock() to locate the block by form ID.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param searchText      Text to find the form block by (matches formId)
+   * @param updates         Fields to update
+   */
+  async updateFormBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    updates: {
+      buttonVariant?: 'primary' | 'secondary' | 'tertiary';
+      buttonAlignment?: 'left' | 'center' | 'right';
+      useLightbox?: boolean;
+    },
+  ): Promise<FormBlockUpdateResult> {
+    if (!updates.buttonVariant && !updates.buttonAlignment && updates.useLightbox === undefined) {
+      return { success: false, error: 'Must provide at least one field to update' };
+    }
+
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the form block
+      const match = this.findBlock(data.sections, searchText);
+      if (!match) {
+        return { success: false, error: `No block found matching "${searchText}"` };
+      }
+
+      const { gridContent } = match;
+      const blockValue = gridContent.content.value;
+
+      // Step 3: Verify block type is form (type 1337 with buttonVariant discriminator)
+      if (blockValue.type !== BLOCK_TYPE_CODE || blockValue.value?.[FORM_BLOCK_DISCRIMINATOR] === undefined) {
+        return {
+          success: false,
+          error: `Block "${searchText}" is not a form block (expected type ${BLOCK_TYPE_CODE} with ${FORM_BLOCK_DISCRIMINATOR} field)`,
+        };
+      }
+
+      const blockId = blockValue.id;
+
+      // Ensure value sub-object exists
+      if (!blockValue.value) {
+        blockValue.value = {};
+      }
+
+      // Step 4: Update provided fields
+      if (updates.buttonVariant !== undefined) {
+        blockValue.value.buttonVariant = updates.buttonVariant;
+      }
+      if (updates.buttonAlignment !== undefined) {
+        blockValue.value.buttonAlignment = updates.buttonAlignment;
+      }
+      if (updates.useLightbox !== undefined) {
+        blockValue.value.useLightbox = updates.useLightbox;
+      }
+
+      logger.info(
+        { blockId, searchText, updatedFields: Object.keys(updates).filter(k => updates[k as keyof typeof updates] !== undefined) },
+        'Updating form block via Content Save API',
+      );
+
+      // Step 5: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
   // ── Fill Placeholder Block ──────────────────────────────────────────────
 
   /**

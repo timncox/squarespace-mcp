@@ -562,3 +562,63 @@ export interface VideoBlockUpdateResult {
   updatedFields?: string[];
   error?: string;
 }
+
+/** Result of adding a newsletter block */
+export interface NewsletterBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of updating a newsletter block */
+export interface NewsletterBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  error?: string;
+}
+
+/** Result of adding an accordion block */
+export interface AccordionBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of updating an accordion block */
+export interface AccordionBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  error?: string;
+}
+
+/** Result of adding a marquee (scrolling text) block */
+export interface MarqueeBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of updating a marquee block */
+export interface MarqueeBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  error?: string;
+}
+
+/** Result of adding a form block */
+export interface FormBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of updating a form block */
+export interface FormBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  error?: string;
+}

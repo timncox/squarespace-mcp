@@ -65,7 +65,7 @@ export interface ContentSpec {
   /** Alt text for the uploaded image */
   imageAltText?: string;
   /** The Squarespace block type to use */
-  blockType?: 'text' | 'button' | 'image' | 'markdown' | 'spacer' | 'menu' | 'quote' | 'code' | 'embed' | 'form' | 'line' | 'divider' | 'video' | 'gallery';
+  blockType?: 'text' | 'button' | 'image' | 'markdown' | 'spacer' | 'menu' | 'quote' | 'code' | 'embed' | 'form' | 'line' | 'divider' | 'video' | 'gallery' | 'newsletter' | 'accordion' | 'marquee';
   /** Section color theme name (e.g., "Dark", "Lightest") */
   sectionTheme?: string;
   /** Section height setting */
@@ -256,8 +256,82 @@ export interface ApiCodeBlock {
   };
 }
 
+/** A newsletter/email signup block to add via Content Save API */
+export interface ApiNewsletterBlock {
+  type: 'newsletter';
+  description?: string;
+  alignment?: string;
+  captchaEnabled?: boolean;
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+}
+
+/** An accordion/FAQ block to add via Content Save API */
+export interface ApiAccordionBlock {
+  type: 'accordion';
+  items: Array<{ title: string; description: string }>;
+  isExpandedFirstItem?: boolean;
+  shouldAllowMultipleOpenItems?: boolean;
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+}
+
+/** A marquee (scrolling text) block to add via Content Save API */
+export interface ApiMarqueeBlock {
+  type: 'marquee';
+  items: Array<{ text: string; linkTo?: string }>;
+  animationDirection?: 'left' | 'right';
+  animationSpeed?: number;
+  textStyle?: string;
+  pausedOnHover?: boolean;
+  fadeEdges?: boolean;
+  waveFrequency?: number;
+  waveIntensity?: number;
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+}
+
+/** A form embed block to add via Content Save API */
+export interface ApiFormBlock {
+  type: 'form';
+  formId: string;
+  buttonVariant?: 'primary' | 'secondary' | 'tertiary';
+  buttonAlignment?: 'left' | 'center' | 'right';
+  useLightbox?: boolean;
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+}
+
 /** Union of all API block types */
-export type AnyApiBlock = ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock | ApiDividerBlock | ApiVideoBlock | ApiQuoteBlock | ApiCodeBlock;
+export type AnyApiBlock = ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock | ApiDividerBlock | ApiVideoBlock | ApiQuoteBlock | ApiCodeBlock | ApiNewsletterBlock | ApiAccordionBlock | ApiMarqueeBlock | ApiFormBlock;
 
 /** Type guard: is this apiBlock a button block? */
 export function isApiButtonBlock(block: AnyApiBlock): block is ApiButtonBlock {
@@ -292,6 +366,26 @@ export function isApiQuoteBlock(block: AnyApiBlock): block is ApiQuoteBlock {
 /** Type guard: is this apiBlock a code block? */
 export function isApiCodeBlock(block: AnyApiBlock): block is ApiCodeBlock {
   return 'type' in block && (block as ApiCodeBlock).type === 'code';
+}
+
+/** Type guard: is this apiBlock a newsletter block? */
+export function isApiNewsletterBlock(block: AnyApiBlock): block is ApiNewsletterBlock {
+  return 'type' in block && (block as ApiNewsletterBlock).type === 'newsletter';
+}
+
+/** Type guard: is this apiBlock an accordion block? */
+export function isApiAccordionBlock(block: AnyApiBlock): block is ApiAccordionBlock {
+  return 'type' in block && (block as ApiAccordionBlock).type === 'accordion';
+}
+
+/** Type guard: is this apiBlock a marquee block? */
+export function isApiMarqueeBlock(block: AnyApiBlock): block is ApiMarqueeBlock {
+  return 'type' in block && (block as ApiMarqueeBlock).type === 'marquee';
+}
+
+/** Type guard: is this apiBlock a form block? */
+export function isApiFormBlock(block: AnyApiBlock): block is ApiFormBlock {
+  return 'type' in block && (block as ApiFormBlock).type === 'form';
 }
 
 // ─── Page Structure (from Content Save API, input to Content Strategist) ────
