@@ -49,6 +49,12 @@ export interface BlockResizeResult {
   clamped?: boolean; error?: string;
 }
 
+/** Options for removeBlock */
+export interface BlockRemoveOptions {
+  /** Set sectionHeight: 'auto' on the section after removal. Defaults to true. */
+  shrinkSection?: boolean;
+}
+
 /** Result of a block remove operation */
 export interface BlockRemoveResult {
   success: boolean;

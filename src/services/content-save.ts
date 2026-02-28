@@ -31,6 +31,7 @@ export type {
   BlockMoveResult,
   BlockResizeResult,
   BlockRemoveResult,
+  BlockRemoveOptions,
   SectionMoveResult,
   ImageBlockUpdateResult,
   FooterTextUpdateResult,
@@ -97,6 +98,7 @@ import type {
   BlockMoveResult,
   BlockResizeResult,
   BlockRemoveResult,
+  BlockRemoveOptions,
   SectionMoveResult,
   ImageBlockUpdateResult,
   FooterTextUpdateResult,
@@ -1481,6 +1483,7 @@ export class ContentSaveClient {
     pageSectionsId: string,
     collectionId: string,
     searchText: string,
+    options?: BlockRemoveOptions,
   ): Promise<BlockRemoveResult> {
     try {
       // Step 1: GET current sections
@@ -1504,6 +1507,11 @@ export class ContentSaveClient {
 
       // Step 3: Splice the block out of gridContents
       section.fluidEngineContext!.gridContents.splice(blockIndex, 1);
+
+      // Step 3b: Auto-shrink section to fit remaining content (free — same GET+PUT cycle)
+      if (options?.shrinkSection !== false) {
+        (section as Record<string, unknown>).sectionHeight = 'auto';
+      }
 
       // Step 4: PUT the modified sections
       const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);

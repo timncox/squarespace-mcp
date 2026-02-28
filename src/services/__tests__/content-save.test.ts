@@ -1441,6 +1441,46 @@ describe('ContentSaveClient', () => {
 
       fetchSpy.mockRestore();
     });
+
+    it('sets sectionHeight: auto on the section by default (shrink-on-remove)', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Keep me</p>', { x: 1, y: 0 }, { x: 13, y: 3 }),
+        makeBlockWithLayout('b2', '<p>Remove me</p>', { x: 1, y: 3 }, { x: 13, y: 6 }),
+      ]);
+      const fetchSpy = mockGetAndPut(sections);
+
+      const result = await client.removeBlock('psid-1', 'cid-1', 'Remove me');
+
+      expect(result.success).toBe(true);
+
+      // Verify sectionHeight is set to 'auto' in the PUT body
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      expect(putBody.sections[0].sectionHeight).toBe('auto');
+
+      fetchSpy.mockRestore();
+    });
+
+    it('preserves existing sectionHeight when shrinkSection: false', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Keep me</p>', { x: 1, y: 0 }, { x: 13, y: 3 }),
+        makeBlockWithLayout('b2', '<p>Remove me</p>', { x: 1, y: 3 }, { x: 13, y: 6 }),
+      ]);
+      // Add an existing sectionHeight to the section
+      (sections[0] as Record<string, unknown>).sectionHeight = 'large';
+      const fetchSpy = mockGetAndPut(sections);
+
+      const result = await client.removeBlock('psid-1', 'cid-1', 'Remove me', { shrinkSection: false });
+
+      expect(result.success).toBe(true);
+
+      // Verify sectionHeight is NOT overwritten
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      expect(putBody.sections[0].sectionHeight).toBe('large');
+
+      fetchSpy.mockRestore();
+    });
   });
 
   // ── moveSection ──────────────────────────────────────────────────────
