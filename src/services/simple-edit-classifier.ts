@@ -31,7 +31,8 @@ export type SimpleEditType =
   | 'block_move'
   | 'page_seo'
   | 'blog_post_create'
-  | 'blog_post_update';
+  | 'blog_post_update'
+  | 'site_identity';
 
 export interface SimpleEditClassification {
   isSimpleEdit: boolean;
@@ -67,6 +68,11 @@ export interface SimpleEditClassification {
     postCategories?: string[];
     postDraft?: boolean;       // true = save as draft, false = publish immediately
     postSearchTitle?: string;  // for blog_post_update: find existing post by this title
+    // Site identity params
+    businessName?: string;
+    businessAddress?: string;
+    businessPhone?: string;
+    businessEmail?: string;
   };
   reason: string;
 }
@@ -256,6 +262,10 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are a task classifier for a Squarespace we
 15. **blog_post_create** — Create a new blog post. Required: targetPage (blog page slug, e.g. "blog" or "news"), postTitle. Optional: postBody (HTML), postExcerpt, postTags (array), postCategories (array), postDraft (true=draft, false=publish immediately — default true).
 
 16. **blog_post_update** — Edit or update an existing blog post. Required: targetPage (blog page slug), postSearchTitle (current title to find the post). Optional: postTitle (new title), postBody (new body HTML), postExcerpt, postTags, postCategories, postDraft.
+
+17. **site_identity** — Update site business information (business name, address, phone number, or email address)
+    Examples: "Change the business name to Acme Corp", "Update the phone number to 555-1234", "Set the business address to 123 Main St"
+    Params: businessName (if updating name), businessAddress (if updating address), businessPhone (if updating phone), businessEmail (if updating email)
 
 ## Blog Post Param Extraction
 - postTitle: title of the blog post (for create) or new title (for update)

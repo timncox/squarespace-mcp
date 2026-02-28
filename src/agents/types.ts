@@ -330,8 +330,28 @@ export interface ApiFormBlock {
   };
 }
 
+/** A social links block (type 54) to add via Content Save API.
+ * Note: social profile URLs come from site-level connected accounts.
+ * This block only controls display options. */
+export interface ApiSocialLinksBlock {
+  type: 'social_links';
+  iconAlignment?: 'left' | 'center' | 'right';
+  iconSize?: 'small' | 'medium' | 'large';
+  iconStyle?: 'icon-only' | 'icon-text';
+  iconColor?: 'black' | 'white';
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+}
+
 /** Union of all API block types */
-export type AnyApiBlock = ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock | ApiDividerBlock | ApiVideoBlock | ApiQuoteBlock | ApiCodeBlock | ApiNewsletterBlock | ApiAccordionBlock | ApiMarqueeBlock | ApiFormBlock;
+export type AnyApiBlock = ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock | ApiDividerBlock | ApiVideoBlock | ApiQuoteBlock | ApiCodeBlock | ApiNewsletterBlock | ApiAccordionBlock | ApiMarqueeBlock | ApiFormBlock | ApiSocialLinksBlock;
 
 /** Type guard: is this apiBlock a button block? */
 export function isApiButtonBlock(block: AnyApiBlock): block is ApiButtonBlock {
@@ -386,6 +406,11 @@ export function isApiMarqueeBlock(block: AnyApiBlock): block is ApiMarqueeBlock 
 /** Type guard: is this apiBlock a form block? */
 export function isApiFormBlock(block: AnyApiBlock): block is ApiFormBlock {
   return 'type' in block && (block as ApiFormBlock).type === 'form';
+}
+
+/** Type guard: is this apiBlock a social links block? */
+export function isApiSocialLinksBlock(block: AnyApiBlock): block is ApiSocialLinksBlock {
+  return 'type' in block && (block as ApiSocialLinksBlock).type === 'social_links';
 }
 
 // ─── Page Structure (from Content Save API, input to Content Strategist) ────

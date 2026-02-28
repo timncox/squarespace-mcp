@@ -826,6 +826,8 @@ IMPORTANT:
     - Accordion/FAQ: \`{ type: "accordion", items: [{ title: "What are your hours?", description: "9am-5pm Mon-Fri." }] }\`
     - Scrolling marquee: \`{ type: "marquee", items: [{ text: "Quality" }, { text: "•" }, { text: "Craftsmanship" }], animationDirection: "left" }\`
     - Form embed: \`{ type: "form", formId: "squarespace-form-uuid" }\` — form must be pre-created in Squarespace UI
+    - Social links: \`{ type: "social_links", iconAlignment: "center", iconSize: "small", iconStyle: "icon-only", iconColor: "black" }\`
+      Note: Social profile URLs come from site settings (connected accounts) — the block only controls display options (size/style/color/alignment).
     - **Menu blocks CANNOT be added fresh** via API — only modified on existing blocks. To add a new menu, use \`contentStrategy: "manual"\`.
     - No browser agent needed — ~1 second vs ~60 seconds for browser automation.
   - **manual**: Use for custom layouts, embed/form blocks, interactive elements, new menu blocks, or anything not expressible as apiBlocks. Set \`contentStrategy: "manual"\` and write detailed \`editorInstruction\`.

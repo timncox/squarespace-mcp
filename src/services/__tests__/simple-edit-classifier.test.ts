@@ -530,6 +530,47 @@ describe('classifySimpleEdit', () => {
     });
   });
 
+    it('classifies site_identity (business name) via LLM', async () => {
+      const task = makeTask({
+        description: 'Change the business name to Acme Corp',
+      });
+
+      mockLlmResponse({
+        isSimpleEdit: true,
+        editType: 'site_identity',
+        confidence: 'high',
+        params: { businessName: 'Acme Corp' },
+        reason: 'Business name update',
+      });
+
+      const result = await classifySimpleEdit(task);
+
+      expect(result.isSimpleEdit).toBe(true);
+      expect(result.editType).toBe('site_identity');
+      expect(result.confidence).toBe('high');
+      expect(result.params.businessName).toBe('Acme Corp');
+    });
+
+    it('classifies site_identity (phone number) via LLM', async () => {
+      const task = makeTask({
+        description: 'Update the phone number to 555-1234',
+      });
+
+      mockLlmResponse({
+        isSimpleEdit: true,
+        editType: 'site_identity',
+        confidence: 'high',
+        params: { businessPhone: '555-1234' },
+        reason: 'Business phone update',
+      });
+
+      const result = await classifySimpleEdit(task);
+
+      expect(result.isSimpleEdit).toBe(true);
+      expect(result.editType).toBe('site_identity');
+      expect(result.params.businessPhone).toBe('555-1234');
+    });
+
   // ── Error Handling ────────────────────────────────────────────────────
 
   describe('error handling', () => {

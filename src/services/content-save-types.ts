@@ -647,3 +647,109 @@ export interface FormBlockUpdateResult {
   blockId?: string;
   error?: string;
 }
+
+/** Result of adding a social links block */
+export interface SocialLinksBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionIndex?: number;
+  sectionId?: string;
+  error?: string;
+}
+
+/** Result of updating a social links block */
+export interface SocialLinksBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  updatedFields?: string[];
+  error?: string;
+}
+
+/** Result of adding an embed block */
+export interface EmbedBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionIndex?: number;
+  sectionId?: string;
+  error?: string;
+}
+
+/** Result of updating an embed block */
+export interface EmbedBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  error?: string;
+}
+
+// ── Mobile Layout Types ──────────────────────────────────────────────────────
+
+/** Result of hiding or showing a block on mobile */
+export interface MobileVisibilityResult {
+  success: boolean;
+  blockId?: string;
+  /** The new visibility state (false = hidden, true = visible) */
+  visible?: boolean;
+  error?: string;
+}
+
+/** Result of setting a block's mobile layout (position, size, or visibility) */
+export interface MobileLayoutSetResult {
+  success: boolean;
+  blockId?: string;
+  oldLayout?: { start: GridCoord; end: GridCoord; visible?: boolean };
+  newLayout?: { start: GridCoord; end: GridCoord; visible?: boolean };
+  clamped?: boolean;
+  error?: string;
+}
+
+/** Result of moving a block on the mobile grid */
+export interface MobileMoveResult {
+  success: boolean;
+  blockId?: string;
+  direction?: string;
+  oldPosition?: { mobile: { start: GridCoord; end: GridCoord } };
+  newPosition?: { mobile: { start: GridCoord; end: GridCoord } };
+  clamped?: boolean;
+  error?: string;
+}
+
+/** Result of resizing a block on the mobile grid */
+export interface MobileResizeResult {
+  success: boolean;
+  blockId?: string;
+  oldSize?: { width: number; height: number; mobile: { start: GridCoord; end: GridCoord } };
+  newSize?: { width: number; height: number; mobile: { start: GridCoord; end: GridCoord } };
+  clamped?: boolean;
+  error?: string;
+}
+
+// ── Site Identity Types ──────────────────────────────────────────────────────
+
+/** Site identity data from GET /api/rest/websites/mine and GET /api/settings */
+export interface SiteIdentityData {
+  businessName?: string;   // location.addressTitle
+  address?: string;        // location.addressLine1
+  address2?: string;       // location.addressLine2
+  phone?: string;          // internalContactPhoneNumber (from /api/settings)
+  email?: string;          // internalContactEmail (from /api/settings)
+  siteTitle?: string;      // siteTitle (from /api/rest/websites/mine)
+}
+
+/** Options for updateSiteIdentity */
+export interface SiteIdentityUpdateOptions {
+  businessName?: string;
+  address?: string;
+  address2?: string;
+  phone?: string;
+  email?: string;
+  siteTitle?: string;
+}
+
+/** Result of getSiteIdentity or updateSiteIdentity */
+export interface SiteIdentityResult {
+  success: boolean;
+  data?: SiteIdentityData;
+  updatedFields?: string[];
+  error?: string;
+}
+

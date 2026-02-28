@@ -11,7 +11,7 @@
 
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
-import { ContentSaveClient, createContentSaveClient, type SectionStyleOptions, type PageMetadataUpdateOptions } from './content-save.js';
+import { ContentSaveClient, createContentSaveClient, type SectionStyleOptions, type PageMetadataUpdateOptions, type SiteIdentityUpdateOptions } from './content-save.js';
 import { resolvePageIds } from './page-id-resolver.js';
 import type { Task } from '../models/task.js';
 import type { SimpleEditType, SimpleEditClassification } from './simple-edit-classifier.js';
@@ -40,7 +40,7 @@ function normalizeSlug(slug: string): string {
 
 // ── Edit type does NOT need page IDs ─────────────────────────────────────────
 
-const NO_PAGE_ID_TYPES: ReadonlySet<SimpleEditType> = new Set(['footer_edit', 'css_change', 'page_seo']);
+const NO_PAGE_ID_TYPES: ReadonlySet<SimpleEditType> = new Set(['footer_edit', 'css_change', 'page_seo', 'site_identity']);
 
 // ── Dispatch helpers ─────────────────────────────────────────────────────────
 
@@ -367,6 +367,24 @@ async function execBlogPostUpdate(
   return `Updated blog post "${existing.title}": ${result.updatedFields.join(', ')}`;
 }
 
+async function execSiteIdentity(
+  client: ContentSaveClient,
+  params: SimpleEditClassification['params'],
+): Promise<string> {
+  const updates: SiteIdentityUpdateOptions = {};
+
+  if (params.businessName !== undefined) updates.businessName = params.businessName;
+  if (params.businessAddress !== undefined) updates.address = params.businessAddress;
+  if (params.businessPhone !== undefined) updates.phone = params.businessPhone;
+  if (params.businessEmail !== undefined) updates.email = params.businessEmail;
+
+  if (Object.keys(updates).length === 0) throw new Error('No site identity fields to update');
+
+  const result = await client.updateSiteIdentity(updates);
+  if (!result.success) throw new Error(result.error ?? 'updateSiteIdentity failed');
+  return `Updated site identity: ${result.updatedFields?.join(', ')}`;
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export async function executeSimpleEdit(
@@ -466,6 +484,9 @@ export async function executeSimpleEdit(
         break;
       case 'blog_post_update':
         summary = await execBlogPostUpdate(client, collectionId, classification.params);
+        break;
+      case 'site_identity':
+        summary = await execSiteIdentity(client, classification.params);
         break;
       default:
         throw new Error(`Unknown edit type: ${editType}`);

@@ -15,6 +15,7 @@ const mockPatchFooterTextBlock = vi.fn();
 const mockGetCustomCSS = vi.fn();
 const mockSaveCustomCSS = vi.fn();
 const mockGetPageSections = vi.fn();
+const mockUpdateSiteIdentity = vi.fn();
 
 vi.mock('../content-save.js', () => ({
   ContentSaveClient: {
@@ -33,6 +34,7 @@ vi.mock('../content-save.js', () => ({
     getCustomCSS: mockGetCustomCSS,
     saveCustomCSS: mockSaveCustomCSS,
     getPageSections: mockGetPageSections,
+    updateSiteIdentity: mockUpdateSiteIdentity,
   })),
 }));
 
@@ -473,6 +475,139 @@ describe('executeSimpleEdit', () => {
 
       expect(result.success).toBe(true);
       expect(mockSaveCustomCSS).toHaveBeenCalledWith('.new { display: block; }');
+    });
+  });
+
+  // ── site_identity ─────────────────────────────────────────────────────
+
+  describe('site_identity', () => {
+    it('skips page ID resolution for site_identity', async () => {
+      mockUpdateSiteIdentity.mockResolvedValue({ success: true, updatedFields: ['businessName'] });
+
+      const result = await executeSimpleEdit(
+        makeTask(),
+        makeClassification({
+          editType: 'site_identity',
+          params: { businessName: 'Acme Corp' },
+        }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockResolvePageIds).not.toHaveBeenCalled();
+    });
+
+    it('maps businessName to updateSiteIdentity', async () => {
+      mockUpdateSiteIdentity.mockResolvedValue({ success: true, updatedFields: ['businessName'] });
+
+      const result = await executeSimpleEdit(
+        makeTask(),
+        makeClassification({
+          editType: 'site_identity',
+          params: { businessName: 'Acme Corp' },
+        }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockUpdateSiteIdentity).toHaveBeenCalledWith(
+        expect.objectContaining({ businessName: 'Acme Corp' }),
+      );
+    });
+
+    it('maps businessAddress to updateSiteIdentity address field', async () => {
+      mockUpdateSiteIdentity.mockResolvedValue({ success: true, updatedFields: ['address'] });
+
+      const result = await executeSimpleEdit(
+        makeTask(),
+        makeClassification({
+          editType: 'site_identity',
+          params: { businessAddress: '123 Main St' },
+        }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockUpdateSiteIdentity).toHaveBeenCalledWith(
+        expect.objectContaining({ address: '123 Main St' }),
+      );
+    });
+
+    it('maps businessPhone to updateSiteIdentity phone field', async () => {
+      mockUpdateSiteIdentity.mockResolvedValue({ success: true, updatedFields: ['phone'] });
+
+      const result = await executeSimpleEdit(
+        makeTask(),
+        makeClassification({
+          editType: 'site_identity',
+          params: { businessPhone: '555-1234' },
+        }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockUpdateSiteIdentity).toHaveBeenCalledWith(
+        expect.objectContaining({ phone: '555-1234' }),
+      );
+    });
+
+    it('maps businessEmail to updateSiteIdentity email field', async () => {
+      mockUpdateSiteIdentity.mockResolvedValue({ success: true, updatedFields: ['email'] });
+
+      const result = await executeSimpleEdit(
+        makeTask(),
+        makeClassification({
+          editType: 'site_identity',
+          params: { businessEmail: 'hello@acme.com' },
+        }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockUpdateSiteIdentity).toHaveBeenCalledWith(
+        expect.objectContaining({ email: 'hello@acme.com' }),
+      );
+    });
+
+    it('passes multiple fields in a single updateSiteIdentity call', async () => {
+      mockUpdateSiteIdentity.mockResolvedValue({ success: true, updatedFields: ['businessName', 'phone'] });
+
+      const result = await executeSimpleEdit(
+        makeTask(),
+        makeClassification({
+          editType: 'site_identity',
+          params: { businessName: 'New Name', businessPhone: '555-9999' },
+        }),
+      );
+
+      expect(result.success).toBe(true);
+      expect(mockUpdateSiteIdentity).toHaveBeenCalledWith({
+        businessName: 'New Name',
+        phone: '555-9999',
+      });
+    });
+
+    it('fails when no site identity fields are provided', async () => {
+      const result = await executeSimpleEdit(
+        makeTask(),
+        makeClassification({
+          editType: 'site_identity',
+          params: {},
+        }),
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('No site identity fields to update');
+    });
+
+    it('fails when updateSiteIdentity returns failure', async () => {
+      mockUpdateSiteIdentity.mockResolvedValue({ success: false, error: 'API error' });
+
+      const result = await executeSimpleEdit(
+        makeTask(),
+        makeClassification({
+          editType: 'site_identity',
+          params: { businessName: 'Acme Corp' },
+        }),
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('API error');
     });
   });
 

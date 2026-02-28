@@ -60,6 +60,7 @@ import {
   isApiAccordionBlock,
   isApiMarqueeBlock,
   isApiFormBlock,
+  isApiSocialLinksBlock,
 } from '../agents/types.js';
 import type {
   ContentPlan,
@@ -73,6 +74,7 @@ import type {
   ApiAccordionBlock,
   ApiMarqueeBlock,
   ApiFormBlock,
+  ApiSocialLinksBlock,
 } from '../agents/types.js';
 
 // ── Config ───────────────────────────────────────────────────────────────────
@@ -319,6 +321,14 @@ async function executeAddSectionBlankApi(
         if (result.success) blocksAdded++;
         else logger.warn({ error: result.error }, 'api-executor: addFormBlock failed');
       }
+    } else if (isApiSocialLinksBlock(block)) {
+      const result = await client.addSocialLinksBlock(
+        ctx.pageSectionsId, ctx.collectionId, newSectionIndex,
+        { iconAlignment: block.iconAlignment, iconSize: block.iconSize, iconStyle: block.iconStyle, iconColor: block.iconColor },
+        block.layout,
+      );
+      if (result.success) blocksAdded++;
+      else logger.warn({ error: result.error }, 'api-executor: addSocialLinksBlock failed');
     } else {
       // Text block
       const textBlock = block as ApiTextBlock;

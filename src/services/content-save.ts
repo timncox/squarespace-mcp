@@ -90,6 +90,17 @@ export type {
   MarqueeBlockUpdateResult,
   FormBlockAddResult,
   FormBlockUpdateResult,
+  SiteIdentityData,
+  SiteIdentityUpdateOptions,
+  SiteIdentityResult,
+  SocialLinksBlockAddResult,
+  SocialLinksBlockUpdateResult,
+  EmbedBlockAddResult,
+  EmbedBlockUpdateResult,
+  MobileVisibilityResult,
+  MobileLayoutSetResult,
+  MobileMoveResult,
+  MobileResizeResult,
 } from './content-save-types.js';
 
 import type {
@@ -159,6 +170,13 @@ import type {
   MarqueeBlockUpdateResult,
   FormBlockAddResult,
   FormBlockUpdateResult,
+  SiteIdentityData,
+  SiteIdentityUpdateOptions,
+  SiteIdentityResult,
+  MobileVisibilityResult,
+  MobileLayoutSetResult,
+  MobileMoveResult,
+  MobileResizeResult,
 } from './content-save-types.js';
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -197,6 +215,10 @@ const BLOCK_TYPE_ACCORDION = 69;
 const BLOCK_TYPE_MARQUEE = 70;
 // Discriminator for Form blocks (type 1337 variant with buttonVariant field)
 const FORM_BLOCK_DISCRIMINATOR = 'buttonVariant';
+// Social Links block type — confirmed via live site discovery (Feb 28 2026, grey-yellow-hbxc)
+const BLOCK_TYPE_SOCIAL_LINKS = 54;
+// Embed block type — confirmed via live site discovery (Feb 28 2026, grey-yellow-hbxc test-page)
+const BLOCK_TYPE_EMBED = 22;
 
 interface SessionCookie {
   name: string;
@@ -2182,6 +2204,159 @@ export class ContentSaveClient {
 
       logger.info({ cssLength: css.length }, 'Custom CSS saved successfully');
       return { success: true };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Site Identity ──────────────────────────────────────────────────────────
+
+  /**
+   * Get the current site identity (business name, address, phone, email).
+   * Reads from two endpoints:
+   *   - GET /api/rest/websites/mine → businessName (location.addressTitle), address, address2
+   *   - GET /api/settings → phone (internalContactPhoneNumber), email (internalContactEmail)
+   */
+  async getSiteIdentity(): Promise<SiteIdentityResult> {
+    this.ensureCookies();
+
+    const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
+
+    try {
+      // Fetch both endpoints in parallel
+      const [websiteRes, settingsRes] = await Promise.all([
+        fetch(`${siteUrl}/api/rest/websites/mine`, {
+          method: 'GET',
+          headers: this.buildHeaders(),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        }),
+        fetch(`${siteUrl}/api/settings`, {
+          method: 'GET',
+          headers: this.buildHeaders(),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        }),
+      ]);
+
+      if (!websiteRes.ok) {
+        const body = await websiteRes.text().catch(() => '');
+        return { success: false, error: `GET /api/rest/websites/mine failed: ${websiteRes.status} ${body}` };
+      }
+      if (!settingsRes.ok) {
+        const body = await settingsRes.text().catch(() => '');
+        return { success: false, error: `GET /api/settings failed: ${settingsRes.status} ${body}` };
+      }
+
+      const websiteData = await websiteRes.json() as Record<string, unknown>;
+      const settingsData = await settingsRes.json() as Record<string, unknown>;
+
+      const location = websiteData.location as Record<string, string> | undefined;
+
+      const data: SiteIdentityData = {
+        businessName: location?.addressTitle,
+        address: location?.addressLine1,
+        address2: location?.addressLine2,
+        siteTitle: typeof websiteData.siteTitle === 'string' ? websiteData.siteTitle : undefined,
+        phone: typeof settingsData.internalContactPhoneNumber === 'string' ? settingsData.internalContactPhoneNumber : undefined,
+        email: typeof settingsData.internalContactEmail === 'string' ? settingsData.internalContactEmail : undefined,
+      };
+
+      logger.info({ siteSubdomain: this.siteSubdomain, fields: Object.keys(data).filter(k => data[k as keyof SiteIdentityData] != null) }, 'Site identity fetched');
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update the site identity (business name, address, phone, email).
+   * Uses read-modify-write on two endpoints:
+   *   - PUT /api/rest/websites/mine → businessName (location.addressTitle), address, address2, siteTitle
+   *   - PUT /api/settings → phone (internalContactPhoneNumber), email (internalContactEmail)
+   * Only PUTs to endpoints where fields are being changed.
+   */
+  async updateSiteIdentity(updates: SiteIdentityUpdateOptions): Promise<SiteIdentityResult> {
+    this.ensureCookies();
+
+    const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
+    const updatedFields: string[] = [];
+
+    const needsWebsite = updates.businessName !== undefined || updates.address !== undefined || updates.address2 !== undefined || updates.siteTitle !== undefined;
+    const needsSettings = updates.phone !== undefined || updates.email !== undefined;
+
+    if (!needsWebsite && !needsSettings) {
+      return { success: false, error: 'No fields to update' };
+    }
+
+    try {
+      // ── Website endpoint (business name, address, siteTitle) ──────────────
+      if (needsWebsite) {
+        const getRes = await fetch(`${siteUrl}/api/rest/websites/mine`, {
+          method: 'GET',
+          headers: this.buildHeaders(),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (!getRes.ok) {
+          const body = await getRes.text().catch(() => '');
+          return { success: false, error: `GET /api/rest/websites/mine failed: ${getRes.status} ${body}` };
+        }
+        const websiteData = await getRes.json() as Record<string, unknown>;
+
+        // Modify in-place
+        const location = (websiteData.location ?? {}) as Record<string, string>;
+        if (updates.businessName !== undefined) { location.addressTitle = updates.businessName; updatedFields.push('businessName'); }
+        if (updates.address !== undefined) { location.addressLine1 = updates.address; updatedFields.push('address'); }
+        if (updates.address2 !== undefined) { location.addressLine2 = updates.address2; updatedFields.push('address2'); }
+        websiteData.location = location;
+        if (updates.siteTitle !== undefined) { websiteData.siteTitle = updates.siteTitle; updatedFields.push('siteTitle'); }
+
+        let putUrl = `${siteUrl}/api/rest/websites/mine`;
+        if (this.crumbToken) putUrl += `?crumb=${encodeURIComponent(this.crumbToken)}`;
+
+        const putRes = await fetch(putUrl, {
+          method: 'PUT',
+          headers: { ...this.buildHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(websiteData),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (!putRes.ok) {
+          const body = await putRes.text().catch(() => '');
+          return { success: false, error: `PUT /api/rest/websites/mine failed: ${putRes.status} ${body}` };
+        }
+      }
+
+      // ── Settings endpoint (phone, email) ──────────────────────────────────
+      if (needsSettings) {
+        const getRes = await fetch(`${siteUrl}/api/settings`, {
+          method: 'GET',
+          headers: this.buildHeaders(),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (!getRes.ok) {
+          const body = await getRes.text().catch(() => '');
+          return { success: false, error: `GET /api/settings failed: ${getRes.status} ${body}` };
+        }
+        const settingsData = await getRes.json() as Record<string, unknown>;
+
+        if (updates.phone !== undefined) { settingsData.internalContactPhoneNumber = updates.phone; updatedFields.push('phone'); }
+        if (updates.email !== undefined) { settingsData.internalContactEmail = updates.email; updatedFields.push('email'); }
+
+        let putUrl = `${siteUrl}/api/settings`;
+        if (this.crumbToken) putUrl += `?crumb=${encodeURIComponent(this.crumbToken)}`;
+
+        const putRes = await fetch(putUrl, {
+          method: 'PUT',
+          headers: { ...this.buildHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(settingsData),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (!putRes.ok) {
+          const body = await putRes.text().catch(() => '');
+          return { success: false, error: `PUT /api/settings failed: ${putRes.status} ${body}` };
+        }
+      }
+
+      logger.info({ siteSubdomain: this.siteSubdomain, updatedFields }, 'Site identity updated');
+      return { success: true, updatedFields };
     } catch (err) {
       return { success: false, error: errMsg(err) };
     }
@@ -4847,6 +5022,455 @@ export class ContentSaveClient {
       );
 
       // Step 5: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Social Links Block (type 54) ────────────────────────────────────────
+
+  /**
+   * Add a social links block (type 54) to a section.
+   * The block is display-only — it reads social URLs from site-level connected
+   * accounts, not from per-block config. Options control display appearance only.
+   *
+   * Default layout: 12 columns wide, 3 rows tall.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param options         Optional display overrides
+   * @param layout          Optional layout overrides
+   */
+  async addSocialLinksBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    options?: {
+      iconAlignment?: 'left' | 'center' | 'right';
+      iconSize?: 'small' | 'medium' | 'large';
+      iconStyle?: 'icon-only' | 'icon-text';
+      iconColor?: 'black' | 'white';
+    },
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    },
+  ): Promise<SocialLinksBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      // Default social links block: 12 cols wide, 3 rows tall
+      const rowHeight = layout?.rowHeight ?? 3;
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? 12;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and create GridContent
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: {
+            id: blockId,
+            type: BLOCK_TYPE_SOCIAL_LINKS,
+            value: {
+              iconAlignment: options?.iconAlignment ?? 'center',
+              iconSize: options?.iconSize ?? 'small',
+              iconStyle: options?.iconStyle ?? 'icon-only',
+              iconColor: options?.iconColor ?? 'black',
+            },
+          },
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, position: { startX, startY, endX, endY } },
+        'Adding social links block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionId: section.id, sectionIndex };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update the display options of a social links block (type 54).
+   * Uses findBlock() with the blockId as searchText (ID prefix match).
+   * If searchText doesn't match a type 54 block, falls back to the first
+   * type 54 block in the sections.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param searchText      Block ID (or prefix) to find; falls back to first type 54 block
+   * @param updates         Display fields to update
+   */
+  async updateSocialLinksBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    updates: {
+      iconAlignment?: 'left' | 'center' | 'right';
+      iconSize?: 'small' | 'medium' | 'large';
+      iconStyle?: 'icon-only' | 'icon-text';
+      iconColor?: 'black' | 'white';
+    },
+  ): Promise<SocialLinksBlockUpdateResult> {
+    if (!updates.iconAlignment && !updates.iconSize && !updates.iconStyle && !updates.iconColor) {
+      return { success: false, error: 'Must provide at least one field to update' };
+    }
+
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the block — try findBlock() first, then fall back to first type 54 block
+      let match = this.findBlock(data.sections, searchText);
+      if (!match || match.gridContent.content.value.type !== BLOCK_TYPE_SOCIAL_LINKS) {
+        // Fall back to first type 54 block in any section
+        outerSearch:
+        for (const section of data.sections) {
+          const gridContents = section.fluidEngineContext?.gridContents ?? [];
+          for (const gc of gridContents) {
+            if (gc.content?.value?.type === BLOCK_TYPE_SOCIAL_LINKS) {
+              const si = data.sections.indexOf(section);
+              const bi = (section.fluidEngineContext?.gridContents ?? []).indexOf(gc);
+              match = { gridContent: gc, section, sectionIndex: si, blockIndex: bi };
+              break outerSearch;
+            }
+          }
+        }
+      }
+
+      if (!match || match.gridContent.content.value.type !== BLOCK_TYPE_SOCIAL_LINKS) {
+        return { success: false, error: `No social links block (type ${BLOCK_TYPE_SOCIAL_LINKS}) found` };
+      }
+
+      const { gridContent } = match;
+      const blockValue = gridContent.content.value;
+      const blockId = blockValue.id;
+
+      // Ensure value sub-object exists
+      if (!blockValue.value) {
+        blockValue.value = {};
+      }
+
+      // Step 3: Apply updates
+      const updatedFields: string[] = [];
+      if (updates.iconAlignment !== undefined) { blockValue.value.iconAlignment = updates.iconAlignment; updatedFields.push('iconAlignment'); }
+      if (updates.iconSize !== undefined) { blockValue.value.iconSize = updates.iconSize; updatedFields.push('iconSize'); }
+      if (updates.iconStyle !== undefined) { blockValue.value.iconStyle = updates.iconStyle; updatedFields.push('iconStyle'); }
+      if (updates.iconColor !== undefined) { blockValue.value.iconColor = updates.iconColor; updatedFields.push('iconColor'); }
+
+      logger.info(
+        { blockId, searchText, updatedFields },
+        'Updating social links block via Content Save API',
+      );
+
+      // Step 4: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, updatedFields };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Add an embed block (type 22) to a section.
+   * The block stores raw HTML embed code (e.g. iframes, scripts).
+   * Leave html empty to add a blank embed placeholder.
+   *
+   * Default layout: 12 columns wide, 6 rows tall.
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param sectionIndex    0-based section index on the page
+   * @param html            Optional HTML embed code
+   * @param layout          Optional layout overrides
+   */
+  async addEmbedBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    html?: string,
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    },
+  ): Promise<EmbedBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      // Default embed block: 12 cols wide, 6 rows tall
+      const rowHeight = layout?.rowHeight ?? 6;
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? 12;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and create GridContent
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      // Embed value: empty {} when no html, otherwise { html } when html provided
+      const embedValue: Record<string, unknown> = html ? { html } : {};
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: {
+            id: blockId,
+            type: BLOCK_TYPE_EMBED,
+            value: embedValue,
+            containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+          },
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, hasHtml: !!html, position: { startX, startY, endX, endY } },
+        'Adding embed block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionIndex, sectionId: section.id };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update the HTML content of an embed block (type 22).
+   * Uses findBlock() to locate the block by search text (block ID prefix or content).
+   *
+   * @param pageSectionsId  The page sections ID
+   * @param collectionId    The collection ID
+   * @param searchText      Block ID (or prefix) to find the embed block by
+   * @param html            New HTML embed code
+   */
+  async updateEmbedBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    html: string,
+  ): Promise<EmbedBlockUpdateResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Step 2: Find the embed block
+      let match = this.findBlock(data.sections, searchText);
+      if (!match || match.gridContent.content.value.type !== BLOCK_TYPE_EMBED) {
+        // Fall back to first type 22 block in any section
+        outerSearch:
+        for (const section of data.sections) {
+          const gridContents = section.fluidEngineContext?.gridContents ?? [];
+          for (const gc of gridContents) {
+            if (gc.content?.value?.type === BLOCK_TYPE_EMBED) {
+              const si = data.sections.indexOf(section);
+              const bi = gridContents.indexOf(gc);
+              match = { gridContent: gc, section, sectionIndex: si, blockIndex: bi };
+              break outerSearch;
+            }
+          }
+        }
+      }
+
+      if (!match || match.gridContent.content.value.type !== BLOCK_TYPE_EMBED) {
+        return { success: false, error: `No embed block (type ${BLOCK_TYPE_EMBED}) found matching "${searchText}"` };
+      }
+
+      const { gridContent } = match;
+      const blockValue = gridContent.content.value;
+      const blockId = blockValue.id;
+
+      // Ensure value sub-object exists
+      if (!blockValue.value) {
+        blockValue.value = {};
+      }
+
+      // Step 3: Update html
+      blockValue.value.html = html;
+
+      logger.info(
+        { blockId, searchText, htmlLength: html.length },
+        'Updating embed block via Content Save API',
+      );
+
+      // Step 4: PUT the modified sections
       const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
       if (!saveResult.success) {
         return { success: false, error: saveResult.error };
