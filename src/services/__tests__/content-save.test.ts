@@ -1004,6 +1004,164 @@ describe('ContentSaveClient', () => {
     });
   });
 
+  // ── setBlockPosition ─────────────────────────────────────────────────
+
+  describe('setBlockPosition', () => {
+    function mockGetAndPut(sections: PageSection[]) {
+      const data = makePageSectionsData(sections);
+      return vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    }
+
+    it('sets exact position on a block', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Position me</p>', { x: 1, y: 0 }, { x: 7, y: 3 }),
+      ]);
+      const fetchSpy = mockGetAndPut(sections);
+
+      const result = await client.setBlockPosition('psid-1', 'cid-1', 'Position me', {
+        start: { x: 5, y: 2 },
+        end: { x: 17, y: 8 },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.blockId).toBe('b1');
+      expect(result.oldPosition?.desktop.start).toEqual({ x: 1, y: 0 });
+      expect(result.oldPosition?.desktop.end).toEqual({ x: 7, y: 3 });
+      expect(result.newPosition?.desktop.start).toEqual({ x: 5, y: 2 });
+      expect(result.newPosition?.desktop.end).toEqual({ x: 17, y: 8 });
+      expect(result.clamped).toBe(false);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('clamps start.x below 1 to 1 and shifts end', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Clamp me</p>', { x: 5, y: 0 }, { x: 11, y: 3 }),
+      ]);
+      const fetchSpy = mockGetAndPut(sections);
+
+      const result = await client.setBlockPosition('psid-1', 'cid-1', 'Clamp me', {
+        start: { x: -2, y: 0 },
+        end: { x: 4, y: 3 },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.clamped).toBe(true);
+      expect(result.newPosition?.desktop.start.x).toBe(1);
+      expect(result.newPosition?.desktop.end.x).toBe(7); // shifted by 3
+
+      fetchSpy.mockRestore();
+    });
+
+    it('clamps end.x beyond maxColumns+1 and shifts start', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Clamp right</p>', { x: 1, y: 0 }, { x: 7, y: 3 }),
+      ], 24);
+      const fetchSpy = mockGetAndPut(sections);
+
+      const result = await client.setBlockPosition('psid-1', 'cid-1', 'Clamp right', {
+        start: { x: 20, y: 0 },
+        end: { x: 30, y: 3 },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.clamped).toBe(true);
+      expect(result.newPosition?.desktop.end.x).toBe(25); // maxColumns + 1
+      expect(result.newPosition?.desktop.start.x).toBe(15); // shifted by 5
+
+      fetchSpy.mockRestore();
+    });
+
+    it('clamps start.y below 0 to 0 and shifts end', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Clamp top</p>', { x: 1, y: 3 }, { x: 7, y: 6 }),
+      ]);
+      const fetchSpy = mockGetAndPut(sections);
+
+      const result = await client.setBlockPosition('psid-1', 'cid-1', 'Clamp top', {
+        start: { x: 1, y: -2 },
+        end: { x: 7, y: 1 },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.clamped).toBe(true);
+      expect(result.newPosition?.desktop.start.y).toBe(0);
+      expect(result.newPosition?.desktop.end.y).toBe(3); // shifted by 2
+
+      fetchSpy.mockRestore();
+    });
+
+    it('returns error when end.x <= start.x (zero or negative width)', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Bad width</p>', { x: 1, y: 0 }, { x: 7, y: 3 }),
+      ]);
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(makePageSectionsData(sections)), { status: 200 }));
+
+      const result = await client.setBlockPosition('psid-1', 'cid-1', 'Bad width', {
+        start: { x: 5, y: 0 },
+        end: { x: 5, y: 3 },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('width');
+    });
+
+    it('returns error when end.y <= start.y (zero or negative height)', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Bad height</p>', { x: 1, y: 0 }, { x: 7, y: 3 }),
+      ]);
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(makePageSectionsData(sections)), { status: 200 }));
+
+      const result = await client.setBlockPosition('psid-1', 'cid-1', 'Bad height', {
+        start: { x: 1, y: 4 },
+        end: { x: 7, y: 4 },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('height');
+    });
+
+    it('returns error when block not found', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Some block</p>', { x: 1, y: 0 }, { x: 7, y: 3 }),
+      ]);
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(makePageSectionsData(sections)), { status: 200 }));
+
+      const result = await client.setBlockPosition('psid-1', 'cid-1', 'nonexistent', {
+        start: { x: 1, y: 0 },
+        end: { x: 7, y: 3 },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('No block found');
+    });
+
+    it('does not modify mobile layout', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Position me</p>', { x: 1, y: 0 }, { x: 7, y: 3 }, { x: 1, y: 0 }, { x: 9, y: 5 }),
+      ]);
+      const fetchSpy = mockGetAndPut(sections);
+
+      await client.setBlockPosition('psid-1', 'cid-1', 'Position me', {
+        start: { x: 5, y: 2 },
+        end: { x: 17, y: 8 },
+      });
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const layout = putBody.sections[0].fluidEngineContext.gridContents[0].layout;
+      expect(layout.mobile.start).toEqual({ x: 1, y: 0 });
+      expect(layout.mobile.end).toEqual({ x: 9, y: 5 });
+
+      fetchSpy.mockRestore();
+    });
+  });
+
   // ── removeBlock ──────────────────────────────────────────────────────
 
   describe('removeBlock', () => {

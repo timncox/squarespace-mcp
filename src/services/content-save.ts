@@ -167,6 +167,8 @@ const CODE_BLOCK_ENGINE = 'code';
 const BLOCK_TYPE_DIVIDER = 47;
 // Video (native) block type — confirmed via live site discovery (Feb 28 2026, home page grey-yellow-hbxc)
 const BLOCK_TYPE_VIDEO = 32;
+// Newsletter/email signup block type — confirmed via live site discovery (Feb 28 2026, grey-yellow-hbxc)
+const BLOCK_TYPE_NEWSLETTER = 51;
 
 interface SessionCookie {
   name: string;
@@ -1234,6 +1236,101 @@ export class ContentSaveClient {
       }
 
       return { success: true, blockId, oldSize, newSize, clamped };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Set a block's desktop position to exact grid coordinates.
+   * Read-modify-write: GET → findBlock → set start/end → clamp → PUT.
+   *
+   * Clamping: start.x < 1 shifts the whole block right; end.x > maxColumns+1 shifts it left;
+   * start.y < 0 shifts it down. Returns error if width or height is zero/negative.
+   * Desktop only — mobile auto-reflows.
+   */
+  async setBlockPosition(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    position: { start: GridCoord; end: GridCoord },
+  ): Promise<BlockMoveResult> {
+    const { start, end } = position;
+
+    if (end.x <= start.x) {
+      return { success: false, error: 'Invalid position: end.x must be greater than start.x (width must be > 0)' };
+    }
+    if (end.y <= start.y) {
+      return { success: false, error: 'Invalid position: end.y must be greater than start.y (height must be > 0)' };
+    }
+
+    try {
+      const data = await this.getPageSections(pageSectionsId);
+
+      const match = this.findBlock(data.sections, searchText);
+      if (!match) {
+        return { success: false, error: `No block found matching "${searchText}"` };
+      }
+
+      const { gridContent, gridSettings } = match;
+      const layout = gridContent.layout;
+      if (!layout?.desktop) {
+        return { success: false, error: `Block "${searchText}" has no desktop layout` };
+      }
+
+      const desktop = layout.desktop;
+      const blockId = gridContent.content.value.id;
+      const maxColumns = gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      const oldPosition = {
+        desktop: { start: { ...desktop.start }, end: { ...desktop.end } },
+      };
+
+      // Apply requested position
+      desktop.start = { ...start };
+      desktop.end = { ...end };
+
+      let clamped = false;
+      const blockWidth = desktop.end.x - desktop.start.x;
+      const blockHeight = desktop.end.y - desktop.start.y;
+
+      // Clamp X: shift entire block if it goes out of bounds
+      if (desktop.start.x < 1) {
+        const shift = 1 - desktop.start.x;
+        desktop.start.x += shift;
+        desktop.end.x += shift;
+        clamped = true;
+      }
+      if (desktop.end.x > maxColumns + 1) {
+        const shift = desktop.end.x - (maxColumns + 1);
+        desktop.start.x -= shift;
+        desktop.end.x -= shift;
+        clamped = true;
+      }
+
+      // Clamp Y: shift block down if top goes negative
+      if (desktop.start.y < 0) {
+        const shift = -desktop.start.y;
+        desktop.start.y += shift;
+        desktop.end.y += shift;
+        clamped = true;
+      }
+
+      const newPosition = {
+        desktop: { start: { ...desktop.start }, end: { ...desktop.end } },
+      };
+
+      logger.info(
+        { blockId, position, clamped, oldPosition, newPosition },
+        'Setting block position via Content Save API',
+      );
+
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, oldPosition, newPosition, clamped };
     } catch (err) {
       return { success: false, error: errMsg(err) };
     }
