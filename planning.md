@@ -55,6 +55,6 @@ No skill files exist yet (planned but never built). Agents make decisions withou
 
 ### 4. Audit API executor routing
 
-- [ ] Review `classifyPlanForApi()` in `src/services/conversation/execution.ts` — ensure it routes as aggressively as possible to API executor
-- [ ] Check that all `blank_api` block types (text, button, image, gallery, divider, video, quote, code) are handled in `executeBlankApiOperation()`
-- [ ] Verify `executeContentPlanViaApi()` covers all operation types that ContentSaveClient supports
+- [x] Review `classifyPlanForApi()` in `src/services/conversation/execution.ts` — ensure it routes as aggressively as possible to API executor
+- [x] Check that all `blank_api` block types (text, button, image, gallery, divider, video, quote, code) are handled in `executeBlankApiOperation()`
+- [x] Verify `executeContentPlanViaApi()` covers all operation types that ContentSaveClient supports
