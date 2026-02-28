@@ -525,6 +525,35 @@ When you click on a section (especially pre-built template sections), a **sectio
 - **Delete section**: Click the **trash icon** (WARNING: deletes ALL blocks in the section)
 - **Save section as template**: Click the **heart icon**`,
   },
+  {
+    id: 'api_fast_paths',
+    category: 'interaction_pattern',
+    minHighConfToReduce: 3,
+    removable: false,
+    reduced: 'The system tries Content Save API before UI for: editTextBlock, formatTextBlock (heading/bold/italic/align), moveBlockInSection, resizeBlock, removeBlock, moveSectionUp/Down, replaceImage, addImageBlock, editMenuBlock, editButtonBlock, editQuoteBlock, editCodeBlock, editSectionStyle. If an action says "via Content Save API" in its result — the change is saved server-side and you should reload the page to confirm.',
+    full: `## API Fast Paths — The System Tries These Before UI Automation
+
+For the actions below, the system **automatically attempts the Content Save API first** before falling back to UI automation. API calls complete in ~100–500ms vs 5–30s for UI automation. You do not need to do anything differently — just use these action types as normal.
+
+**Key principle:** If an action result says "via Content Save API", the change is already saved server-side. You should use a \`navigate\` action to reload the page before verifying the result visually.
+
+| Action | What the API handles | Falls back to UI when... |
+|---|---|---|
+| \`editTextBlock\` | Full block replacement or surgical substring patch | Block not found, API unreachable |
+| \`formatTextBlock\` | heading1–4, bold, italic, alignment | paragraph variants, monospace, fontSize |
+| \`moveBlockInSection\` | Shifts desktop grid coordinates | API fails |
+| \`resizeBlock\` | Adjusts grid end coordinates | API fails |
+| \`removeBlock\` | Splices block from gridContents | API fails |
+| \`moveSectionUp\` / \`moveSectionDown\` | Reorders sections array | API fails |
+| \`replaceImage\` / \`addImageBlock\` | Updates image metadata (title, description, altText, linkTo) | Needs actual file upload |
+| \`editMenuBlock\` | Structured JSON read-modify-write on menu tabs/sections/items | API fails |
+| \`editButtonBlock\` | Updates button label and/or URL | API fails |
+| \`editQuoteBlock\` | Updates quote text and attribution | API fails |
+| \`editCodeBlock\` | Updates code content and language | API fails |
+| \`editSectionStyle\` | Updates section padding, theme, block spacing | API fails |
+
+**After an API-backed action:** Use \`navigate\` to reload the page (same URL) to see the changes reflected in the editor. Do not try to verify changes by reading the DOM before reloading — the editor's in-memory state won't show server-side changes until reload.`,
+  },
 ];
 
 // ─── System Prompt ─────────────────────────────────────────────────────────
