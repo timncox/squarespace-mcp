@@ -79,6 +79,14 @@ export type {
   DividerBlockAddResult,
   VideoBlockAddResult,
   VideoBlockUpdateResult,
+  NewsletterBlockAddResult,
+  NewsletterBlockUpdateResult,
+  AccordionBlockAddResult,
+  AccordionBlockUpdateResult,
+  MarqueeBlockAddResult,
+  MarqueeBlockUpdateResult,
+  FormBlockAddResult,
+  FormBlockUpdateResult,
 } from './content-save-types.js';
 
 import type {
@@ -137,6 +145,14 @@ import type {
   DividerBlockAddResult,
   VideoBlockAddResult,
   VideoBlockUpdateResult,
+  NewsletterBlockAddResult,
+  NewsletterBlockUpdateResult,
+  AccordionBlockAddResult,
+  AccordionBlockUpdateResult,
+  MarqueeBlockAddResult,
+  MarqueeBlockUpdateResult,
+  FormBlockAddResult,
+  FormBlockUpdateResult,
 } from './content-save-types.js';
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -169,6 +185,12 @@ const BLOCK_TYPE_DIVIDER = 47;
 const BLOCK_TYPE_VIDEO = 32;
 // Newsletter/email signup block type — confirmed via live site discovery (Feb 28 2026, grey-yellow-hbxc)
 const BLOCK_TYPE_NEWSLETTER = 51;
+// Accordion block type — confirmed via live site discovery (Feb 28 2026, grey-yellow-hbxc)
+const BLOCK_TYPE_ACCORDION = 69;
+// Marquee (scrolling text) block type — confirmed via live site discovery (Feb 28 2026, grey-yellow-hbxc)
+const BLOCK_TYPE_MARQUEE = 70;
+// Discriminator for Form blocks (type 1337 variant with buttonVariant field)
+const FORM_BLOCK_DISCRIMINATOR = 'buttonVariant';
 
 interface SessionCookie {
   name: string;
@@ -894,7 +916,7 @@ export class ContentSaveClient {
           }
         }
 
-        // Type 1337: Code HTML blocks or Image blocks (same outer type, different value structure)
+        // Type 1337: Code HTML blocks, Form blocks, or Image blocks (same outer type, different value structure)
         if (bv.type === BLOCK_TYPE_IMAGE) {
           if (bv.value?.wysiwyg?.engine === CODE_BLOCK_ENGINE) {
             // Code HTML block: match on html content
@@ -902,6 +924,10 @@ export class ContentSaveClient {
             if (html && html.toLowerCase().includes(needle)) {
               return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
             }
+          } else if (bv.value?.[FORM_BLOCK_DISCRIMINATOR] !== undefined) {
+            // Form block: match by formId
+            if (bv.value?.formId && String(bv.value.formId).toLowerCase().includes(needle))
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
           } else {
             // Image block: match title/description/subtitle
             const fields = [bv.value?.title, bv.value?.description, bv.value?.subtitle].filter(Boolean);
@@ -930,6 +956,33 @@ export class ContentSaveClient {
             if (String(field).toLowerCase().includes(needle)) {
               return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
             }
+          }
+        }
+
+        // Newsletter blocks (type 51): match description.html, title, submitButtonText
+        if (bv.type === BLOCK_TYPE_NEWSLETTER) {
+          const descHtml = bv.value?.description?.html ?? '';
+          const fields = [descHtml, bv.value?.title, bv.value?.submitButtonText].filter(Boolean);
+          for (const field of fields) {
+            if (this.stripHtml(String(field)).toLowerCase().includes(needle))
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
+        // Accordion blocks (type 69): match accordionItems[].title and .description
+        if (bv.type === BLOCK_TYPE_ACCORDION) {
+          for (const item of (bv.value?.accordionItems ?? [])) {
+            if ((item.title && String(item.title).toLowerCase().includes(needle)) ||
+                (item.description && String(item.description).toLowerCase().includes(needle)))
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
+        // Marquee blocks (type 70): match marqueeItems[].text
+        if (bv.type === BLOCK_TYPE_MARQUEE) {
+          for (const item of (bv.value?.marqueeItems ?? [])) {
+            if (item.text && String(item.text).toLowerCase().includes(needle))
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
           }
         }
 
@@ -1331,6 +1384,90 @@ export class ContentSaveClient {
       }
 
       return { success: true, blockId, oldPosition, newPosition, clamped };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Set a block's desktop size to exact column width and/or row height.
+   * Keeps start position fixed — only adjusts end.x and/or end.y.
+   * Read-modify-write: GET → findBlock → set end → clamp → PUT.
+   *
+   * Omit width or height to leave that dimension unchanged.
+   * end.x is clamped to maxColumns+1 if width would exceed the grid.
+   * Desktop only — mobile auto-reflows.
+   */
+  async setBlockSize(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    size: { width?: number; height?: number },
+  ): Promise<BlockResizeResult> {
+    const { width, height } = size;
+
+    if (width === undefined && height === undefined) {
+      return { success: false, error: 'Must provide at least width or height' };
+    }
+    if (width !== undefined && width <= 0) {
+      return { success: false, error: 'Invalid size: width must be > 0' };
+    }
+    if (height !== undefined && height <= 0) {
+      return { success: false, error: 'Invalid size: height must be > 0' };
+    }
+
+    try {
+      const data = await this.getPageSections(pageSectionsId);
+
+      const match = this.findBlock(data.sections, searchText);
+      if (!match) {
+        return { success: false, error: `No block found matching "${searchText}"` };
+      }
+
+      const { gridContent, gridSettings } = match;
+      const layout = gridContent.layout;
+      if (!layout?.desktop) {
+        return { success: false, error: `Block "${searchText}" has no desktop layout` };
+      }
+
+      const desktop = layout.desktop;
+      const blockId = gridContent.content.value.id;
+      const maxColumns = gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      const oldWidth = desktop.end.x - desktop.start.x;
+      const oldHeight = desktop.end.y - desktop.start.y;
+      const oldSize = {
+        width: oldWidth, height: oldHeight,
+        desktop: { start: { ...desktop.start }, end: { ...desktop.end } },
+      };
+
+      if (width !== undefined) desktop.end.x = desktop.start.x + width;
+      if (height !== undefined) desktop.end.y = desktop.start.y + height;
+
+      let clamped = false;
+      if (desktop.end.x > maxColumns + 1) {
+        desktop.end.x = maxColumns + 1;
+        clamped = true;
+      }
+
+      const newWidth = desktop.end.x - desktop.start.x;
+      const newHeight = desktop.end.y - desktop.start.y;
+      const newSize = {
+        width: newWidth, height: newHeight,
+        desktop: { start: { ...desktop.start }, end: { ...desktop.end } },
+      };
+
+      logger.info(
+        { blockId, size, clamped, oldSize: { w: oldWidth, h: oldHeight }, newSize: { w: newWidth, h: newHeight } },
+        'Setting block size via Content Save API',
+      );
+
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, oldSize, newSize, clamped };
     } catch (err) {
       return { success: false, error: errMsg(err) };
     }

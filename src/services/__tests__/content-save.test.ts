@@ -1162,6 +1162,147 @@ describe('ContentSaveClient', () => {
     });
   });
 
+  // ── setBlockSize ─────────────────────────────────────────────────────
+
+  describe('setBlockSize', () => {
+    function mockGetAndPut(sections: PageSection[]) {
+      const data = makePageSectionsData(sections);
+      return vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+    }
+
+    it('sets exact width and height without changing start position', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Size me</p>', { x: 3, y: 2 }, { x: 9, y: 5 }),
+      ]);
+      const fetchSpy = mockGetAndPut(sections);
+
+      const result = await client.setBlockSize('psid-1', 'cid-1', 'Size me', { width: 12, height: 6 });
+
+      expect(result.success).toBe(true);
+      expect(result.blockId).toBe('b1');
+      expect(result.oldSize?.width).toBe(6);
+      expect(result.oldSize?.height).toBe(3);
+      expect(result.newSize?.width).toBe(12);
+      expect(result.newSize?.height).toBe(6);
+      // start position must not change
+      expect(result.newSize?.desktop.start).toEqual({ x: 3, y: 2 });
+      expect(result.newSize?.desktop.end).toEqual({ x: 15, y: 8 });
+      expect(result.clamped).toBe(false);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('can set width only, leaving height unchanged', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Size me</p>', { x: 1, y: 0 }, { x: 7, y: 4 }),
+      ]);
+      const fetchSpy = mockGetAndPut(sections);
+
+      const result = await client.setBlockSize('psid-1', 'cid-1', 'Size me', { width: 10 });
+
+      expect(result.success).toBe(true);
+      expect(result.newSize?.width).toBe(10);
+      expect(result.newSize?.height).toBe(4); // unchanged
+
+      fetchSpy.mockRestore();
+    });
+
+    it('can set height only, leaving width unchanged', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Size me</p>', { x: 1, y: 0 }, { x: 7, y: 4 }),
+      ]);
+      const fetchSpy = mockGetAndPut(sections);
+
+      const result = await client.setBlockSize('psid-1', 'cid-1', 'Size me', { height: 8 });
+
+      expect(result.success).toBe(true);
+      expect(result.newSize?.width).toBe(6); // unchanged
+      expect(result.newSize?.height).toBe(8);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('clamps end.x to maxColumns+1 when width exceeds grid', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Wide</p>', { x: 5, y: 0 }, { x: 11, y: 3 }),
+      ], 24);
+      const fetchSpy = mockGetAndPut(sections);
+
+      const result = await client.setBlockSize('psid-1', 'cid-1', 'Wide', { width: 30 });
+
+      expect(result.success).toBe(true);
+      expect(result.clamped).toBe(true);
+      expect(result.newSize?.desktop.start.x).toBe(5); // start unchanged
+      expect(result.newSize?.desktop.end.x).toBe(25); // maxColumns + 1
+
+      fetchSpy.mockRestore();
+    });
+
+    it('returns error when width is zero or negative', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Bad</p>', { x: 1, y: 0 }, { x: 7, y: 3 }),
+      ]);
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(makePageSectionsData(sections)), { status: 200 }));
+
+      const result = await client.setBlockSize('psid-1', 'cid-1', 'Bad', { width: 0 });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('width');
+    });
+
+    it('returns error when height is zero or negative', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Bad</p>', { x: 1, y: 0 }, { x: 7, y: 3 }),
+      ]);
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(makePageSectionsData(sections)), { status: 200 }));
+
+      const result = await client.setBlockSize('psid-1', 'cid-1', 'Bad', { height: -1 });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('height');
+    });
+
+    it('returns error when neither width nor height provided', async () => {
+      const result = await client.setBlockSize('psid-1', 'cid-1', 'Bad', {});
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('width or height');
+    });
+
+    it('returns error when block not found', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Some block</p>', { x: 1, y: 0 }, { x: 7, y: 3 }),
+      ]);
+      vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(makePageSectionsData(sections)), { status: 200 }));
+
+      const result = await client.setBlockSize('psid-1', 'cid-1', 'nonexistent', { width: 6, height: 3 });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('No block found');
+    });
+
+    it('does not modify mobile layout', async () => {
+      const sections = makeSectionsWithGrid([
+        makeBlockWithLayout('b1', '<p>Size me</p>', { x: 1, y: 0 }, { x: 7, y: 3 }, { x: 1, y: 0 }, { x: 9, y: 5 }),
+      ]);
+      const fetchSpy = mockGetAndPut(sections);
+
+      await client.setBlockSize('psid-1', 'cid-1', 'Size me', { width: 12, height: 6 });
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const layout = putBody.sections[0].fluidEngineContext.gridContents[0].layout;
+      expect(layout.mobile.start).toEqual({ x: 1, y: 0 });
+      expect(layout.mobile.end).toEqual({ x: 9, y: 5 });
+
+      fetchSpy.mockRestore();
+    });
+  });
+
   // ── removeBlock ──────────────────────────────────────────────────────
 
   describe('removeBlock', () => {
