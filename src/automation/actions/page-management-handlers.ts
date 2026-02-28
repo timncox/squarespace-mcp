@@ -4,6 +4,7 @@ import { navigateToPage, enterEditMode } from '../site-navigator.js';
 import { getSiteFrame } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
 import { tryCustomCssApi } from './handler-utils.js';
+import { ContentSaveClient, createContentSaveClient } from '../../services/content-save.js';
 import type { ActionResult } from './types.js';
 
 // ─── Compound Action: createPage ─────────────────────────────────────────
@@ -987,6 +988,37 @@ export async function handleCreateBlogPost(
   action: { action: 'createBlogPost'; blogPageSlug: string; title: string; content?: string; draft?: boolean },
 ): Promise<ActionResult> {
   const { blogPageSlug, title, content, draft = true } = action;
+
+  // API fast path — try creating the post via ContentSaveClient (~1s vs ~5-10min UI)
+  const sessionHealth = ContentSaveClient.checkSessionHealth();
+  if (sessionHealth.exists && sessionHealth.hasCrumb && !sessionHealth.isStale) {
+    try {
+      const subdomain = new URL(page.url()).hostname.replace('.squarespace.com', '');
+      const client = createContentSaveClient(subdomain);
+      const meta = await client.getPageMetadata(blogPageSlug);
+      if (meta?.collectionId) {
+        const result = await client.createBlogPost(meta.collectionId, title, {
+          body: content,
+          draft: draft ?? true,
+        });
+        if (result.success) {
+          logger.info({ itemId: result.itemId }, 'handleCreateBlogPost: created via API fast path');
+          return {
+            success: true,
+            message: `Created blog post "${title}" via API`,
+          };
+        }
+        if (result.endpointAvailable === false) {
+          logger.debug('handleCreateBlogPost: blog post API endpoint not available, falling back to UI');
+        } else {
+          logger.warn({ error: result.error }, 'handleCreateBlogPost: API failed, falling back to UI');
+        }
+      }
+    } catch (err) {
+      logger.warn({ error: errMsg(err) }, 'handleCreateBlogPost: API fast path error, falling back to UI');
+    }
+  }
+  // ↓ Existing UI automation continues below
 
   // Navigate to pages panel
   const currentUrl = page.url();
