@@ -917,9 +917,12 @@ export async function executeContentPlanViaApi(
       } catch { /* non-fatal */ }
 
       let summary: string;
-      if (op.content.contentStrategy === 'blank_api') {
+      // Infer blank_api when apiBlocks are present but strategy wasn't explicitly set
+      const effectiveStrategy = op.content.contentStrategy
+        ?? (op.content.apiBlocks?.length ? 'blank_api' : undefined);
+      if (effectiveStrategy === 'blank_api') {
         summary = await executeAddSectionBlankApi(client, ctx, op, index, tracker, subdomain);
-      } else if (op.content.contentStrategy === 'template') {
+      } else if (effectiveStrategy === 'template') {
         summary = await executeAddSectionTemplate(client, ctx, op, index, tracker, subdomain);
       } else {
         throw new Error(`Unknown content strategy: ${op.content.contentStrategy}`);
