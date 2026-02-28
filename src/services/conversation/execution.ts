@@ -35,6 +35,7 @@ import {
   type ValidationResult,
   type PreOperationSnapshot,
 } from '../../services/content-validator.js';
+import { type LinkValidationOptions } from '../../services/link-validator.js';
 import type { ContentPlan, ContentOperation, SupervisorVerdict, ApiTextBlock } from '../../agents/types.js';
 import { isApiButtonBlock, isApiImageBlock, isApiGalleryBlock } from '../../agents/types.js';
 import type { Task } from '../../models/task.js';
@@ -474,6 +475,7 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
               const result = await executeBlankApiOperation(page, op, subdomain, {
                 pageSectionsId: preExtractedPageSectionsId,
                 collectionId: preExtractedCollectionId,
+                siteBaseUrl: derivePublicBaseUrl(client.site.adminUrl),
               });
 
               // Update tracked operation status
@@ -1063,8 +1065,11 @@ async function executeTask(
     if (agentResult.success && contentPlan && apiSubdomain && apiPageSectionsId) {
       try {
         const valClient = createContentSaveClient(apiSubdomain);
+        const linkValOpts: LinkValidationOptions | undefined = siteBaseUrl
+          ? { siteBaseUrl }
+          : undefined;
         for (const op of contentPlan.operations) {
-          const valResult = await validateOperation(op, valClient, apiPageSectionsId);
+          const valResult = await validateOperation(op, valClient, apiPageSectionsId, null, linkValOpts);
           inlineValidations.push(valResult);
 
           agentEvents.emit('dashboard', {
@@ -1329,7 +1334,7 @@ async function executeBlankApiOperation(
   page: import('playwright').Page,
   operation: import('../../agents/types.js').ContentOperation,
   subdomain: string,
-  options?: { pageSectionsId?: string; collectionId?: string },
+  options?: { pageSectionsId?: string; collectionId?: string; siteBaseUrl?: string },
 ): Promise<{ success: boolean; blocksAdded: number; error?: string; validation?: ValidationResult }> {
   const apiBlocks = operation.content.apiBlocks;
   if (!apiBlocks || apiBlocks.length === 0) {
@@ -1641,7 +1646,10 @@ async function executeBlankApiOperation(
     // Step 8: Post-operation validation — read page state back and verify content landed
     let validation: ValidationResult | undefined;
     try {
-      validation = await validateOperation(operation, client, pageSectionsId, preSnapshot);
+      const blankApiLinkValOpts: LinkValidationOptions | undefined = options?.siteBaseUrl
+        ? { siteBaseUrl: options.siteBaseUrl }
+        : undefined;
+      validation = await validateOperation(operation, client, pageSectionsId, preSnapshot, blankApiLinkValOpts);
       logger.info(
         { passed: validation.passed, opType: operation.operationType, checks: validation.checks.length },
         'blank_api: post-operation validation completed',
@@ -3280,6 +3288,7 @@ async function executeBatchedPlan(
 
     // Prepare for batch validation — extract page IDs and subdomain for API reads
     const batchSubdomain = page.url().match(/https?:\/\/([a-z0-9-]+)\.squarespace\.com/i)?.[1] ?? null;
+    const batchSiteBaseUrl = derivePublicBaseUrl(client.site.adminUrl);
     let batchPageSectionsId: string | null = null;
     const batchValidations: ValidationResult[] = [];
 
@@ -3393,9 +3402,12 @@ async function executeBatchedPlan(
           try {
             const valClient = createContentSaveClient(batchSubdomain);
             const preSnap = await capturePreSnapshot(valClient, batchPageSectionsId);
+            const batchLinkValOpts: LinkValidationOptions | undefined = batchSiteBaseUrl
+              ? { siteBaseUrl: batchSiteBaseUrl }
+              : undefined;
 
             for (const op of batch) {
-              const valResult = await validateOperation(op, valClient, batchPageSectionsId, preSnap);
+              const valResult = await validateOperation(op, valClient, batchPageSectionsId, preSnap, batchLinkValOpts);
               batchValidations.push(valResult);
 
               batchDashEvents.emit('dashboard', {
