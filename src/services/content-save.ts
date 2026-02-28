@@ -163,10 +163,10 @@ const BLOCK_TYPE_QUOTE = 31;
 const BLOCK_TYPE_CODE = 1337;
 // Identifies a code HTML block within type 1337 blocks (value.wysiwyg.engine)
 const CODE_BLOCK_ENGINE = 'code';
-// Divider/spacer block type (suspected — verify via discovery)
-const BLOCK_TYPE_DIVIDER = 52;
-// Video embed block type (suspected — verify via discovery)
-const BLOCK_TYPE_VIDEO = 50;
+// Line/Divider block type — confirmed via live site discovery (Feb 28 2026, home page grey-yellow-hbxc)
+const BLOCK_TYPE_DIVIDER = 47;
+// Video (native) block type — confirmed via live site discovery (Feb 28 2026, home page grey-yellow-hbxc)
+const BLOCK_TYPE_VIDEO = 32;
 
 interface SessionCookie {
   name: string;
@@ -921,7 +921,7 @@ export class ContentSaveClient {
           }
         }
 
-        // Video blocks (type 50): match url, title, description
+        // Video blocks (type 32): match url, title, description
         if (bv.type === BLOCK_TYPE_VIDEO) {
           const fields = [bv.value?.url, bv.value?.title, bv.value?.description].filter(Boolean);
           for (const field of fields) {

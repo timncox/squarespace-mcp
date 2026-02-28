@@ -59,16 +59,37 @@ async function main() {
 
   console.log(`Found ${sections.length} sections\n`);
 
-  // Known block type names (from coordinator.ts and content-save.ts)
+  // Known block type names (confirmed via live discovery, Feb 28 2026)
   const KNOWN_TYPES: Record<number, string> = {
     2: 'Text',
-    18: 'Menu',
-    23: 'Code',
-    31: 'Quote',
-    44: 'Quote (alt)',
-    46: 'Button',
-    1337: 'Image/Code-HTML',
     8: 'Gallery',
+    12: 'Page Link',
+    14: 'Tag Cloud',
+    18: 'Menu',
+    22: 'Embed',
+    23: 'Code (legacy 7.0?)',
+    25: 'Instagram',
+    31: 'Quote',
+    32: 'Video (native)',
+    33: 'Search Field',
+    41: 'Audio',
+    44: 'Markdown',
+    46: 'Button (old type)',
+    47: 'Line/Divider',
+    49: 'RSS',
+    51: 'Newsletter',
+    52: 'Donation',
+    54: 'Social Links',
+    55: 'Summary',
+    56: 'SoundCloud',
+    61: 'Archive',
+    62: 'Chart',
+    65: 'Scheduling',
+    66: 'OpenTable',
+    68: 'Tock',
+    69: 'Accordion',
+    70: 'Scrolling/Marquee',
+    1337: 'Image/Code/Map/Form/Shape (type 1337 variant)',
   };
 
   const discovery: Record<string, unknown[]> = {};

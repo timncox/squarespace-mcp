@@ -717,6 +717,61 @@ Blank+API example with gallery (multiple images in a grid):
   "editorInstruction": "Add a blank section with a heading and 3-column image gallery via API. This operation uses the blank_api strategy — the execution pipeline handles it automatically."
 }
 
+Blank+API example with divider:
+{
+  "operationType": "add_section",
+  "placement": "Separator section between hero and about",
+  "content": {
+    "contentStrategy": "blank_api",
+    "apiBlocks": [
+      { "type": "divider" }
+    ]
+  },
+  "editorInstruction": "Add a blank section with a divider line via API. This operation uses the blank_api strategy — the execution pipeline handles it automatically."
+}
+
+Blank+API example with video embed:
+{
+  "operationType": "add_section",
+  "placement": "New video section below the hero",
+  "content": {
+    "heading": "Watch Our Story",
+    "contentStrategy": "blank_api",
+    "apiBlocks": [
+      { "html": "Watch Our Story", "formatting": { "tag": "h2", "alignment": "center" } },
+      { "type": "video", "videoUrl": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "title": "Brand story video" }
+    ]
+  },
+  "editorInstruction": "Add a blank section with a heading and video embed via API. This operation uses the blank_api strategy — the execution pipeline handles it automatically."
+}
+
+Blank+API example with quote block:
+{
+  "operationType": "add_section",
+  "placement": "Testimonial section below the services",
+  "content": {
+    "heading": "What Clients Say",
+    "contentStrategy": "blank_api",
+    "apiBlocks": [
+      { "type": "quote", "quoteText": "Working with them transformed our business. Results exceeded every expectation.", "attribution": "Jane Smith, CEO of Acme Corp" }
+    ]
+  },
+  "editorInstruction": "Add a blank section with a quote block via API. This operation uses the blank_api strategy — the execution pipeline handles it automatically."
+}
+
+Blank+API example with code block:
+{
+  "operationType": "add_section",
+  "placement": "Custom embed section",
+  "content": {
+    "contentStrategy": "blank_api",
+    "apiBlocks": [
+      { "type": "code", "code": "<div class=\\"booking-widget\\"><!-- Widget embed code here --></div>" }
+    ]
+  },
+  "editorInstruction": "Add a blank section with a code/embed block via API. This operation uses the blank_api strategy — the execution pipeline handles it automatically."
+}
+
 Page creation example (when the user asks to create a new page):
 When the task says "create a new page" or "add a gallery page", you MUST include a create_page operation FIRST, followed by add_section operations for content on that page. The create_page operation tells the browser agent to create the page before adding sections to it.
 {
@@ -758,8 +813,18 @@ Fallback example (blank section when no template fits):
 IMPORTANT:
 - **ONLY do what was explicitly requested.** Do NOT add extra sections, pages, or content beyond what the task describes. If the user says "add a gallery page with photos", create ONE gallery operation — do NOT also add "Featured Work", "Get In Touch", "About", or other sections you think might be nice. The user will ask for additional sections if they want them. Stick strictly to the task scope.
 - **Content Strategy Routing** — choose the right strategy per operation:
-  - **blank_api** (DEFAULT — use this for all section additions): Add a blank section and populate via API. Set \`contentStrategy: "blank_api"\` and provide \`apiBlocks\` array. For text: \`{ html: "..." }\`. For buttons: \`{ type: "button", label: "Button Text", url: "https://..." }\`. For images: \`{ type: "image", imagePath: "/path/to/image.jpg", altText: "..." }\`. For galleries: \`{ type: "gallery", images: [...], galleryStyle: "grid", columns: 3 }\`. No browser agent needed — ~1 second vs ~60 seconds for browser automation.
-  - **manual**: Use for custom layouts, code/embed blocks, interactive elements, or anything that can't be expressed as apiBlocks. Set \`contentStrategy: "manual"\` and write detailed \`editorInstruction\`.
+  - **blank_api** (DEFAULT — use this for all section additions): Add a blank section and populate via API. Set \`contentStrategy: "blank_api"\` and provide \`apiBlocks\` array. Supported block types:
+    - Text: \`{ html: "..." }\` or \`{ html: "Heading", formatting: { tag: "h2", alignment: "center" } }\`
+    - Button: \`{ type: "button", label: "Book a Call", url: "https://..." }\`
+    - Image: \`{ type: "image", imagePath: "/path/to/image.jpg", altText: "..." }\`
+    - Gallery (multiple images): \`{ type: "gallery", images: [...], galleryStyle: "grid", columns: 3 }\` — renders as multiple image blocks in a grid, NOT a native gallery widget
+    - Divider: \`{ type: "divider" }\`
+    - Video: \`{ type: "video", videoUrl: "https://www.youtube.com/watch?v=...", title: "Optional caption" }\`
+    - Quote: \`{ type: "quote", quoteText: "The quote text here.", attribution: "Author Name" }\`
+    - Code: \`{ type: "code", code: "<pre>const x = 1;</pre>" }\`
+    - **Menu blocks CANNOT be added fresh** via API — only modified on existing blocks. To add a new menu, use \`contentStrategy: "manual"\`.
+    - No browser agent needed — ~1 second vs ~60 seconds for browser automation.
+  - **manual**: Use for custom layouts, embed/form blocks, interactive elements, new menu blocks, or anything not expressible as apiBlocks. Set \`contentStrategy: "manual"\` and write detailed \`editorInstruction\`.
   - **NEVER use "template"** strategy. Always use \`blank_api\` instead, even for standard layouts (About, Contact, Team, etc.).
 - The addSectionFromTemplate action handles: add template + replace all placeholder content in ONE step. Write it as a SINGLE instruction step, not separate steps.
 - Write the EXACT heading and body text to use. No placeholders.
