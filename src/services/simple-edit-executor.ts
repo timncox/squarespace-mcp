@@ -328,6 +328,45 @@ async function execPageSeo(
   return `Updated page SEO (${result.updatedFields?.join(', ') ?? updatedFields.join(', ')})`;
 }
 
+async function execBlogPostCreate(
+  client: ContentSaveClient,
+  collectionId: string,
+  params: SimpleEditClassification['params'],
+): Promise<string> {
+  if (!params.postTitle) throw new Error('postTitle required for blog_post_create');
+  const result = await client.createBlogPost(collectionId, params.postTitle, {
+    body: params.postBody,
+    excerpt: params.postExcerpt,
+    tags: params.postTags,
+    categories: params.postCategories,
+    draft: params.postDraft ?? true,
+  });
+  if (!result.success) throw new Error(result.error ?? 'createBlogPost failed');
+  if (!result.endpointAvailable) throw new Error('Blog post API not available on this site');
+  const status = (params.postDraft ?? true) ? 'draft' : 'published';
+  return `Created ${status} blog post "${params.postTitle}"`;
+}
+
+async function execBlogPostUpdate(
+  client: ContentSaveClient,
+  collectionId: string,
+  params: SimpleEditClassification['params'],
+): Promise<string> {
+  if (!params.postSearchTitle) throw new Error('postSearchTitle required for blog_post_update');
+  const existing = await client.findBlogPostByTitle(collectionId, params.postSearchTitle);
+  if (!existing) throw new Error(`Blog post "${params.postSearchTitle}" not found`);
+  const result = await client.updateBlogPost(collectionId, existing.id, {
+    title: params.postTitle,
+    body: params.postBody,
+    excerpt: params.postExcerpt,
+    tags: params.postTags,
+    categories: params.postCategories,
+    draft: params.postDraft,
+  });
+  if (!result.success) throw new Error(result.error ?? 'updateBlogPost failed');
+  return `Updated blog post "${existing.title}": ${result.updatedFields.join(', ')}`;
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export async function executeSimpleEdit(
@@ -421,6 +460,12 @@ export async function executeSimpleEdit(
         break;
       case 'page_seo':
         summary = await execPageSeo(client, classification.params, slug);
+        break;
+      case 'blog_post_create':
+        summary = await execBlogPostCreate(client, collectionId, classification.params);
+        break;
+      case 'blog_post_update':
+        summary = await execBlogPostUpdate(client, collectionId, classification.params);
         break;
       default:
         throw new Error(`Unknown edit type: ${editType}`);
