@@ -23,7 +23,12 @@ export type SimpleEditType =
   | 'block_remove'
   | 'menu_update'
   | 'footer_edit'
-  | 'css_change';
+  | 'css_change'
+  | 'section_style'
+  | 'image_replace'
+  | 'button_add'
+  | 'section_reorder'
+  | 'block_move';
 
 export interface SimpleEditClassification {
   isSimpleEdit: boolean;
@@ -38,6 +43,14 @@ export interface SimpleEditClassification {
     cssMode?: 'append' | 'replace';
     menuItems?: string;
     imageFields?: { title?: string; description?: string; altText?: string };
+    sectionSearch?: string | number;
+    sectionStyles?: { sectionTheme?: string; sectionHeight?: string; contentWidth?: string; backgroundColor?: string };
+    imagePath?: string;
+    imageAltText?: string;
+    newButtonLabel?: string;
+    newButtonUrl?: string;
+    moveDirection?: 'up' | 'down';
+    moveSteps?: number;
   };
   reason: string;
 }
@@ -177,6 +190,26 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are a task classifier for a Squarespace we
    Examples: "Make the header font larger", "Add CSS to hide the announcement bar"
    Params: cssContent (the CSS code), cssMode ("append" or "replace")
 
+9. **section_style** — Change section visual properties (theme, height, background)
+   Examples: "Make the hero section full width", "Change the contact section to dark theme"
+   Params: sectionSearch (text in the section or section index to find it), sectionStyles (theme/height/width/backgroundColor)
+
+10. **image_replace** — Replace an existing image with a new uploaded image
+    Examples: "Replace the logo with this image", "Update the hero photo"
+    Params: searchText (alt text or nearby text to find the image), imagePath (provided file path)
+
+11. **button_add** — Add a new button to a section
+    Examples: "Add a Book Now button linking to calendly.com"
+    Params: newButtonLabel (button text), newButtonUrl (destination URL), searchText (optional: nearby text for placement)
+
+12. **section_reorder** — Move a section up or down on the page
+    Examples: "Move the contact section above the about section"
+    Params: sectionSearch (text to find section), moveDirection ("up" or "down")
+
+13. **block_move** — Move a block within its section
+    Examples: "Move the phone number below the address"
+    Params: searchText (text in the block), moveDirection ("up" or "down")
+
 ## NOT Simple Edits (return isSimpleEdit: false)
 - Creating new pages or galleries
 - Adding new sections or multiple blocks
@@ -185,7 +218,6 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are a task classifier for a Squarespace we
 - Tasks requiring research or web scraping
 - Tasks with attached reference images
 - Vague or multi-step instructions
-- Tasks that need visual design decisions
 
 ## Response Format
 Respond with JSON only:

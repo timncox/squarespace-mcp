@@ -45,6 +45,8 @@ import {
   getOperationsByConversation,
   type PlanOperation,
 } from '../../db/plan-operations.js';
+import { classifyPlanForApi } from '../../services/plan-classifier.js';
+import { executeContentPlanViaApi } from '../../services/api-executor.js';
 
 // ─── Batch Constants ────────────────────────────────────────────────────────
 
@@ -269,6 +271,82 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
         logger.warn({ placement: op.placement, templateCategory: op.content.templateCategory },
           'Template operation missing replacements — will have placeholder content');
       }
+    }
+  }
+
+  // ── API Executor Gate (primary path) ──────────────────────────────────
+  // Classify the plan and run API-capable operations via the API executor,
+  // bypassing browser automation entirely. Only falls through to the
+  // browser agent for operations that require manual/visual control.
+  if (plan && conversation.taskIds.length > 0) {
+    const classification = classifyPlanForApi(plan);
+    const primaryTask = getTask(conversation.taskIds[0]);
+
+    if (primaryTask && (classification.capability === 'full_api' || classification.capability === 'partial_api')) {
+      const subdomain = primaryTask.siteId;
+      logger.info(
+        {
+          capability: classification.capability,
+          apiOps: classification.apiOperations.length,
+          browserOps: classification.browserOperations.length,
+          reason: classification.reason,
+        },
+        'api-executor: routing plan through API executor',
+      );
+
+      // Build a plan containing only the API-capable operations
+      const apiPlan: ContentPlan = {
+        ...plan,
+        operations: classification.apiOperations,
+      };
+
+      const { dashboardEvents } = await import('../../services/dashboard-events.js');
+      dashboardEvents.emit('dashboard', {
+        type: 'agent_activity' as const,
+        data: {
+          agent: 'api_executor',
+          status: 'started',
+          message: `API executor: ${classification.apiOperations.length} operations via API`,
+          taskId: primaryTask.id,
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+      const apiResult = await executeContentPlanViaApi(apiPlan, subdomain, trackedOps);
+
+      dashboardEvents.emit('dashboard', {
+        type: 'agent_activity' as const,
+        data: {
+          agent: 'api_executor',
+          status: apiResult.success ? 'completed' : 'failed',
+          message: apiResult.summary,
+          taskId: primaryTask.id,
+        },
+        timestamp: new Date().toISOString(),
+      });
+
+      // Combine browser-required ops with API-failed ops
+      const remainingOps = [
+        ...classification.browserOperations,
+        ...apiResult.failedOperations,
+      ];
+
+      if (remainingOps.length === 0) {
+        // All operations succeeded via API — done!
+        for (const taskId of conversation.taskIds) {
+          updateTaskStatus(taskId, 'done');
+        }
+        updateConversationStatus(conversation.id, 'completed');
+        await sendToTim(`All done! ${apiResult.summary}`, conversation.id);
+        return;
+      }
+
+      // Some operations need the browser — update the plan and fall through
+      plan.operations = remainingOps;
+      logger.info(
+        { remainingOps: remainingOps.length },
+        'api-executor: falling through to browser agent for remaining operations',
+      );
     }
   }
 
