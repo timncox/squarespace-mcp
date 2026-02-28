@@ -789,6 +789,46 @@ export async function tryQuoteBlockApi(
 }
 
 /**
+ * Attempt to update a code block via the Content Save API (no UI).
+ * Returns ActionResult on success/definitive failure, null to fall through to UI.
+ * Never throws.
+ */
+export async function tryCodeBlockApi(
+  page: Page,
+  searchText: string,
+  updates: { code?: string; language?: string },
+): Promise<ActionResult | null> {
+  const ctx = await extractApiContext(page, 'tryCodeBlockApi');
+  if (!ctx) return null;
+
+  try {
+    const result = await ctx.client.updateCodeBlock(
+      ctx.pageSectionsId,
+      ctx.collectionId,
+      searchText,
+      updates,
+    );
+
+    if (result.success) {
+      logger.info(
+        { blockId: result.blockId, searchText, codeLength: updates.code?.length, language: updates.language },
+        'Content Save API: code block updated successfully',
+      );
+      return {
+        success: true,
+        message: `editCodeBlock: Updated code block via Content Save API (block ${result.blockId}). Reload the page to see the change.`,
+      };
+    }
+
+    logger.warn({ error: result.error, searchText }, 'Content Save API: code update failed');
+    return null;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'tryCodeBlockApi: failed');
+    return null;
+  }
+}
+
+/**
  * Attempt to edit section style via the Content Save API (no UI).
  * Replaces the 15-20 step browser agent UI automation with a single read-modify-write.
  * Returns an ActionResult on success, null on failure. Never throws.

@@ -2,7 +2,7 @@ import { Page } from 'playwright';
 import { logger } from '../../utils/logger.js';
 import { clickThroughOverlay, dblclickThroughOverlay, findTextOnPage, getSiteFrame } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
-import { isFluidEngineActive, clickEditorButton, tryContentSaveApi, tryFooterContentSaveApi, tryButtonBlockApi, tryQuoteBlockApi } from './handler-utils.js';
+import { isFluidEngineActive, clickEditorButton, tryContentSaveApi, tryFooterContentSaveApi, tryButtonBlockApi, tryQuoteBlockApi, tryCodeBlockApi } from './handler-utils.js';
 import type { ActionResult } from './types.js';
 import { mergeMenuContent } from '../../services/menu-merger.js';
 
@@ -2225,6 +2225,14 @@ export async function handleEditCodeBlock(
   action: { action: 'editCodeBlock'; searchText: string; code: string },
 ): Promise<ActionResult> {
   const { searchText, code } = action;
+
+  // ── Fast path: try Content Save API first (no UI, ~100ms) ─────────────
+  logger.info({ searchText }, 'editCodeBlock[0/7]: trying Content Save API fast path');
+  const apiResult = await tryCodeBlockApi(page, searchText, { code });
+  if (apiResult) {
+    return apiResult;
+  }
+  logger.info('editCodeBlock[0/7]: API fast path unavailable, falling back to UI automation');
 
   // ── Step 1: Find the code block ─────────────────────────────────────
   logger.info({ searchText }, 'editCodeBlock[1/7]: finding code block');
