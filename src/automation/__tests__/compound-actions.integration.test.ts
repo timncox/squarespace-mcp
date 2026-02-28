@@ -3,7 +3,7 @@
  *
  * These tests run against a LIVE Squarespace site and require:
  *   1. A valid Squarespace session (login cookies in storage/session-state.json)
- *   2. The "tim-cox" site with a "coding-projects" page
+ *   2. The "smyth-tavern" site with a "gallery" page
  *   3. A running browser (non-headless by default)
  *
  * Run with:
@@ -26,8 +26,8 @@ import * as path from 'path';
 
 // ─── Test configuration ──────────────────────────────────────────────────
 
-const SITE_SUBDOMAIN = 'tim-cox';
-const PAGE_SLUG = 'coding-projects';
+const SITE_SUBDOMAIN = 'smyth-tavern';
+const PAGE_SLUG = 'gallery';
 const SESSION_STATE_PATH = path.resolve('storage/session-state.json');
 const TEST_TIMEOUT = 120_000; // 2 minutes per test
 

@@ -50,7 +50,7 @@ function makeParsedEmail(overrides: Partial<ParsedEmail> = {}): ParsedEmail {
     messageId: 'msg-123',
     threadId: 'thread-456',
     forwarderEmail: 'tim@example.com',
-    forwarderName: 'Tim Cox',
+    forwarderName: 'Alex Admin',
     subject: 'Updated menus',
     bodyText: 'Here are the updated menus for this week.',
     rawBodyText: 'Here are the updated menus for this week.',

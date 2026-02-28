@@ -138,7 +138,7 @@ describe('hasGalleryIntent', () => {
   });
 
   it('detects gallery intent in longer messages', () => {
-    expect(hasGalleryIntent('hey can you add 5 photos to a new gallery page on Tim Cox')).toBe(true);
+    expect(hasGalleryIntent('hey can you add 5 photos to a new gallery page on Smyth Tavern')).toBe(true);
   });
 
   it('detects "upload photos" in a longer message', () => {
@@ -204,8 +204,8 @@ describe('gallery task with images', () => {
 describe('gallery task without images detection', () => {
   it('gallery intent message without images should be detected', () => {
     // Simulates the flow: user sends "create a photo gallery" without any images
-    const messageText = 'create a photo gallery on Tim Cox';
-    const taskDescription = 'Create a photo gallery page on Tim Cox site';
+    const messageText = 'create a photo gallery on Smyth Tavern';
+    const taskDescription = 'Create a photo gallery page on Smyth Tavern site';
     const hasImages = false;
 
     // Both message and task description should show gallery intent
@@ -218,7 +218,7 @@ describe('gallery task without images detection', () => {
   });
 
   it('gallery intent with images should proceed directly', () => {
-    const messageText = 'add these photos to a gallery on Tim Cox';
+    const messageText = 'add these photos to a gallery on Smyth Tavern';
     const imagePaths = ['/storage/uploads/img1.jpg', '/storage/uploads/img2.jpg'];
     const hasImages = imagePaths.length > 0;
 
@@ -234,7 +234,7 @@ describe('gallery request interpretation expectations', () => {
   // should handle correctly (prompt-level behavior, verified via pattern matching)
 
   it('"add 5 photos to a new gallery page" has gallery intent', () => {
-    expect(hasGalleryIntent('add 5 photos to a new gallery page on Tim Cox')).toBe(true);
+    expect(hasGalleryIntent('add 5 photos to a new gallery page on Smyth Tavern')).toBe(true);
   });
 
   it('"create a photo gallery" has gallery intent', () => {

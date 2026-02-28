@@ -964,7 +964,7 @@ describe('blank_api with button blocks in ContentSpec', () => {
     const spec: ContentSpec = {
       contentStrategy: 'blank_api',
       apiBlocks: [
-        { type: 'button', label: 'Howdy', url: 'https://timcox.co' },
+        { type: 'button', label: 'Howdy', url: 'https://example.com' },
       ],
     };
 
@@ -972,7 +972,7 @@ describe('blank_api with button blocks in ContentSpec', () => {
     expect(isApiButtonBlock(spec.apiBlocks![0])).toBe(true);
     const btn = spec.apiBlocks![0] as ApiButtonBlock;
     expect(btn.label).toBe('Howdy');
-    expect(btn.url).toBe('https://timcox.co');
+    expect(btn.url).toBe('https://example.com');
   });
 
   it('mixed apiBlocks can be separated by type', () => {
