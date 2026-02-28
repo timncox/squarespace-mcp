@@ -37,7 +37,7 @@ import {
 } from '../../services/content-validator.js';
 import { type LinkValidationOptions } from '../../services/link-validator.js';
 import type { ContentPlan, ContentOperation, SupervisorVerdict, ApiTextBlock } from '../../agents/types.js';
-import { isApiButtonBlock, isApiImageBlock, isApiGalleryBlock } from '../../agents/types.js';
+import { isApiButtonBlock, isApiImageBlock, isApiGalleryBlock, isApiDividerBlock, isApiVideoBlock, isApiQuoteBlock, isApiCodeBlock } from '../../agents/types.js';
 import type { Task } from '../../models/task.js';
 import type { Conversation } from '../../models/conversation.js';
 import {
@@ -1543,6 +1543,103 @@ async function executeBlankApiOperation(
           apiFailed = true;
           break;
         }
+      } else if (isApiDividerBlock(block)) {
+        // Divider block
+        const result = await client.addDividerBlock(
+          pageSectionsId,
+          collectionId!,
+          sectionIndex,
+          block.layout,
+        );
+
+        if (result.success) {
+          blocksAdded++;
+          logger.info(
+            { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
+            'blank_api: divider block added via API',
+          );
+        } else {
+          logger.warn(
+            { error: result.error, sectionIndex },
+            'blank_api: addDividerBlock API failed — switching to UI fallback',
+          );
+          apiFailed = true;
+          break;
+        }
+      } else if (isApiVideoBlock(block)) {
+        // Video block
+        const result = await client.addVideoBlock(
+          pageSectionsId,
+          collectionId!,
+          sectionIndex,
+          block.videoUrl,
+          { title: block.title, description: block.description, layout: block.layout },
+        );
+
+        if (result.success) {
+          blocksAdded++;
+          logger.info(
+            { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length, videoUrl: block.videoUrl },
+            'blank_api: video block added via API',
+          );
+        } else {
+          logger.warn(
+            { error: result.error, sectionIndex, videoUrl: block.videoUrl },
+            'blank_api: addVideoBlock API failed — switching to UI fallback',
+          );
+          apiFailed = true;
+          break;
+        }
+      } else if (isApiQuoteBlock(block)) {
+        // Quote block
+        const result = await client.addQuoteBlock(
+          pageSectionsId,
+          collectionId!,
+          sectionIndex,
+          block.quoteText,
+          block.attribution,
+          block.layout,
+        );
+
+        if (result.success) {
+          blocksAdded++;
+          logger.info(
+            { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
+            'blank_api: quote block added via API',
+          );
+        } else {
+          logger.warn(
+            { error: result.error, sectionIndex },
+            'blank_api: addQuoteBlock API failed — switching to UI fallback',
+          );
+          apiFailed = true;
+          break;
+        }
+      } else if (isApiCodeBlock(block)) {
+        // Code block
+        const result = await client.addCodeBlock(
+          pageSectionsId,
+          collectionId!,
+          sectionIndex,
+          block.code,
+          block.language,
+          block.layout,
+        );
+
+        if (result.success) {
+          blocksAdded++;
+          logger.info(
+            { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
+            'blank_api: code block added via API',
+          );
+        } else {
+          logger.warn(
+            { error: result.error, sectionIndex },
+            'blank_api: addCodeBlock API failed — switching to UI fallback',
+          );
+          apiFailed = true;
+          break;
+        }
       } else {
         // Text block — existing flow
         const blockHtml = block.richContent
@@ -1579,10 +1676,11 @@ async function executeBlankApiOperation(
     // Step 6: Fallback — if API failed, use UI to create blocks + API to fill content.
     // The Squarespace API may reject client-generated block IDs on PUT.
     // Fallback: addBlockToSection (UI creates block with server-side ID) → updateTextBlock (API fills content).
-    // Note: UI fallback only handles text blocks — button/image/gallery blocks have no UI fallback path yet.
+    // Note: UI fallback only handles text blocks — other block types have no UI fallback path.
     if (apiFailed) {
       const remainingTextBlocks = apiBlocks.slice(blocksAdded).filter((b): b is ApiTextBlock =>
-        !isApiButtonBlock(b) && !isApiImageBlock(b) && !isApiGalleryBlock(b),
+        !isApiButtonBlock(b) && !isApiImageBlock(b) && !isApiGalleryBlock(b)
+        && !isApiDividerBlock(b) && !isApiVideoBlock(b) && !isApiQuoteBlock(b) && !isApiCodeBlock(b),
       );
       logger.info(
         { apiBlocksAdded: blocksAdded, remaining: apiBlocks.length - blocksAdded, textBlocksForFallback: remainingTextBlocks.length },
@@ -3131,6 +3229,103 @@ async function executeContentOnlyBlankApi(
         apiFailed = true;
         break;
       }
+    } else if (isApiDividerBlock(block)) {
+      // Divider block
+      const result = await apiClient.addDividerBlock(
+        pageSectionsId,
+        collectionId,
+        sectionIndex,
+        block.layout,
+      );
+
+      if (result.success) {
+        blocksAdded++;
+        logger.info(
+          { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
+          'Content-only blank_api: divider block added via API',
+        );
+      } else {
+        logger.warn(
+          { error: result.error, sectionIndex },
+          'Content-only blank_api: addDividerBlock failed — switching to UI fallback',
+        );
+        apiFailed = true;
+        break;
+      }
+    } else if (isApiVideoBlock(block)) {
+      // Video block
+      const result = await apiClient.addVideoBlock(
+        pageSectionsId,
+        collectionId,
+        sectionIndex,
+        block.videoUrl,
+        { title: block.title, description: block.description, layout: block.layout },
+      );
+
+      if (result.success) {
+        blocksAdded++;
+        logger.info(
+          { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length, videoUrl: block.videoUrl },
+          'Content-only blank_api: video block added via API',
+        );
+      } else {
+        logger.warn(
+          { error: result.error, sectionIndex, videoUrl: block.videoUrl },
+          'Content-only blank_api: addVideoBlock failed — switching to UI fallback',
+        );
+        apiFailed = true;
+        break;
+      }
+    } else if (isApiQuoteBlock(block)) {
+      // Quote block
+      const result = await apiClient.addQuoteBlock(
+        pageSectionsId,
+        collectionId,
+        sectionIndex,
+        block.quoteText,
+        block.attribution,
+        block.layout,
+      );
+
+      if (result.success) {
+        blocksAdded++;
+        logger.info(
+          { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
+          'Content-only blank_api: quote block added via API',
+        );
+      } else {
+        logger.warn(
+          { error: result.error, sectionIndex },
+          'Content-only blank_api: addQuoteBlock failed — switching to UI fallback',
+        );
+        apiFailed = true;
+        break;
+      }
+    } else if (isApiCodeBlock(block)) {
+      // Code block
+      const result = await apiClient.addCodeBlock(
+        pageSectionsId,
+        collectionId,
+        sectionIndex,
+        block.code,
+        block.language,
+        block.layout,
+      );
+
+      if (result.success) {
+        blocksAdded++;
+        logger.info(
+          { blockId: result.blockId, sectionIndex, blocksAdded, total: apiBlocks.length },
+          'Content-only blank_api: code block added via API',
+        );
+      } else {
+        logger.warn(
+          { error: result.error, sectionIndex },
+          'Content-only blank_api: addCodeBlock failed — switching to UI fallback',
+        );
+        apiFailed = true;
+        break;
+      }
     } else {
       // Text block — existing flow
       const result = await apiClient.addTextBlock(
@@ -3158,10 +3353,11 @@ async function executeContentOnlyBlankApi(
     }
   }
 
-  // Fallback: UI + API for remaining blocks (text blocks only — button/image/gallery have no UI fallback yet)
+  // Fallback: UI + API for remaining blocks (text blocks only — other types have no UI fallback)
   if (apiFailed) {
     const remainingBlocks = apiBlocks.slice(blocksAdded).filter((b): b is ApiTextBlock =>
-      !isApiButtonBlock(b) && !isApiImageBlock(b) && !isApiGalleryBlock(b),
+      !isApiButtonBlock(b) && !isApiImageBlock(b) && !isApiGalleryBlock(b)
+      && !isApiDividerBlock(b) && !isApiVideoBlock(b) && !isApiQuoteBlock(b) && !isApiCodeBlock(b),
     );
     if (remainingBlocks.length > 0) {
       const fallbackResult = await executeBlankApiFallback(

@@ -102,8 +102,8 @@ export interface ContentSpec {
   templateName?: string;
   /** Content strategy for this operation */
   contentStrategy?: 'template' | 'blank_api' | 'manual';
-  /** For blank_api strategy: blocks to add via Content Save API (text, button, image, or gallery blocks) */
-  apiBlocks?: Array<ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock>;
+  /** For blank_api strategy: blocks to add via Content Save API */
+  apiBlocks?: AnyApiBlock[];
   /** Template index for position-based selection (0-based) */
   templateIndex?: number;
   /** Named layout preset for blank_api sections (e.g., "two-column", "hero-wide") */
@@ -193,19 +193,105 @@ export interface ApiGalleryBlock {
   columns?: number;  // grid columns (2, 3, 4)
 }
 
+/** A divider/separator block to add via Content Save API */
+export interface ApiDividerBlock {
+  type: 'divider';
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+}
+
+/** A video embed block to add via Content Save API */
+export interface ApiVideoBlock {
+  type: 'video';
+  videoUrl: string;
+  title?: string;
+  description?: string;
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+}
+
+/** A quote block to add via Content Save API */
+export interface ApiQuoteBlock {
+  type: 'quote';
+  quoteText: string;
+  attribution?: string;
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+}
+
+/** A code block to add via Content Save API */
+export interface ApiCodeBlock {
+  type: 'code';
+  code: string;
+  language?: string;
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+}
+
+/** Union of all API block types */
+export type AnyApiBlock = ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock | ApiDividerBlock | ApiVideoBlock | ApiQuoteBlock | ApiCodeBlock;
+
 /** Type guard: is this apiBlock a button block? */
-export function isApiButtonBlock(block: ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock): block is ApiButtonBlock {
+export function isApiButtonBlock(block: AnyApiBlock): block is ApiButtonBlock {
   return 'type' in block && (block as ApiButtonBlock).type === 'button';
 }
 
 /** Type guard: is this apiBlock an image block? */
-export function isApiImageBlock(block: ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock): block is ApiImageBlock {
+export function isApiImageBlock(block: AnyApiBlock): block is ApiImageBlock {
   return 'type' in block && (block as ApiImageBlock).type === 'image';
 }
 
 /** Type guard: is this apiBlock a gallery block? */
-export function isApiGalleryBlock(block: ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock): block is ApiGalleryBlock {
+export function isApiGalleryBlock(block: AnyApiBlock): block is ApiGalleryBlock {
   return 'type' in block && (block as ApiGalleryBlock).type === 'gallery';
+}
+
+/** Type guard: is this apiBlock a divider block? */
+export function isApiDividerBlock(block: AnyApiBlock): block is ApiDividerBlock {
+  return 'type' in block && (block as ApiDividerBlock).type === 'divider';
+}
+
+/** Type guard: is this apiBlock a video block? */
+export function isApiVideoBlock(block: AnyApiBlock): block is ApiVideoBlock {
+  return 'type' in block && (block as ApiVideoBlock).type === 'video';
+}
+
+/** Type guard: is this apiBlock a quote block? */
+export function isApiQuoteBlock(block: AnyApiBlock): block is ApiQuoteBlock {
+  return 'type' in block && (block as ApiQuoteBlock).type === 'quote';
+}
+
+/** Type guard: is this apiBlock a code block? */
+export function isApiCodeBlock(block: AnyApiBlock): block is ApiCodeBlock {
+  return 'type' in block && (block as ApiCodeBlock).type === 'code';
 }
 
 // ─── Page Structure (from Content Save API, input to Content Strategist) ────
