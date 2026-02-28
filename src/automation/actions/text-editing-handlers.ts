@@ -710,6 +710,14 @@ export async function handleFormatTextBlock(
     };
   }
 
+  // ── API Fast Path ────────────────────────────────────────────────────
+  // Try the Content Save API first for heading/bold/italic/alignment.
+  // Returns null for unsupported cases (paragraph variants, monospace, fontSize)
+  // which fall through to the 9-step UI automation below.
+  const { tryFormatTextBlockApi } = await import('./handler-utils.js');
+  const apiResult = await tryFormatTextBlockApi(page, action);
+  if (apiResult !== null) return apiResult;
+
   // ── Step 2/9: Find the text in the iframe ────────────────────────────
   logger.info({ searchText }, 'formatTextBlock[2/9]: finding text');
   const matches = await findTextOnPage(page, searchText);
