@@ -11,7 +11,7 @@
 
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
-import { ContentSaveClient, createContentSaveClient } from './content-save.js';
+import { ContentSaveClient, createContentSaveClient, type SectionStyleOptions } from './content-save.js';
 import { resolvePageIds } from './page-id-resolver.js';
 import type { Task } from '../models/task.js';
 import type { SimpleEditType, SimpleEditClassification } from './simple-edit-classifier.js';
@@ -192,6 +192,115 @@ async function execCssChange(
   return 'Replaced custom CSS';
 }
 
+// ── New edit type dispatchers ────────────────────────────────────────────────
+
+async function execSectionStyle(
+  client: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  params: SimpleEditClassification['params'],
+): Promise<string> {
+  if (!params.sectionSearch && params.sectionSearch !== 0) throw new Error('sectionSearch required for section_style');
+  if (!params.sectionStyles) throw new Error('sectionStyles required for section_style');
+
+  const styles: SectionStyleOptions = {};
+  if (params.sectionStyles.sectionTheme) styles.sectionTheme = params.sectionStyles.sectionTheme;
+  if (params.sectionStyles.sectionHeight) styles.sectionHeight = params.sectionStyles.sectionHeight as SectionStyleOptions['sectionHeight'];
+  if (params.sectionStyles.contentWidth) styles.contentWidth = params.sectionStyles.contentWidth as SectionStyleOptions['contentWidth'];
+  if (params.sectionStyles.backgroundColor) styles.backgroundColor = params.sectionStyles.backgroundColor;
+
+  const result = await client.editSectionStyle(pageSectionsId, collectionId, params.sectionSearch, styles);
+  if (!result.success) throw new Error(result.error ?? 'editSectionStyle failed');
+  return `Updated section style (${result.updatedFields?.join(', ') ?? 'unknown fields'})`;
+}
+
+async function execImageReplace(
+  client: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  params: SimpleEditClassification['params'],
+  subdomain: string,
+): Promise<string> {
+  if (!params.searchText) throw new Error('searchText required for image_replace');
+  if (!params.imagePath) throw new Error('imagePath required for image_replace');
+
+  // Step 1: Upload new image to Squarespace media library
+  const { MediaUploadClient } = await import('./media-upload.js');
+  const uploader = new MediaUploadClient(subdomain);
+  const uploadResult = await uploader.uploadImage(params.imagePath, params.imageAltText);
+  if (uploadResult.status !== 'success' || !uploadResult.assetUrl) {
+    throw new Error(uploadResult.failureReason ?? 'Image upload failed');
+  }
+
+  // Step 2: Find the image block and update its assetUrl + metadata via read-modify-write
+  const data = await client.getPageSections(pageSectionsId);
+  const match = client.findBlock(data.sections, params.searchText);
+  if (!match) throw new Error(`No block found matching "${params.searchText}"`);
+
+  const blockValue = match.gridContent.content.value;
+  if (!blockValue.value) blockValue.value = {};
+  blockValue.value.assetUrl = uploadResult.assetUrl;
+  if (params.imageAltText) blockValue.altText = params.imageAltText;
+
+  const saveResult = await client.savePageSections(pageSectionsId, collectionId, data.sections);
+  if (!saveResult.success) throw new Error(saveResult.error ?? 'savePageSections failed');
+  return `Replaced image "${params.searchText}" with uploaded file`;
+}
+
+async function execButtonAdd(
+  client: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  params: SimpleEditClassification['params'],
+): Promise<string> {
+  if (!params.newButtonLabel) throw new Error('newButtonLabel required for button_add');
+  if (!params.newButtonUrl) throw new Error('newButtonUrl required for button_add');
+
+  // Find the last section and add button there
+  const data = await client.getPageSections(pageSectionsId);
+  const lastIndex = Math.max(0, (data.sections?.length ?? 1) - 1);
+
+  const result = await client.addButtonBlock(
+    pageSectionsId, collectionId, lastIndex,
+    params.newButtonLabel, params.newButtonUrl,
+  );
+  if (!result.success) throw new Error(result.error ?? 'addButtonBlock failed');
+  return `Added button "${params.newButtonLabel}" → ${params.newButtonUrl}`;
+}
+
+async function execSectionReorder(
+  client: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  params: SimpleEditClassification['params'],
+): Promise<string> {
+  if (!params.sectionSearch && params.sectionSearch !== 0) throw new Error('sectionSearch required for section_reorder');
+  if (!params.moveDirection) throw new Error('moveDirection required for section_reorder');
+
+  // moveSection takes searchText as string
+  const searchText = String(params.sectionSearch);
+  const result = await client.moveSection(pageSectionsId, collectionId, searchText, params.moveDirection);
+  if (!result.success) throw new Error(result.error ?? 'moveSection failed');
+  return `Moved section "${result.sectionName ?? params.sectionSearch}" ${params.moveDirection}`;
+}
+
+async function execBlockMove(
+  client: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  params: SimpleEditClassification['params'],
+): Promise<string> {
+  if (!params.searchText) throw new Error('searchText required for block_move');
+  if (!params.moveDirection) throw new Error('moveDirection required for block_move');
+
+  const result = await client.moveBlock(
+    pageSectionsId, collectionId, params.searchText, params.moveDirection,
+    params.moveSteps ?? 1,
+  );
+  if (!result.success) throw new Error(result.error ?? 'moveBlock failed');
+  return `Moved block "${params.searchText}" ${params.moveDirection}`;
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export async function executeSimpleEdit(
@@ -267,6 +376,21 @@ export async function executeSimpleEdit(
         break;
       case 'css_change':
         summary = await execCssChange(client, classification.params);
+        break;
+      case 'section_style':
+        summary = await execSectionStyle(client, pageSectionsId, collectionId, classification.params);
+        break;
+      case 'image_replace':
+        summary = await execImageReplace(client, pageSectionsId, collectionId, classification.params, subdomain);
+        break;
+      case 'button_add':
+        summary = await execButtonAdd(client, pageSectionsId, collectionId, classification.params);
+        break;
+      case 'section_reorder':
+        summary = await execSectionReorder(client, pageSectionsId, collectionId, classification.params);
+        break;
+      case 'block_move':
+        summary = await execBlockMove(client, pageSectionsId, collectionId, classification.params);
         break;
       default:
         throw new Error(`Unknown edit type: ${editType}`);
