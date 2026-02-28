@@ -29,7 +29,9 @@ export type SimpleEditType =
   | 'button_add'
   | 'section_reorder'
   | 'block_move'
-  | 'page_seo';
+  | 'page_seo'
+  | 'blog_post_create'
+  | 'blog_post_update';
 
 export interface SimpleEditClassification {
   isSimpleEdit: boolean;
@@ -57,6 +59,14 @@ export interface SimpleEditClassification {
     navigationTitle?: string;
     urlId?: string;
     enabled?: boolean;
+    // Blog post params
+    postTitle?: string;
+    postBody?: string;         // HTML or plain text body content
+    postExcerpt?: string;
+    postTags?: string[];
+    postCategories?: string[];
+    postDraft?: boolean;       // true = save as draft, false = publish immediately
+    postSearchTitle?: string;  // for blog_post_update: find existing post by this title
   };
   reason: string;
 }
@@ -112,6 +122,29 @@ function tryPreLlmClassification(task: Task): SimpleEditClassification | null {
       confidence: 'high',
       params: { menuItems: task.contentToAdd },
       reason: 'Task type is update_menu_block with contentToAdd specified',
+    };
+  }
+
+  // 4. Blog post create — description contains "blog post" with a clear title marker
+  // This runs before the complexity gate, bypassing the /\bwrite\b/ COMPLEX_PATTERN.
+  // Requires an explicit title ("titled X" or "called X"). Generative-only requests
+  // ("write something about...") will not match and fall through to full complexity check.
+  const blogPostTitleMatch = task.description?.match(
+    /\bblog\s+post\b.+\b(?:titled?|called|named?)\s+["']?(.+?)["']?\s*(?:,|$|\.|\bwith\b|\babout\b)/i,
+  );
+  if (blogPostTitleMatch) {
+    const isDraft =
+      /\b(?:draft|don'?t\s+publish|save\s+as\s+draft|not\s+live)\b/i.test(task.description ?? '') ||
+      !/\b(?:publish|live|go\s+live)\b/i.test(task.description ?? '');
+    return {
+      isSimpleEdit: true,
+      editType: 'blog_post_create',
+      confidence: 'medium',
+      params: {
+        postTitle: blogPostTitleMatch[1].trim(),
+        postDraft: isDraft,
+      },
+      reason: 'Blog post creation with explicit title detected',
     };
   }
 
@@ -219,6 +252,18 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are a task classifier for a Squarespace we
 14. **page_seo** — Update page SEO settings (title, meta description, URL slug, navigation title, visibility)
     Examples: "Update the about page title to 'About Our Team'", "Change the meta description for the homepage", "Set the SEO title to 'Best Restaurant in NYC'", "Rename the page URL to /our-story", "Disable the contact page"
     Params: seoTitle (new page/SEO title), seoDescription (meta description), navigationTitle (nav menu label), urlId (URL slug), enabled (true/false for visibility)
+
+15. **blog_post_create** — Create a new blog post. Required: targetPage (blog page slug, e.g. "blog" or "news"), postTitle. Optional: postBody (HTML), postExcerpt, postTags (array), postCategories (array), postDraft (true=draft, false=publish immediately — default true).
+
+16. **blog_post_update** — Edit or update an existing blog post. Required: targetPage (blog page slug), postSearchTitle (current title to find the post). Optional: postTitle (new title), postBody (new body HTML), postExcerpt, postTags, postCategories, postDraft.
+
+## Blog Post Param Extraction
+- postTitle: title of the blog post (for create) or new title (for update)
+- postBody: body content as HTML — only extract if explicitly provided by the user, not AI-generated
+- postSearchTitle: for blog_post_update only — the existing post title to search for
+- postDraft: true if "save as draft", "don't publish", or timing is unclear; false if "publish now" or "make live"
+- postTags: array of tag strings extracted from "tag with X, Y, Z" or "tags: X, Y"
+- postExcerpt: short summary if user provides one explicitly
 
 ## NOT Simple Edits (return isSimpleEdit: false)
 - Creating new pages or galleries
