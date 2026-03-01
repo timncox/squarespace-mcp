@@ -235,6 +235,7 @@ export class ContentSaveClient {
   private crumbToken: string | null = null;
   private sessionAgeHours: number | null = null;
   private sessionLoadedAt: Date | null = null;
+  private websiteIdCache: string | null = null;
 
   constructor(siteSubdomain: string) {
     this.siteSubdomain = siteSubdomain;
@@ -291,12 +292,34 @@ export class ContentSaveClient {
       }
     }
 
+    // Extract websiteId from Statsig localStorage (needed for blog post creation)
+    const origins: Array<{ origin: string; localStorage?: Array<{ name: string; value: string }> }> =
+      session.origins ?? [];
+    outer: for (const origin of origins) {
+      for (const item of origin.localStorage ?? []) {
+        if (item.name.startsWith('statsig.cached.evaluations')) {
+          try {
+            const data = JSON.parse(item.value) as { data?: string };
+            const dataStr = typeof data.data === 'string' ? data.data : JSON.stringify(data);
+            const match = dataStr.match(/"website_id":"([a-f0-9]+)"/);
+            if (match) {
+              this.websiteIdCache = match[1];
+              break outer;
+            }
+          } catch {
+            // ignore malformed localStorage entries
+          }
+        }
+      }
+    }
+
     logger.info(
       {
         siteSubdomain: this.siteSubdomain,
         globalCookies: globalCookies.length,
         siteCookies: siteCookies.length,
         hasCrumb: !!this.crumbToken,
+        hasWebsiteId: !!this.websiteIdCache,
       },
       'Loaded session cookies for content save',
     );
@@ -6338,8 +6361,10 @@ export class ContentSaveClient {
   }
 
   /**
-   * SPECULATIVE: Attempt to create a blog post via API.
-   * Uses the content-collections endpoint. Returns endpointAvailable: false on 404/405.
+   * Create a blog post via the Squarespace blog text-posts API.
+   * Endpoint: POST /api/content/blogs/{collectionId}/text-posts
+   * Auth: X-CSRF-Token header (not X-Squarespace-Crumb, not ?crumb= query param).
+   * workflowState 4 = draft, 1 = published.
    * Never throws.
    */
   async createBlogPost(
@@ -6357,17 +6382,28 @@ export class ContentSaveClient {
     this.ensureCookies();
 
     try {
-      const path = `/api/content-collections/${collectionId}/content-items`;
-      const url = this.buildApiUrl(path, true);
+      // No crumb in URL — this endpoint uses X-CSRF-Token header
+      const url = `https://${this.siteSubdomain}.squarespace.com/api/content/blogs/${collectionId}/text-posts`;
+      const now = Date.now();
 
       const postBody = JSON.stringify({
-        title,
-        ...(options?.body != null ? { body: options.body } : {}),
-        ...(options?.slug ? { urlId: options.slug } : {}),
-        ...(options?.tags ? { tags: options.tags } : {}),
-        ...(options?.categories ? { categories: options.categories } : {}),
-        ...(options?.excerpt != null ? { excerpt: options.excerpt } : {}),
-        draft: options?.draft ?? true,
+        addedOn: now,
+        publishOn: now,
+        ...(this.websiteIdCache ? { websiteId: this.websiteIdCache } : {}),
+        mediaFocalPoint: { x: 0.5, y: 0.5 },
+        likeCount: 0,
+        dislikeCount: 0,
+        commentCount: 0,
+        publicCommentCount: 0,
+        workflowState: (options?.draft ?? true) ? 4 : 1,
+        urlId: options?.slug ?? null,
+        proxyForId: null,
+        childType: null,
+        updatedOn: null,
+        unsaved: null,
+        title: title || null,
+        body: { raw: false, layout: { columns: 12, rows: [] } },
+        excerpt: { html: '', raw: false },
       });
 
       const response = await fetch(url, {
@@ -6375,6 +6411,7 @@ export class ContentSaveClient {
         headers: {
           ...this.buildHeaders(),
           'Content-Type': 'application/json',
+          ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
         },
         body: postBody,
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -6389,10 +6426,12 @@ export class ContentSaveClient {
       }
 
       if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        logger.warn({ collectionId, status: response.status, body: errBody }, 'createBlogPost: API error');
         return {
           success: false,
           endpointAvailable: true,
-          error: `API returned ${response.status}`,
+          error: `API returned ${response.status}: ${errBody.slice(0, 200)}`,
         };
       }
 
@@ -6709,38 +6748,65 @@ export class ContentSaveClient {
       const section = sections[sectionIndex];
       const updatedFields: string[] = [];
 
-      // Step 3: Apply style properties
+      // Step 3: Apply style properties.
+      //
+      // Confirmed API structure (live capture, grey-yellow-hbxc, Mar 2026):
+      // - sectionTheme, sectionHeight, contentWidth, verticalAlignment live in section.styles.*
+      // - divider lives at section.divider (top-level)
+      // - backgroundColor, paddingTop, paddingBottom, blockSpacing: NOT confirmed API fields;
+      //   written to top-level as best-effort (browser agent handles these via UI)
+
+      // Helper: add CSS class prefix if not already present
+      const withPrefix = (prefix: string, v: string) =>
+        v.startsWith(`${prefix}--`) ? v : `${prefix}--${v}`;
+
+      // Ensure section.styles object exists
+      const sec = section as Record<string, unknown>;
+      if (!sec.styles || typeof sec.styles !== 'object') {
+        sec.styles = {};
+      }
+      const sectionStyles = sec.styles as Record<string, unknown>;
+
+      // ── Confirmed fields → write to section.styles.* ────────────────────
       if (styles.sectionTheme !== undefined) {
-        (section as Record<string, unknown>).sectionTheme = styles.sectionTheme;
+        sectionStyles.sectionTheme = styles.sectionTheme.toLowerCase();
         updatedFields.push('sectionTheme');
       }
-      if (styles.backgroundColor !== undefined) {
-        (section as Record<string, unknown>).backgroundColor = styles.backgroundColor;
-        updatedFields.push('backgroundColor');
-      }
       if (styles.sectionHeight !== undefined) {
-        (section as Record<string, unknown>).sectionHeight = styles.sectionHeight;
+        sectionStyles.sectionHeight = withPrefix('section-height', styles.sectionHeight);
         updatedFields.push('sectionHeight');
       }
-      if (styles.paddingTop !== undefined) {
-        (section as Record<string, unknown>).paddingTop = styles.paddingTop;
-        updatedFields.push('paddingTop');
-      }
-      if (styles.paddingBottom !== undefined) {
-        (section as Record<string, unknown>).paddingBottom = styles.paddingBottom;
-        updatedFields.push('paddingBottom');
-      }
-      if (styles.blockSpacing !== undefined) {
-        (section as Record<string, unknown>).blockSpacing = styles.blockSpacing;
-        updatedFields.push('blockSpacing');
-      }
       if (styles.contentWidth !== undefined) {
-        (section as Record<string, unknown>).contentWidth = styles.contentWidth;
+        sectionStyles.contentWidth = withPrefix('content-width', styles.contentWidth);
         updatedFields.push('contentWidth');
       }
       if (styles.verticalAlignment !== undefined) {
-        (section as Record<string, unknown>).verticalAlignment = styles.verticalAlignment;
+        sectionStyles.verticalAlignment = withPrefix('vertical-alignment', styles.verticalAlignment);
         updatedFields.push('verticalAlignment');
+      }
+
+      // ── Divider → section.divider (top-level) ───────────────────────────
+      if (styles.divider !== undefined) {
+        sec.divider = styles.divider === null ? { enabled: false } : styles.divider;
+        updatedFields.push('divider');
+      }
+
+      // ── Legacy / unverified fields → top-level best-effort ──────────────
+      if (styles.backgroundColor !== undefined) {
+        sec.backgroundColor = styles.backgroundColor;
+        updatedFields.push('backgroundColor');
+      }
+      if (styles.paddingTop !== undefined) {
+        sec.paddingTop = styles.paddingTop;
+        updatedFields.push('paddingTop');
+      }
+      if (styles.paddingBottom !== undefined) {
+        sec.paddingBottom = styles.paddingBottom;
+        updatedFields.push('paddingBottom');
+      }
+      if (styles.blockSpacing !== undefined) {
+        sec.blockSpacing = styles.blockSpacing;
+        updatedFields.push('blockSpacing');
       }
 
       logger.info(

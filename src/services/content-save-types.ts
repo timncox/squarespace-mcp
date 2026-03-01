@@ -355,16 +355,82 @@ export interface SectionCatalogResponse {
   error?: string;
 }
 
-/** Options for editSectionStyle */
+/**
+ * Section divider shape options.
+ *
+ * Discovered via live API capture (grey-yellow-hbxc, Mar 2026).
+ * Lives at `section.divider` (top-level, NOT inside `section.styles`).
+ */
+export interface SectionDividerOptions {
+  enabled: boolean;
+  /**
+   * Divider shape type.
+   * Confirmed value: "pointed". Other expected values: "wave", "slant", "brush", "paint".
+   * Omit or set to "none" for no shape.
+   */
+  type?: string;
+  /** Width. Default: { unit: "vw", value: 100 } */
+  width?: { unit: string; value: number };
+  /** Height. Default: { unit: "vw", value: 12 } */
+  height?: { unit: string; value: number };
+  /** Flip horizontally */
+  isFlipX?: boolean;
+  /** Flip vertically */
+  isFlipY?: boolean;
+  /** Vertical offset */
+  offset?: { unit: string; value: number };
+  /** Edge stroke / outline */
+  stroke?: {
+    style?: string;
+    color?: { type: string };
+    thickness?: { unit: string; value: number };
+    dashLength?: { unit: string; value: number };
+    gapLength?: { unit: string; value: number };
+    linecap?: string;
+  };
+}
+
+/**
+ * Options for editSectionStyle.
+ *
+ * API field locations (discovered via live capture, grey-yellow-hbxc, Mar 2026):
+ * - `section.styles.sectionTheme`     → "white" | "light" | "dark" | "black" | ""
+ * - `section.styles.sectionHeight`    → "section-height--small" | "--medium" | "--large" | "--full"
+ * - `section.styles.contentWidth`     → "content-width--wide" | "--inset" | "--full"
+ * - `section.styles.verticalAlignment`→ "vertical-alignment--top" | "--middle" | "--bottom"
+ * - `section.divider`                 → { enabled, type, width, height, ... } (top-level)
+ *
+ * NOTE: backgroundColor, paddingTop, paddingBottom, blockSpacing are NOT confirmed
+ * API fields — they are set at section top-level as a best-effort fallback only.
+ */
 export interface SectionStyleOptions {
+  /** Color theme. Values: "white", "light", "dark", "black", "" (default). Case-insensitive. */
   sectionTheme?: string;
+  /**
+   * Section height. Pass simplified ("small", "medium", "large", "full") or
+   * full CSS class ("section-height--small"). Both are accepted.
+   */
+  sectionHeight?: string;
+  /**
+   * Content width. Pass simplified ("inset", "wide", "full") or
+   * full CSS class ("content-width--inset"). Both are accepted.
+   */
+  contentWidth?: string;
+  /**
+   * Vertical alignment. Pass simplified ("top", "middle", "bottom") or
+   * full CSS class ("vertical-alignment--middle"). Both are accepted.
+   */
+  verticalAlignment?: string;
+  /** Section divider. Pass null or { enabled: false } to disable. */
+  divider?: SectionDividerOptions | null;
+  // ── Legacy / unverified fields ────────────────────────────────────────────
+  // These fields are not confirmed in the Squarespace section API. They are
+  // written to section top-level as a best-effort; the browser agent handles
+  // them via UI automation as a more reliable fallback.
   backgroundColor?: string;
-  sectionHeight?: 'auto' | 'small' | 'medium' | 'large' | 'full';
   paddingTop?: string;
   paddingBottom?: string;
   blockSpacing?: string;
-  contentWidth?: 'inset' | 'full';
-  verticalAlignment?: 'top' | 'middle' | 'bottom';
 }
 
 /** Result of editSectionStyle */

@@ -149,16 +149,95 @@ describe('ContentSaveClient — Section Operations', () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.updatedFields).toEqual([
-        'sectionTheme',
-        'backgroundColor',
-        'sectionHeight',
-        'paddingTop',
-        'paddingBottom',
-        'blockSpacing',
-        'contentWidth',
-        'verticalAlignment',
-      ]);
+      expect(result.updatedFields).toEqual(
+        expect.arrayContaining([
+          'sectionTheme', 'backgroundColor', 'sectionHeight',
+          'paddingTop', 'paddingBottom', 'blockSpacing',
+          'contentWidth', 'verticalAlignment',
+        ]),
+      );
+      expect(result.updatedFields).toHaveLength(8);
+    });
+
+    it('writes sectionTheme to section.styles (not top-level)', async () => {
+      const sections = makeSections(
+        makeSection('sec-0', [makeTextBlock('blk-0', '<p>Hello</p>')]),
+      );
+      mockGetPut(sections);
+
+      await client.editSectionStyle(PS_ID, COLL_ID, 0, { sectionTheme: 'Dark' });
+
+      const putCall = mockFetch.mock.calls[1];
+      const putBody = JSON.parse(putCall[1].body);
+      const sec = putBody.sections[0];
+      // Must be in styles object, lowercase
+      expect((sec.styles as Record<string, unknown>).sectionTheme).toBe('dark');
+      // Must NOT be at top-level
+      expect(sec.sectionTheme).toBeUndefined();
+    });
+
+    it('writes sectionHeight to section.styles with CSS class prefix', async () => {
+      const sections = makeSections(
+        makeSection('sec-0', [makeTextBlock('blk-0', '<p>Hello</p>')]),
+      );
+      mockGetPut(sections);
+
+      await client.editSectionStyle(PS_ID, COLL_ID, 0, { sectionHeight: 'large' });
+
+      const putCall = mockFetch.mock.calls[1];
+      const putBody = JSON.parse(putCall[1].body);
+      const sec = putBody.sections[0];
+      expect((sec.styles as Record<string, unknown>).sectionHeight).toBe('section-height--large');
+      expect(sec.sectionHeight).toBeUndefined();
+    });
+
+    it('passes full CSS class values through unchanged', async () => {
+      const sections = makeSections(
+        makeSection('sec-0', [makeTextBlock('blk-0', '<p>Hello</p>')]),
+      );
+      mockGetPut(sections);
+
+      await client.editSectionStyle(PS_ID, COLL_ID, 0, {
+        sectionHeight: 'section-height--medium',
+        contentWidth: 'content-width--inset',
+      });
+
+      const putCall = mockFetch.mock.calls[1];
+      const putBody = JSON.parse(putCall[1].body);
+      const sec = putBody.sections[0];
+      expect((sec.styles as Record<string, unknown>).sectionHeight).toBe('section-height--medium');
+      expect((sec.styles as Record<string, unknown>).contentWidth).toBe('content-width--inset');
+    });
+
+    it('writes divider to section top-level (not styles)', async () => {
+      const sections = makeSections(
+        makeSection('sec-0', [makeTextBlock('blk-0', '<p>Hello</p>')]),
+      );
+      mockGetPut(sections);
+
+      await client.editSectionStyle(PS_ID, COLL_ID, 0, {
+        divider: { enabled: true, type: 'pointed', isFlipX: true, isFlipY: false },
+      });
+
+      const putCall = mockFetch.mock.calls[1];
+      const putBody = JSON.parse(putCall[1].body);
+      const sec = putBody.sections[0];
+      expect(sec.divider).toMatchObject({ enabled: true, type: 'pointed' });
+      // Not inside styles
+      expect((sec.styles as Record<string, unknown> | undefined)?.divider).toBeUndefined();
+    });
+
+    it('disables divider when passed null', async () => {
+      const sections = makeSections(
+        makeSection('sec-0', [makeTextBlock('blk-0', '<p>Hello</p>')]),
+      );
+      mockGetPut(sections);
+
+      await client.editSectionStyle(PS_ID, COLL_ID, 0, { divider: null });
+
+      const putCall = mockFetch.mock.calls[1];
+      const putBody = JSON.parse(putCall[1].body);
+      expect(putBody.sections[0].divider).toEqual({ enabled: false });
     });
 
     it('returns error when no style properties provided', async () => {
