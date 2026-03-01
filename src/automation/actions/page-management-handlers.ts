@@ -990,6 +990,44 @@ export async function handleEditCustomCSS(
 // ─── createBlogPost Handler ──────────────────────────────────────────────
 
 /**
+ * Convert plain-text blog content (markdown-style headings) to HTML.
+ * Passes through content that is already HTML.
+ */
+function bodyTextToHtml(text: string): string {
+  if (/<[a-z][\s\S]*>/i.test(text)) return text;
+
+  const lines = text.split('\n');
+  const html: string[] = [];
+  let paragraphLines: string[] = [];
+
+  const flushParagraph = () => {
+    const content = paragraphLines.join(' ').trim();
+    if (content) html.push(`<p>${content}</p>`);
+    paragraphLines = [];
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      flushParagraph();
+    } else if (trimmed.startsWith('### ')) {
+      flushParagraph();
+      html.push(`<h3>${trimmed.slice(4)}</h3>`);
+    } else if (trimmed.startsWith('## ')) {
+      flushParagraph();
+      html.push(`<h2>${trimmed.slice(3)}</h2>`);
+    } else if (trimmed.startsWith('# ')) {
+      flushParagraph();
+      html.push(`<h1>${trimmed.slice(2)}</h1>`);
+    } else {
+      paragraphLines.push(trimmed);
+    }
+  }
+  flushParagraph();
+  return html.join('\n');
+}
+
+/**
  * Create a new blog post in a blog collection.
  */
 export async function handleCreateBlogPost(
@@ -1000,7 +1038,7 @@ export async function handleCreateBlogPost(
 
   // API fast path — try creating the post via ContentSaveClient (~1s vs ~5-10min UI)
   const sessionHealth = ContentSaveClient.checkSessionHealth();
-  if (sessionHealth.exists && sessionHealth.hasCrumb && !sessionHealth.isStale) {
+  if (sessionHealth.exists && sessionHealth.hasCrumb) {
     try {
       const subdomain = new URL(page.url()).hostname.replace('.squarespace.com', '');
       const client = createContentSaveClient(subdomain);
@@ -1010,11 +1048,20 @@ export async function handleCreateBlogPost(
           body: content,
           draft: draft ?? true,
         });
-        if (result.success) {
+        if (result.success && result.itemId) {
+          // Single update: title (prevents wipe on partial PUT) + body + publish state
+          const updateResult = await client.updateBlogPost(meta.collectionId, result.itemId, {
+            title,
+            ...(content ? { body: bodyTextToHtml(content) } : {}),
+            draft,
+          });
+          if (!updateResult.success) {
+            logger.warn({ error: updateResult.error }, 'handleCreateBlogPost: post update failed');
+          }
           logger.info({ itemId: result.itemId }, 'handleCreateBlogPost: created via API fast path');
           return {
             success: true,
-            message: `Created blog post "${title}" via API`,
+            message: `Created ${draft ? 'draft' : 'published'} blog post "${title}" via API`,
           };
         }
         if (result.endpointAvailable === false) {
@@ -1141,9 +1188,27 @@ export async function handleCreateBlogPost(
 
   // Optionally add content
   if (content) {
-    // Tab or click into the content area
-    await page.keyboard.press('Tab');
-    await page.waitForTimeout(500);
+    // Click the body area explicitly instead of Tab (Tab lands in a heading block → all content becomes H2)
+    const bodySelectors = [
+      '.blog-post-body [contenteditable="true"]',
+      '.squarespace-managed-ui .sqs-layout',
+      '[data-test="post-body"] [contenteditable]',
+      'div[contenteditable="true"]:not([placeholder*="title"]):not([placeholder*="Title"])',
+    ];
+    let bodyFocused = false;
+    for (const sel of bodySelectors) {
+      const el = page.locator(sel).first();
+      if (await el.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await el.click();
+        bodyFocused = true;
+        break;
+      }
+    }
+    if (!bodyFocused) {
+      // Fallback: Tab from title field
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(500);
+    }
     await page.keyboard.type(content, { delay: 10 });
   }
 

@@ -6533,7 +6533,14 @@ export class ContentSaveClient {
       const updatedFields: string[] = [];
 
       if (updates.title != null) { body.title = updates.title; updatedFields.push('title'); }
-      if (updates.body != null) { body.body = updates.body; updatedFields.push('body'); }
+      if (updates.body != null) {
+        // Squarespace blog body PUT format: { html: htmlString }
+        // Note: createBlogPost uses { raw: false, layout: {...} } but PUT uses { html: "..." }
+        body.body = typeof updates.body === 'string'
+          ? { html: updates.body }
+          : updates.body;
+        updatedFields.push('body');
+      }
       if (updates.excerpt != null) {
         // Squarespace expects excerpt as { html, raw: false }, not a plain string
         body.excerpt = typeof updates.excerpt === 'string' ? { html: updates.excerpt, raw: false } : updates.excerpt;
