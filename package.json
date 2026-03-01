@@ -15,7 +15,7 @@
     "setup-gmail": "tsx scripts/setup-gmail.ts",
     "test": "vitest run",
     "test:unit": "vitest run src/automation/__tests__/parse-agent-action.test.ts",
-    "test:integration": "vitest run src/automation/__tests__/compound-actions.integration.test.ts"
+    "test:integration": "vitest run src/automation/__tests__/compound-actions.integration.test.ts src/automation/__tests__/smyth-tavern.integration.test.ts src/automation/__tests__/create-about-page.integration.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
