@@ -3,7 +3,7 @@ import { logger } from '../../utils/logger.js';
 import { navigateToPage, enterEditMode } from '../site-navigator.js';
 import { getSiteFrame } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
-import { tryCustomCssApi } from './handler-utils.js';
+import { tryCustomCssApi, trySelectorsInFrame } from './handler-utils.js';
 import { ContentSaveClient, createContentSaveClient } from '../../services/content-save.js';
 import type { ActionResult } from './types.js';
 
@@ -1044,12 +1044,14 @@ export async function handleCreateBlogPost(
       const client = createContentSaveClient(subdomain);
       const meta = await client.getPageMetadata(blogPageSlug);
       if (meta?.collectionId) {
+        // Create establishes the post and returns its itemId. The body field here is
+        // ignored by Squarespace — the API always stores an empty layout placeholder.
+        // The update below is where title, body, and draft state are actually written.
         const result = await client.createBlogPost(meta.collectionId, title, {
-          body: content,
           draft: draft ?? true,
         });
         if (result.success && result.itemId) {
-          // Single update: title (prevents wipe on partial PUT) + body + publish state
+          // Single update: set title + body + publish state on the new post
           const updateResult = await client.updateBlogPost(meta.collectionId, result.itemId, {
             title,
             ...(content ? { body: bodyTextToHtml(content) } : {}),
@@ -1120,16 +1122,7 @@ export async function handleCreateBlogPost(
     'button:has-text("Create Post")',
   ];
 
-  let addClicked = false;
-  for (const sel of addPostSelectors) {
-    const btn = page.locator(sel).first();
-    const visible = await btn.isVisible({ timeout: 2000 }).catch(() => false);
-    if (visible) {
-      await btn.click();
-      addClicked = true;
-      break;
-    }
-  }
+  let addClicked = await trySelectorsInFrame(page, addPostSelectors, 'createBlogPost addPost', { visibilityTimeout: 2000 });
 
   if (!addClicked) {
     // Try hovering over the blog panel to reveal the + button
@@ -1137,16 +1130,7 @@ export async function handleCreateBlogPost(
     if (await blogHeader.isVisible({ timeout: 1000 }).catch(() => false)) {
       await blogHeader.hover();
       await page.waitForTimeout(500);
-
-      for (const sel of addPostSelectors) {
-        const btn = page.locator(sel).first();
-        const visible = await btn.isVisible({ timeout: 1000 }).catch(() => false);
-        if (visible) {
-          await btn.click();
-          addClicked = true;
-          break;
-        }
-      }
+      addClicked = await trySelectorsInFrame(page, addPostSelectors, 'createBlogPost addPost (after hover)', { visibilityTimeout: 1000 });
     }
   }
 
@@ -1195,15 +1179,7 @@ export async function handleCreateBlogPost(
       '[data-test="post-body"] [contenteditable]',
       'div[contenteditable="true"]:not([placeholder*="title"]):not([placeholder*="Title"])',
     ];
-    let bodyFocused = false;
-    for (const sel of bodySelectors) {
-      const el = page.locator(sel).first();
-      if (await el.isVisible({ timeout: 1500 }).catch(() => false)) {
-        await el.click();
-        bodyFocused = true;
-        break;
-      }
-    }
+    const bodyFocused = await trySelectorsInFrame(page, bodySelectors, 'createBlogPost body', { visibilityTimeout: 1500 });
     if (!bodyFocused) {
       // Fallback: Tab from title field
       await page.keyboard.press('Tab');

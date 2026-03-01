@@ -6531,25 +6531,26 @@ export class ContentSaveClient {
         ...(this.memberAccountIdCache ? { authorId: this.memberAccountIdCache } : {}),
       };
       const updatedFields: string[] = [];
+      // set() assigns a field and records it; null/undefined values are skipped.
+      // label overrides the name pushed to updatedFields (for key aliases like workflowState→draft).
+      const set = (key: string, value: unknown, label?: string) => {
+        if (value != null) { body[key] = value; updatedFields.push(label ?? key); }
+      };
 
-      if (updates.title != null) { body.title = updates.title; updatedFields.push('title'); }
-      if (updates.body != null) {
-        // Squarespace blog body PUT format: { html: htmlString }
-        // Note: createBlogPost uses { raw: false, layout: {...} } but PUT uses { html: "..." }
-        body.body = typeof updates.body === 'string'
-          ? { html: updates.body }
-          : updates.body;
-        updatedFields.push('body');
-      }
-      if (updates.excerpt != null) {
-        // Squarespace expects excerpt as { html, raw: false }, not a plain string
-        body.excerpt = typeof updates.excerpt === 'string' ? { html: updates.excerpt, raw: false } : updates.excerpt;
-        updatedFields.push('excerpt');
-      }
-      if (updates.tags != null) { body.tags = updates.tags; updatedFields.push('tags'); }
-      if (updates.categories != null) { body.categories = updates.categories; updatedFields.push('categories'); }
-      if (updates.urlId != null) { body.urlId = updates.urlId; updatedFields.push('urlId'); }
-      if (updates.draft != null) { body.workflowState = updates.draft ? 4 : 1; updatedFields.push('draft'); }
+      set('title', updates.title);
+      // Squarespace blog body PUT format: { html: htmlString }
+      // Note: createBlogPost uses { raw: false, layout: {...} } but PUT uses { html: "..." }
+      set('body', updates.body != null
+        ? (typeof updates.body === 'string' ? { html: updates.body } : updates.body)
+        : undefined);
+      // Squarespace expects excerpt as { html, raw: false }, not a plain string
+      set('excerpt', updates.excerpt != null
+        ? (typeof updates.excerpt === 'string' ? { html: updates.excerpt, raw: false } : updates.excerpt)
+        : undefined);
+      set('tags', updates.tags);
+      set('categories', updates.categories);
+      set('urlId', updates.urlId);
+      set('workflowState', updates.draft != null ? (updates.draft ? 4 : 1) : undefined, 'draft');
 
       if (updatedFields.length === 0) {
         return { success: false, itemId, updatedFields: [], error: 'No fields provided to update' };

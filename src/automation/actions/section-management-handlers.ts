@@ -11,7 +11,7 @@ import {
   saveChanges,
 } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
-import { isFluidEngineActive, clickEditorButton, trySectionMoveApi, trySectionStyleApi } from './handler-utils.js';
+import { isFluidEngineActive, clickEditorButton, trySectionMoveApi, trySectionStyleApi, trySelectorsInFrame } from './handler-utils.js';
 import type { ActionResult } from './types.js';
 // Cross-module handler imports for handleAddSectionFromTemplate
 import { handleEditTextBlock, handleEditButtonBlock } from './text-editing-handlers.js';
@@ -185,43 +185,14 @@ export async function handleAddSection(
       'button:has-text("Blank Section")',
     ];
 
-    let blankClicked = false;
-
-    // Search in main frame first
-    for (const selector of addBlankSelectors) {
-      try {
-        const btn = page.locator(selector).first();
-        const visible = await btn.isVisible({ timeout: 1500 }).catch(() => false);
-        if (visible) {
-          await btn.click({ timeout: 3000 });
-          blankClicked = true;
-          logger.info({ selector }, 'addSection[1b]: clicked Add Blank (main frame)');
-          break;
-        }
-      } catch { /* Try next */ }
-    }
-
-    // Search inside the site iframe.
-    // When ADD SECTION is clicked inside the iframe (Strategy A0 on empty pages),
-    // the section picker panel ALSO appears inside the iframe and is invisible to
-    // page.locator() which only searches the main frame.
-    if (!blankClicked) {
-      const siteFrameForBlank = getSiteFrame(page);
-      if (siteFrameForBlank) {
-        for (const selector of addBlankSelectors) {
-          try {
-            const btn = siteFrameForBlank.locator(selector).first();
-            const visible = await btn.isVisible({ timeout: 1500 }).catch(() => false);
-            if (visible) {
-              await btn.click({ timeout: 3000 });
-              blankClicked = true;
-              logger.info({ selector }, 'addSection[1b]: clicked Add Blank (inside iframe)');
-              break;
-            }
-          } catch { /* Try next */ }
-        }
-      }
-    }
+    // Search main frame first, then site iframe (picker may appear inside iframe
+    // when ADD SECTION was clicked via Strategy A0 on empty pages).
+    const siteFrameForBlank = getSiteFrame(page);
+    const blankClicked =
+      await trySelectorsInFrame(page, addBlankSelectors, 'addSection[1b] main frame') ||
+      (siteFrameForBlank
+        ? await trySelectorsInFrame(siteFrameForBlank, addBlankSelectors, 'addSection[1b] iframe')
+        : false);
 
     if (!blankClicked) {
       // "Add Blank" not found in either frame. Press Escape to dismiss any open picker.

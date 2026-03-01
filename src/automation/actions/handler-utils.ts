@@ -1,4 +1,4 @@
-import { Page } from 'playwright';
+import { Page, Frame } from 'playwright';
 import { existsSync } from 'fs';
 import { logger } from '../../utils/logger.js';
 import { errMsg } from '../../utils/errors.js';
@@ -52,6 +52,33 @@ export async function clickEditorButton(page: Page, name: RegExp, cssFallbacks: 
         return true;
       }
     } catch { /* next */ }
+  }
+  return false;
+}
+
+/**
+ * Iterate a list of selectors on a Page or Frame, clicking the first visible one.
+ * Returns true if a selector was found and clicked. Logs the matched selector.
+ * Default visibilityTimeout is 800ms — if a button is present it's visible immediately.
+ */
+export async function trySelectorsInFrame(
+  frame: Page | Frame,
+  selectors: string[],
+  label: string,
+  opts?: { clickTimeout?: number; visibilityTimeout?: number },
+): Promise<boolean> {
+  const clickTimeout = opts?.clickTimeout ?? 3000;
+  const visibilityTimeout = opts?.visibilityTimeout ?? 800;
+  for (const selector of selectors) {
+    try {
+      const btn = frame.locator(selector).first();
+      const visible = await btn.isVisible({ timeout: visibilityTimeout }).catch(() => false);
+      if (visible) {
+        await btn.click({ timeout: clickTimeout });
+        logger.info({ selector }, `${label}: clicked`);
+        return true;
+      }
+    } catch { /* try next */ }
   }
   return false;
 }
