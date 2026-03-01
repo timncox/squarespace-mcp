@@ -90,8 +90,10 @@ export async function discoverSites(
     }
 
     // Patterns that indicate button/navigation text, NOT site names
-    const SKIP_TEXT = /^(website|selling|domains|go to website|google workspace|manage site|edit site|open site|view site|get started|settings|create website|upgrade|dismiss)$/i;
-    const SKIP_CONTENT = /(trial expires|renews on|expires on|days? left|\.squarespace\.com)/i;
+    const SKIP_TEXT = /^(website|selling|domains|go to website|google workspace|manage site|edit site|open site|view site|get started|settings|create website|upgrade|dismiss|dashboard)$/i;
+    // SKIP_CONTENT: matches substrings — catches concatenated artifacts like "DashboardCreate website"
+    // where textContent merges the page heading "Dashboard" + button "Create website" with no space.
+    const SKIP_CONTENT = /(trial expires|renews on|expires on|days? left|\.squarespace\.com|create website)/i;
 
     for (const [subdomain, { link }] of subdomainToCard) {
       let name = '';
