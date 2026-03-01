@@ -178,53 +178,55 @@ export async function handleAddSection(
     ];
 
     let blankClicked = false;
+
+    // Search in main frame first
     for (const selector of addBlankSelectors) {
       try {
         const btn = page.locator(selector).first();
-        const visible = await btn.isVisible({ timeout: 3000 }).catch(() => false);
+        const visible = await btn.isVisible({ timeout: 1500 }).catch(() => false);
         if (visible) {
           await btn.click({ timeout: 3000 });
           blankClicked = true;
-          logger.info({ selector }, 'addSection[1b]: clicked Add Blank');
+          logger.info({ selector }, 'addSection[1b]: clicked Add Blank (main frame)');
           break;
         }
       } catch { /* Try next */ }
     }
 
+    // Search inside the site iframe.
+    // When ADD SECTION is clicked inside the iframe (Strategy A0 on empty pages),
+    // the section picker panel ALSO appears inside the iframe and is invisible to
+    // page.locator() which only searches the main frame.
     if (!blankClicked) {
-      // If the section picker is still open and we couldn't click "Add Blank",
-      // press Escape to close it and return failure.
-      //
-      // CRITICAL: Without this guard, saveChanges() in step 5 can find the
-      // picker's "Done"/"Save" confirm button and click it — which inserts
-      // whatever template is currently highlighted in the picker.
-      const pickerSelectors = [
-        '[class*="sectionPicker"]',
-        '[class*="section-picker"]',
-        '[class*="layoutPicker"]',
-        '[class*="layout-picker"]',
-      ];
-      let pickerOpen = false;
-      for (const sel of pickerSelectors) {
-        const visible = await page.locator(sel).first().isVisible({ timeout: 500 }).catch(() => false);
-        if (visible) {
-          pickerOpen = true;
-          break;
+      const siteFrameForBlank = getSiteFrame(page);
+      if (siteFrameForBlank) {
+        for (const selector of addBlankSelectors) {
+          try {
+            const btn = siteFrameForBlank.locator(selector).first();
+            const visible = await btn.isVisible({ timeout: 1500 }).catch(() => false);
+            if (visible) {
+              await btn.click({ timeout: 3000 });
+              blankClicked = true;
+              logger.info({ selector }, 'addSection[1b]: clicked Add Blank (inside iframe)');
+              break;
+            }
+          } catch { /* Try next */ }
         }
       }
+    }
 
-      if (pickerOpen) {
-        logger.warn('addSection[1b]: picker open but "Add Blank" not found — pressing Escape to close');
-        await page.keyboard.press('Escape');
-        await page.waitForTimeout(500);
-        return {
-          success: false,
-          message: 'addSection: "Add Blank" button not found in section picker. Closed picker with Escape to prevent accidental template insertion. Try clicking ADD SECTION again.',
-        };
-      }
-
-      // Picker not visible — section may have been auto-added (no picker on some page states)
-      logger.warn('addSection[1b]: Add Blank button not found — section may have been auto-created');
+    if (!blankClicked) {
+      // "Add Blank" not found in either frame. Press Escape to dismiss any open picker.
+      //
+      // CRITICAL: Without this early return, saveChanges() in step 5 finds the
+      // picker's "Done" confirm button and clicks it, inserting the highlighted template.
+      logger.warn('addSection[1b]: "Add Blank" not found in main frame or iframe — pressing Escape');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(500);
+      return {
+        success: false,
+        message: 'addSection: "Add Blank" not found in section picker (searched main frame + iframe). Pressed Escape to dismiss. Try clicking ADD SECTION again.',
+      };
     }
     await page.waitForTimeout(1500);
   }
