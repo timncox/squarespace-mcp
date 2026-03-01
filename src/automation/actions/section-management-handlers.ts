@@ -80,13 +80,23 @@ export async function handleAddSection(
     return false;
   };
 
-  // Strategy A0: Empty page — ADD SECTION button is inside the iframe
+  // Determine if this is an empty page (no content sections, or only a footer).
+  // On empty pages, hover-between-sections strategies (B, C) have no content
+  // sections to hover between — they land near the footer boundary, which either
+  // enters the footer editor or adds a section at the wrong place.
+  const isEmptyPage = sectionIdsBefore.length <= 1;
+  logger.info({ sectionCount: sectionIdsBefore.length, isEmptyPage }, 'addSection: page section count');
+
+  // Strategy A0: Empty page — ADD SECTION button is prominently visible inside the iframe.
+  // Use locator.click() directly (more reliable than boundingBox + page.mouse.click).
   const siteFrameCheck = getSiteFrame(page);
   if (siteFrameCheck && !addSectionClicked) {
-    const iframeBtn = siteFrameCheck.locator('button:has-text("ADD SECTION")').first();
-    const iframeBox = await iframeBtn.boundingBox().catch(() => null);
-    if (iframeBox) {
-      await page.mouse.click(iframeBox.x + iframeBox.width / 2, iframeBox.y + iframeBox.height / 2);
+    const iframeBtn = siteFrameCheck.locator(
+      'button:has-text("ADD SECTION"), button:has-text("Add Section"), [data-test="add-section"]',
+    ).first();
+    const visible = await iframeBtn.isVisible({ timeout: 2000 }).catch(() => false);
+    if (visible) {
+      await iframeBtn.click({ timeout: 3000 });
       logger.info('addSection[1/5]: clicked ADD SECTION inside iframe (empty page)');
       addSectionClicked = true;
     }
@@ -95,10 +105,10 @@ export async function handleAddSection(
   // Strategy A: Check if already visible in main frame
   if (!addSectionClicked) addSectionClicked = await tryClickAddSection();
 
-  // Strategy B: CDP realistic mouse trajectory across section boundary
-  // Sends 20+ mouseMoved events via Chrome DevTools Protocol, simulating
-  // the mouse crossing from inside a section to its bottom edge.
-  if (!addSectionClicked) {
+  // Strategy B: CDP realistic mouse trajectory across section boundary.
+  // Only run when the page has content sections to hover between — on empty
+  // pages this hovers near the footer and causes footer edits or wrong placement.
+  if (!addSectionClicked && !isEmptyPage) {
     logger.info('addSection[1/5]: CDP realistic mouse trajectory at section boundary');
     const cdpResult = await cdpHoverAtSectionBoundary(page);
     if (cdpResult.success) {
@@ -107,8 +117,9 @@ export async function handleAddSection(
     }
   }
 
-  // Strategy C: iframe-aware hover at section boundaries
-  if (!addSectionClicked) {
+  // Strategy C: iframe-aware hover at section boundaries.
+  // Same restriction as B — skip on empty pages to avoid footer interaction.
+  if (!addSectionClicked && !isEmptyPage) {
     logger.info('addSection[1/5]: iframe-aware hover at section boundaries');
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(500);
