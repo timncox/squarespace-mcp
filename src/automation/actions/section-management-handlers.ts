@@ -143,20 +143,22 @@ export async function handleAddSection(
   if (!template && !category) {
     logger.info('addSection[1b]: looking for "Add Blank" in section picker');
     // In the section picker panel, "Add Blank" appears as "+ Add Blank" (a link, not a button).
-    // IMPORTANT: Specific selectors (a, button, data-test) must come BEFORE broad :has-text()
-    // selectors. :has-text() matches ALL ancestors containing the text; .first() returns the
-    // outermost element (the panel container), and clicking it at center accidentally selects
-    // a template card in the middle of the grid instead of the "Add Blank" link.
+    // IMPORTANT: Do NOT use bare ':has-text("...")' selectors here — they match ancestor
+    // container elements (including <body>), and clicking a large container clicks its center,
+    // which lands on the first template card in the picker.
     const addBlankSelectors = [
+      // Scoped within picker panel — most specific, prevents hitting template cards
+      '[class*="sectionPicker"] a:has-text("Add Blank")',
+      '[class*="sectionPicker"] button:has-text("Blank")',
+      '[class*="section-picker"] a:has-text("Add Blank")',
+      '[class*="section-picker"] button:has-text("Blank")',
+      // data-test attribute — reliable when present
       '[data-test="add-blank-section"]',
+      // Element-typed selectors (link/button) — safe, won't match ancestor containers
       'a:has-text("Add Blank")',
-      'button:has-text("Add Blank")',
       'a:has-text("+ Add Blank")',
+      'button:has-text("Add Blank")',
       'button:has-text("Blank Section")',
-      'button:has-text("Blank")',
-      'a:has-text("Blank")',
-      ':has-text("+ Add Blank")',
-      ':has-text("Add Blank")',
     ];
 
     let blankClicked = false;

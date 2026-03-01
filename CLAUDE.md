@@ -95,7 +95,7 @@ The browser agent actions were refactored from a single 7,490-line file into a d
 | `block-management-handlers.ts` | addBlockToSection, removeBlock, moveBlockInSection, resizeBlock |
 | `section-management-handlers.ts` | addSection, addSectionFromTemplate, enterSectionEditMode, moveSection, editSectionStyle |
 | `image-handlers.ts` | replaceImage, addImageBlock |
-| `page-management-handlers.ts` | createPage, deletePage, switchPage, editPageSEO, editCustomCSS, createBlogPost |
+| `page-management-handlers.ts` | createPage (pageType?: 'page'\|'blog'), deletePage, switchPage, editPageSEO, editCustomCSS, createBlogPost |
 
 Support files: `handler-utils.ts` (shared utils), `parse-action.ts` (JSON parser), `types.ts` (type definitions).
 
@@ -216,7 +216,7 @@ For plans with page creation or 3+ section additions, `executeTasksWithPlan()` u
 
 **Pass 2 (Content)**: Fills content into the now-persistent sections via Content Save API (`executeContentOnlyTemplate()` and `executeContentOnlyBlankApi()`).
 
-Split logic: `splitOperationsIntoPasses()` separates structural (section/page creation) from content (text/image replacement) operations. `shouldUseTwoPass()` checks if the plan qualifies.
+Split logic: `splitOperationsIntoPasses()` separates structural (section/page creation) from content (text/image replacement) operations. `shouldUseTwoPass()` checks if the plan qualifies. **Adding a new structural op type** requires updating 4 places: `splitOperationsIntoPasses` (structural branch), the pass 1 loop in `executeTwoPassPlan`, `shouldUseTwoPass`, and both `hasPageCreation` gates in the blank_api and template fast paths.
 
 ### Granular Operation Tracking
 
@@ -360,4 +360,4 @@ Upload strategies (fallback chain):
 - `src/services/__tests__/menu-merger.test.ts` — menu merger (LLM + structured) tests (36 tests)
 - Integration test: `src/automation/__tests__/compound-actions.integration.test.ts` (requires live browser session)
 - Run: `npm run test` (integration test files show as "failed" when no browser session — this is expected)
-- **Pre-existing TS errors**: `operationType` union doesn't include `'create_page'`, causing TS2367 in tests and execution.ts. Workaround: cast to `string` for comparison. Server runs via `tsx watch` which ignores type errors.
+- **Pre-existing TS errors**: `operationType` union doesn't include `'create_page'` or `'create_blog_post'`, causing TS2367 in tests and execution.ts. Workaround: cast to `string` for comparison. Server runs via `tsx watch` which ignores type errors.
