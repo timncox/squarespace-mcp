@@ -60,6 +60,7 @@ import {
   isApiAccordionBlock,
   isApiMarqueeBlock,
   isApiFormBlock,
+  isApiEmbedBlock,
   isApiSocialLinksBlock,
 } from '../agents/types.js';
 import type {
@@ -74,6 +75,7 @@ import type {
   ApiAccordionBlock,
   ApiMarqueeBlock,
   ApiFormBlock,
+  ApiEmbedBlock,
   ApiSocialLinksBlock,
 } from '../agents/types.js';
 
@@ -339,6 +341,13 @@ async function executeAddSectionBlankApi(
         if (result.success) blocksAdded++;
         else logger.warn({ error: result.error }, 'api-executor: addFormBlock failed');
       }
+    } else if (isApiEmbedBlock(block)) {
+      const result = await client.addEmbedBlock(
+        ctx.pageSectionsId, ctx.collectionId, newSectionIndex,
+        block.html, block.layout,
+      );
+      if (result.success) blocksAdded++;
+      else logger.warn({ error: result.error }, 'api-executor: addEmbedBlock failed');
     } else if (isApiSocialLinksBlock(block)) {
       const result = await client.addSocialLinksBlock(
         ctx.pageSectionsId, ctx.collectionId, newSectionIndex,

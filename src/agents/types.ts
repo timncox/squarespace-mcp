@@ -330,6 +330,21 @@ export interface ApiFormBlock {
   };
 }
 
+/** An HTML embed block (type 22) to add via Content Save API */
+export interface ApiEmbedBlock {
+  type: 'embed';
+  html?: string;
+  layout?: {
+    columns?: number;
+    rowHeight?: number;
+    gapRows?: number;
+    startX?: number;
+    endX?: number;
+    startY?: number;
+    endY?: number;
+  };
+}
+
 /** A social links block (type 54) to add via Content Save API.
  * Note: social profile URLs come from site-level connected accounts.
  * This block only controls display options. */
@@ -351,7 +366,7 @@ export interface ApiSocialLinksBlock {
 }
 
 /** Union of all API block types */
-export type AnyApiBlock = ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock | ApiDividerBlock | ApiVideoBlock | ApiQuoteBlock | ApiCodeBlock | ApiNewsletterBlock | ApiAccordionBlock | ApiMarqueeBlock | ApiFormBlock | ApiSocialLinksBlock;
+export type AnyApiBlock = ApiTextBlock | ApiButtonBlock | ApiImageBlock | ApiGalleryBlock | ApiDividerBlock | ApiVideoBlock | ApiQuoteBlock | ApiCodeBlock | ApiNewsletterBlock | ApiAccordionBlock | ApiMarqueeBlock | ApiFormBlock | ApiEmbedBlock | ApiSocialLinksBlock;
 
 /** Type guard: is this apiBlock a button block? */
 export function isApiButtonBlock(block: AnyApiBlock): block is ApiButtonBlock {
@@ -406,6 +421,11 @@ export function isApiMarqueeBlock(block: AnyApiBlock): block is ApiMarqueeBlock 
 /** Type guard: is this apiBlock a form block? */
 export function isApiFormBlock(block: AnyApiBlock): block is ApiFormBlock {
   return 'type' in block && (block as ApiFormBlock).type === 'form';
+}
+
+/** Type guard: is this apiBlock an embed block? */
+export function isApiEmbedBlock(block: AnyApiBlock): block is ApiEmbedBlock {
+  return 'type' in block && (block as ApiEmbedBlock).type === 'embed';
 }
 
 /** Type guard: is this apiBlock a social links block? */
