@@ -163,6 +163,11 @@ export async function handleAddSection(
       '[class*="sectionPicker"] button:has-text("Blank")',
       '[class*="section-picker"] a:has-text("Add Blank")',
       '[class*="section-picker"] button:has-text("Blank")',
+      // layoutPicker variants (Squarespace sometimes uses this class instead)
+      '[class*="layoutPicker"] a:has-text("Add Blank")',
+      '[class*="layout-picker"] a:has-text("Add Blank")',
+      '[class*="layoutPicker"] button:has-text("Blank")',
+      '[class*="layout-picker"] button:has-text("Blank")',
       // data-test attribute — reliable when present
       '[data-test="add-blank-section"]',
       // Element-typed selectors (link/button) — safe, won't match ancestor containers
@@ -187,7 +192,38 @@ export async function handleAddSection(
     }
 
     if (!blankClicked) {
-      // The section picker might auto-add a blank section on some templates
+      // If the section picker is still open and we couldn't click "Add Blank",
+      // press Escape to close it and return failure.
+      //
+      // CRITICAL: Without this guard, saveChanges() in step 5 can find the
+      // picker's "Done"/"Save" confirm button and click it — which inserts
+      // whatever template is currently highlighted in the picker.
+      const pickerSelectors = [
+        '[class*="sectionPicker"]',
+        '[class*="section-picker"]',
+        '[class*="layoutPicker"]',
+        '[class*="layout-picker"]',
+      ];
+      let pickerOpen = false;
+      for (const sel of pickerSelectors) {
+        const visible = await page.locator(sel).first().isVisible({ timeout: 500 }).catch(() => false);
+        if (visible) {
+          pickerOpen = true;
+          break;
+        }
+      }
+
+      if (pickerOpen) {
+        logger.warn('addSection[1b]: picker open but "Add Blank" not found — pressing Escape to close');
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(500);
+        return {
+          success: false,
+          message: 'addSection: "Add Blank" button not found in section picker. Closed picker with Escape to prevent accidental template insertion. Try clicking ADD SECTION again.',
+        };
+      }
+
+      // Picker not visible — section may have been auto-added (no picker on some page states)
       logger.warn('addSection[1b]: Add Blank button not found — section may have been auto-created');
     }
     await page.waitForTimeout(1500);
