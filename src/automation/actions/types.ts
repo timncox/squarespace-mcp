@@ -36,7 +36,7 @@ export type AgentAction =
   | { action: 'addImageBlock'; imagePath: string; altText?: string }
   | { action: 'addGalleryBlock'; imagePaths: string[]; altTexts?: string[]; galleryStyle?: 'grid' | 'slideshow' | 'collage' }
   | { action: 'addButtonBlock'; label: string; url: string; size?: 'small' | 'medium' | 'large'; style?: 'primary' | 'secondary' | 'tertiary'; alignment?: 'left' | 'center' | 'right' }
-  | { action: 'createPage'; title: string; slug?: string; template?: string }
+  | { action: 'createPage'; title: string; slug?: string; template?: string; pageType?: 'page' | 'blog' }
   | { action: 'deletePage'; title: string }
   | { action: 'editSectionStyle'; searchText: string; backgroundColor?: string; backgroundImage?: string; sectionTheme?: string; sectionHeight?: 'auto' | 'small' | 'medium' | 'large' | 'full'; contentWidth?: 'inset' | 'full'; verticalAlignment?: 'top' | 'middle' | 'bottom'; overlayOpacity?: number; sectionPadding?: 'none' | 'small' | 'medium' | 'large'; blockSpacing?: 'none' | 'small' | 'medium' | 'large' }
   | { action: 'switchPage'; pageSlug: string }

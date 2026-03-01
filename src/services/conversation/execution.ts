@@ -379,10 +379,10 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
       ? getTask(conversation.taskIds[0])
       : null;
     const hasPageCreation = plan.operations.some(op =>
-      op.operationType === 'create_page' || op.targetPage === 'new',
+      op.operationType === 'create_page' || op.targetPage === 'new' || (op.operationType as string) === 'create_blog_post',
     ) || (primaryTaskForGate ? taskIsPageCreation(primaryTaskForGate) : false);
     const blankApiOps = hasPageCreation
-      ? []  // defer to browser agent — page must be created first
+      ? []  // defer to two-pass — page/blog must be created first
       : plan.operations.filter(op => op.content.contentStrategy === 'blank_api');
 
     if (blankApiOps.length > 0) {
@@ -584,7 +584,7 @@ export async function executeTasksWithPlan(conversation: Conversation): Promise<
       ? getTask(conversation.taskIds[0])
       : null;
     const hasPageCreationForTemplate = plan.operations.some(op =>
-      (op.operationType as string) === 'create_page' || op.targetPage === 'new',
+      (op.operationType as string) === 'create_page' || op.targetPage === 'new' || (op.operationType as string) === 'create_blog_post',
     ) || (primaryTaskForTemplateGate ? taskIsPageCreation(primaryTaskForTemplateGate) : false);
     const templateOps = hasPageCreationForTemplate
       ? []  // defer to browser agent — page must be created first
@@ -2373,10 +2373,11 @@ export function splitOperationsIntoPasses(operations: ContentOperation[]): {
 
   for (const op of operations) {
     const isCreatePage = op.operationType === 'create_page' || op.targetPage === 'new';
+    const isCreateBlogPost = (op.operationType as string) === 'create_blog_post';
     const isAddSection = op.operationType === 'add_section';
 
-    if (isCreatePage) {
-      // Page creation is purely structural
+    if (isCreatePage || isCreateBlogPost) {
+      // Page creation and blog post creation are purely structural
       structural.push(op);
     } else if (isAddSection) {
       // Section additions are structural — always add to pass 1
@@ -2416,11 +2417,15 @@ export function shouldUseTwoPass(plan: ContentPlan): boolean {
     op => op.operationType === 'create_page' || op.targetPage === 'new',
   );
 
+  const hasBlogPostCreation = plan.operations.some(
+    op => (op.operationType as string) === 'create_blog_post',
+  );
+
   const sectionAdditions = plan.operations.filter(
     op => op.operationType === 'add_section',
   ).length;
 
-  return hasPageCreation || sectionAdditions >= TWO_PASS_SECTION_THRESHOLD;
+  return hasPageCreation || hasBlogPostCreation || sectionAdditions >= TWO_PASS_SECTION_THRESHOLD;
 }
 
 /**
@@ -2606,6 +2611,25 @@ async function executeTwoPassPlan(
 
           // Wait for section to settle before adding the next one
           await page.waitForTimeout(1500);
+        } else if ((op.operationType as string) === 'create_blog_post') {
+          // Blog post creation — delegate to handleCreateBlogPost
+          // Has an API fast path (~1s), falls back to UI automation
+          const { handleCreateBlogPost } = await import('../../automation/actions/page-management-handlers.js');
+          const blogResult = await handleCreateBlogPost(page, {
+            action: 'createBlogPost',
+            blogPageSlug: op.targetPage ?? op.content.heading ?? '',
+            title: op.content.heading ?? 'New Post',
+            content: op.content.bodyText,
+            draft: false,
+          });
+
+          if (blogResult.success) {
+            pass1Succeeded++;
+            logger.info({ label }, 'Two-pass pass 1: blog post created');
+          } else {
+            pass1Failed++;
+            logger.warn({ label, error: blogResult.message }, 'Two-pass pass 1: blog post failed');
+          }
         }
       } catch (err) {
         pass1Failed++;

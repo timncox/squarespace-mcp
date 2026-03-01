@@ -28,9 +28,9 @@ import type { ActionResult } from './types.js';
  */
 export async function handleCreatePage(
   page: Page,
-  action: { action: 'createPage'; title: string; slug?: string; template?: string },
+  action: { action: 'createPage'; title: string; slug?: string; template?: string; pageType?: 'page' | 'blog' },
 ): Promise<ActionResult> {
-  const { title, slug, template } = action;
+  const { title, slug, template, pageType = 'page' } = action;
 
   // ── Step 1: Navigate to Pages panel ───────────────────────────────────
   logger.info({ title }, 'createPage[1/5]: navigating to pages panel');
@@ -184,23 +184,32 @@ export async function handleCreatePage(
   }
   await page.waitForTimeout(1500);
 
-  // ── Step 4: Click "Page" in the sub-menu → inline title input appears ─
+  // ── Step 4: Click "Page" or "Blog" in the sub-menu → inline title input appears ─
   // After clicking "Add Blank", a sub-menu shows "Page" and "Blog" as <LI>
-  // elements. Clicking "Page" creates the page and auto-focuses an inline
-  // <input type="text"> with value "New Page" for immediate renaming.
-  logger.info('createPage[4/5]: clicking "Page" in Add Blank sub-menu');
+  // elements. Clicking "Page" creates a blank page; clicking "Blog" creates
+  // a blog collection that supports posts.
+  const isBlog = pageType === 'blog';
+  const exactLabel = isBlog ? 'Blog' : 'Page';
+  logger.info({ pageType }, `createPage[4/5]: clicking "${exactLabel}" in Add Blank sub-menu`);
 
-  // Prefer the data-test selector which is an <LI> element
-  const pageTypeSelectors = [
+  const blogSelectors = [
+    '[data-test="blank-blog-option"]',
+    'li:has-text("Blog")',
+    'a:has-text("Blog")',
+    'button:has-text("Blog")',
+    'text="Blog"',
+  ];
+  const pageSelectors = [
     '[data-test="blank-page-option"]',
     'li:has-text("Page")',
     'a:has-text("Page")',
     'button:has-text("Page")',
     'text="Page"',
   ];
+  const typeSelectors = isBlog ? blogSelectors : pageSelectors;
 
   let pageTypeClicked = false;
-  for (const selector of pageTypeSelectors) {
+  for (const selector of typeSelectors) {
     try {
       const candidates = page.locator(selector);
       const count = await candidates.count();
@@ -209,11 +218,11 @@ export async function handleCreatePage(
         const visible = await candidate.isVisible({ timeout: 2000 }).catch(() => false);
         if (!visible) continue;
         const text = await candidate.innerText().catch(() => '');
-        // Exact match for "Page" (not "Add Page", "Blog Page", etc.)
-        if (text.trim() === 'Page') {
+        // Exact match for "Page" or "Blog" (not "Add Page", "Blog Page", etc.)
+        if (text.trim() === exactLabel) {
           await candidate.click({ timeout: 3000 });
           pageTypeClicked = true;
-          logger.info({ selector, index: i }, 'createPage[4/5]: clicked "Page" in sub-menu');
+          logger.info({ selector, index: i, pageType }, `createPage[4/5]: clicked "${exactLabel}" in sub-menu`);
           break;
         }
       }
@@ -224,7 +233,7 @@ export async function handleCreatePage(
   if (!pageTypeClicked) {
     return {
       success: false,
-      message: 'createPage step 4: "Page" option not found in the Add Blank sub-menu. The sub-menu should show "Page" and "Blog" options.',
+      message: `createPage step 4: "${exactLabel}" option not found in the Add Blank sub-menu. The sub-menu should show "Page" and "Blog" options.`,
     };
   }
 
@@ -242,7 +251,7 @@ export async function handleCreatePage(
     // Try to find the title input manually
     logger.warn({ focusedTag }, 'createPage[5/5]: expected INPUT to be focused, trying to find it');
 
-    const titleInput = page.locator('input[type="text"][placeholder="New Page"], input[type="text"][value="New Page"]').first();
+    const titleInput = page.locator('input[type="text"][placeholder="New Page"], input[type="text"][value="New Page"], input[type="text"][placeholder="New Blog Page"], input[type="text"][value="New Blog Page"]').first();
     const inputVisible = await titleInput.isVisible({ timeout: 3000 }).catch(() => false);
     if (inputVisible) {
       await titleInput.click();
@@ -258,7 +267,7 @@ export async function handleCreatePage(
         const visible = await inp.isVisible().catch(() => false);
         if (!visible) continue;
         const val = await inp.inputValue().catch(() => '');
-        if (val === 'New Page' || val === '') {
+        if (val === 'New Page' || val === 'New Blog Page' || val === '') {
           await inp.click();
           found = true;
           logger.info({ index: i, value: val }, 'createPage[5/5]: found title input by scanning');
