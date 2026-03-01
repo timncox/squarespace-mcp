@@ -714,6 +714,19 @@ export interface FormBlockUpdateResult {
   error?: string;
 }
 
+/** A single form available on the site */
+export interface FormInfo {
+  id: string;
+  name: string;
+}
+
+/** Result of listing available forms */
+export interface FormListResult {
+  success: boolean;
+  forms: FormInfo[];
+  error?: string;
+}
+
 /** Result of adding a social links block */
 export interface SocialLinksBlockAddResult {
   success: boolean;

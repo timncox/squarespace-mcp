@@ -312,9 +312,27 @@ async function executeAddSectionBlankApi(
       if (!block.formId) {
         logger.warn({ block }, 'api-executor: addFormBlock requires formId — skipping');
       } else {
+        let resolvedFormId = block.formId;
+        if (!/^[a-f0-9]{24}$/.test(resolvedFormId)) {
+          // Looks like a human-readable name, not a UUID — resolve via API
+          const formList = await client.getAvailableForms();
+          const match = formList.forms.find(
+            (f) => f.name.toLowerCase().includes(resolvedFormId.toLowerCase()),
+          );
+          if (match) {
+            logger.info({ name: resolvedFormId, id: match.id }, 'api-executor: resolved form name to ID');
+            resolvedFormId = match.id;
+          } else {
+            logger.warn(
+              { formId: resolvedFormId, available: formList.forms.map((f) => f.name) },
+              'api-executor: could not resolve form name to ID — skipping',
+            );
+            continue;
+          }
+        }
         const result = await client.addFormBlock(
           ctx.pageSectionsId, ctx.collectionId, newSectionIndex,
-          block.formId,
+          resolvedFormId,
           { buttonVariant: block.buttonVariant, buttonAlignment: block.buttonAlignment, useLightbox: block.useLightbox },
           block.layout,
         );
@@ -617,8 +635,24 @@ async function executeAddBlock(
     case 'form': {
       const formId = op.content.bodyText;
       if (!formId) throw new Error('add_block (form): bodyText must contain the formId');
+      let resolvedFormId = formId;
+      if (!/^[a-f0-9]{24}$/.test(resolvedFormId)) {
+        // Looks like a human-readable name — resolve via API
+        const formList = await client.getAvailableForms();
+        const match = formList.forms.find(
+          (f) => f.name.toLowerCase().includes(resolvedFormId.toLowerCase()),
+        );
+        if (match) {
+          logger.info({ name: resolvedFormId, id: match.id }, 'api-executor: resolved form name to ID (add_block)');
+          resolvedFormId = match.id;
+        } else {
+          throw new Error(
+            `add_block (form): could not resolve form name "${resolvedFormId}" — available: ${formList.forms.map((f) => f.name).join(', ')}`,
+          );
+        }
+      }
       const result = await client.addFormBlock(
-        ctx.pageSectionsId, ctx.collectionId, lastSectionIndex, formId,
+        ctx.pageSectionsId, ctx.collectionId, lastSectionIndex, resolvedFormId,
       );
       if (!result.success) throw new Error(result.error ?? 'addFormBlock failed');
       return `Added form block to section ${lastSectionIndex}`;

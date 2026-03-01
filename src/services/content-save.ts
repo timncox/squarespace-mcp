@@ -90,6 +90,7 @@ export type {
   MarqueeBlockUpdateResult,
   FormBlockAddResult,
   FormBlockUpdateResult,
+  FormListResult,
   SiteIdentityData,
   SiteIdentityUpdateOptions,
   SiteIdentityResult,
@@ -170,6 +171,7 @@ import type {
   MarqueeBlockUpdateResult,
   FormBlockAddResult,
   FormBlockUpdateResult,
+  FormListResult,
   SiteIdentityData,
   SiteIdentityUpdateOptions,
   SiteIdentityResult,
@@ -236,6 +238,7 @@ export class ContentSaveClient {
   private sessionAgeHours: number | null = null;
   private sessionLoadedAt: Date | null = null;
   private websiteIdCache: string | null = null;
+  private memberAccountIdCache: string | null = null;
 
   constructor(siteSubdomain: string) {
     this.siteSubdomain = siteSubdomain;
@@ -292,25 +295,29 @@ export class ContentSaveClient {
       }
     }
 
-    // Extract websiteId from Statsig localStorage (needed for blog post creation)
+    // Extract websiteId and member_account_id from Statsig localStorage (needed for blog post creation)
     const origins: Array<{ origin: string; localStorage?: Array<{ name: string; value: string }> }> =
       session.origins ?? [];
-    outer: for (const origin of origins) {
+    for (const origin of origins) {
       for (const item of origin.localStorage ?? []) {
         if (item.name.startsWith('statsig.cached.evaluations')) {
           try {
             const data = JSON.parse(item.value) as { data?: string };
             const dataStr = typeof data.data === 'string' ? data.data : JSON.stringify(data);
-            const match = dataStr.match(/"website_id":"([a-f0-9]+)"/);
-            if (match) {
-              this.websiteIdCache = match[1];
-              break outer;
+            if (!this.websiteIdCache) {
+              const m = dataStr.match(/"website_id":"([a-f0-9]+)"/);
+              if (m) this.websiteIdCache = m[1];
+            }
+            if (!this.memberAccountIdCache) {
+              const m = dataStr.match(/"member_account_id":"([a-f0-9]+)"/);
+              if (m) this.memberAccountIdCache = m[1];
             }
           } catch {
             // ignore malformed localStorage entries
           }
         }
       }
+      if (this.websiteIdCache && this.memberAccountIdCache) break;
     }
 
     logger.info(
@@ -320,6 +327,7 @@ export class ContentSaveClient {
         siteCookies: siteCookies.length,
         hasCrumb: !!this.crumbToken,
         hasWebsiteId: !!this.websiteIdCache,
+        hasMemberAccountId: !!this.memberAccountIdCache,
       },
       'Loaded session cookies for content save',
     );
@@ -5436,6 +5444,45 @@ export class ContentSaveClient {
     }
   }
 
+  /**
+   * List all forms available on this site.
+   * Calls GET /api/rolodex/1/forms — confirmed via network capture on grey-yellow-hbxc
+   * (Mar 2026, /config/profiles/form-submissions panel).
+   * Response shape: { formSummaries: Array<{ id, title, ... }> | null }
+   */
+  async getAvailableForms(): Promise<FormListResult> {
+    this.ensureCookies();
+    const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
+    try {
+      const url = `${siteUrl}/api/rolodex/1/forms`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        return { success: false, forms: [], error: `HTTP ${response.status}` };
+      }
+      const data = (await response.json()) as unknown;
+      const rec = data as Record<string, unknown>;
+      const raw: unknown[] = Array.isArray(rec.formSummaries)
+        ? (rec.formSummaries as unknown[])
+        : Array.isArray(data)
+          ? (data as unknown[])
+          : [];
+      const forms = raw.map((f) => {
+        const item = f as Record<string, unknown>;
+        return {
+          id: String(item.id ?? item.formId ?? ''),
+          name: String(item.title ?? item.name ?? ''),
+        };
+      });
+      return { success: true, forms };
+    } catch (err) {
+      return { success: false, forms: [], error: errMsg(err) };
+    }
+  }
+
   // ── Social Links Block (type 54) ────────────────────────────────────────
 
   /**
@@ -6233,13 +6280,24 @@ export class ContentSaveClient {
       }
 
       const data = (await response.json()) as Record<string, unknown>;
-      let items = (Array.isArray(data.items) ? data.items : Array.isArray(data) ? data : []) as CollectionItem[];
+      // Squarespace may return items under 'items', 'results', or as a top-level array
+      let items = (
+        Array.isArray(data.items) ? data.items :
+        Array.isArray(data.results) ? data.results :
+        Array.isArray(data) ? data : []
+      ) as CollectionItem[];
 
-      // Apply status filter if requested
+      // Apply status filter if requested (handles both status and workflowState fields)
       if (options?.filter === 'published') {
-        items = items.filter((item) => (item as Record<string, unknown>).status === 1);
+        items = items.filter((item) => {
+          const i = item as Record<string, unknown>;
+          return i.status === 1 || i.workflowState === 1;
+        });
       } else if (options?.filter === 'draft') {
-        items = items.filter((item) => (item as Record<string, unknown>).status === 0);
+        items = items.filter((item) => {
+          const i = item as Record<string, unknown>;
+          return i.status === 0 || i.workflowState === 4;
+        });
       }
 
       return {
@@ -6390,6 +6448,7 @@ export class ContentSaveClient {
         addedOn: now,
         publishOn: now,
         ...(this.websiteIdCache ? { websiteId: this.websiteIdCache } : {}),
+        ...(this.memberAccountIdCache ? { authorId: this.memberAccountIdCache } : {}),
         mediaFocalPoint: { x: 0.5, y: 0.5 },
         likeCount: 0,
         dislikeCount: 0,
@@ -6466,27 +6525,39 @@ export class ContentSaveClient {
     this.ensureCookies();
 
     try {
-      const body: Record<string, unknown> = {};
+      // Build partial body — always include id and authorId so the server can identify the author
+      const body: Record<string, unknown> = {
+        id: itemId,
+        ...(this.memberAccountIdCache ? { authorId: this.memberAccountIdCache } : {}),
+      };
       const updatedFields: string[] = [];
 
       if (updates.title != null) { body.title = updates.title; updatedFields.push('title'); }
       if (updates.body != null) { body.body = updates.body; updatedFields.push('body'); }
-      if (updates.excerpt != null) { body.excerpt = updates.excerpt; updatedFields.push('excerpt'); }
+      if (updates.excerpt != null) {
+        // Squarespace expects excerpt as { html, raw: false }, not a plain string
+        body.excerpt = typeof updates.excerpt === 'string' ? { html: updates.excerpt, raw: false } : updates.excerpt;
+        updatedFields.push('excerpt');
+      }
       if (updates.tags != null) { body.tags = updates.tags; updatedFields.push('tags'); }
       if (updates.categories != null) { body.categories = updates.categories; updatedFields.push('categories'); }
       if (updates.urlId != null) { body.urlId = updates.urlId; updatedFields.push('urlId'); }
-      if (updates.draft != null) { body.draft = updates.draft; updatedFields.push('draft'); }
+      if (updates.draft != null) { body.workflowState = updates.draft ? 4 : 1; updatedFields.push('draft'); }
 
       if (updatedFields.length === 0) {
         return { success: false, itemId, updatedFields: [], error: 'No fields provided to update' };
       }
 
-      const path = `/api/content-collections/${collectionId}/content-items/${itemId}`;
-      const url = this.buildApiUrl(path, true);
+      // Same endpoint pattern as create: PUT /api/content/blogs/{collectionId}/text-posts/{itemId}
+      const url = `https://${this.siteSubdomain}.squarespace.com/api/content/blogs/${collectionId}/text-posts/${itemId}`;
 
       const response = await fetch(url, {
         method: 'PUT',
-        headers: { ...this.buildHeaders(), 'Content-Type': 'application/json' },
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+          ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+        },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });

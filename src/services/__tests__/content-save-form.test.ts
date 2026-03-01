@@ -244,3 +244,200 @@ describe('ContentSaveClient — updateFormBlock', () => {
     expect(result.error).toContain('Must provide');
   });
 });
+
+describe('ContentSaveClient — getAvailableForms', () => {
+  let client: ContentSaveClient;
+
+  beforeEach(() => {
+    client = new ContentSaveClient('test-site');
+    client.loadSessionCookies('/fake/session.json');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns form list from { formSummaries: [...] } response shape', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          formSummaries: [
+            { id: 'aabbccddee0011223344aabb', title: 'Contact Us' },
+            { id: 'bbccddee0011223344aabbcc', title: 'Newsletter Signup' },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await client.getAvailableForms();
+
+    expect(result.success).toBe(true);
+    expect(result.forms).toHaveLength(2);
+    expect(result.forms[0]).toEqual({ id: 'aabbccddee0011223344aabb', name: 'Contact Us' });
+    expect(result.forms[1]).toEqual({ id: 'bbccddee0011223344aabbcc', name: 'Newsletter Signup' });
+
+    fetchSpy.mockRestore();
+  });
+
+  it('returns empty list when formSummaries is null (no forms on site)', async () => {
+    // This is the real response shape from grey-yellow-hbxc when no forms are created
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ formSummaries: null }), { status: 200 }),
+    );
+
+    const result = await client.getAvailableForms();
+
+    expect(result.success).toBe(true);
+    expect(result.forms).toHaveLength(0);
+
+    fetchSpy.mockRestore();
+  });
+
+  it('returns form list from flat array response shape (fallback)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify([
+          { id: 'aabbccddee0011223344aabb', title: 'Booking Form' },
+          { formId: 'bbccddee0011223344aabbcc', name: 'Quote Request' },
+        ]),
+        { status: 200 },
+      ),
+    );
+
+    const result = await client.getAvailableForms();
+
+    expect(result.success).toBe(true);
+    expect(result.forms).toHaveLength(2);
+    expect(result.forms[0]).toEqual({ id: 'aabbccddee0011223344aabb', name: 'Booking Form' });
+    expect(result.forms[1]).toEqual({ id: 'bbccddee0011223344aabbcc', name: 'Quote Request' });
+
+    fetchSpy.mockRestore();
+  });
+
+  it('returns empty list when API returns empty formSummaries array', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ formSummaries: [] }), { status: 200 }),
+    );
+
+    const result = await client.getAvailableForms();
+
+    expect(result.success).toBe(true);
+    expect(result.forms).toHaveLength(0);
+
+    fetchSpy.mockRestore();
+  });
+
+  it('returns empty list when API returns empty flat array', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify([]), { status: 200 }),
+    );
+
+    const result = await client.getAvailableForms();
+
+    expect(result.success).toBe(true);
+    expect(result.forms).toHaveLength(0);
+
+    fetchSpy.mockRestore();
+  });
+
+  it('returns { success: false } on HTTP 401', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('Unauthorized', { status: 401 }),
+    );
+
+    const result = await client.getAvailableForms();
+
+    expect(result.success).toBe(false);
+    expect(result.forms).toHaveLength(0);
+    expect(result.error).toBe('HTTP 401');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('returns { success: false } on HTTP 404', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response('Not Found', { status: 404 }),
+    );
+
+    const result = await client.getAvailableForms();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('HTTP 404');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('returns { success: false } on network error', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(
+      new Error('fetch failed'),
+    );
+
+    const result = await client.getAvailableForms();
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('fetch failed');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('prefers title over name field for the form name', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          formSummaries: [{ id: 'aabbccddee0011223344aabb', title: 'My Title', name: 'My Name' }],
+        }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await client.getAvailableForms();
+
+    expect(result.forms[0].name).toBe('My Title');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('falls back to name field when title is absent', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ formSummaries: [{ id: 'aabbccddee0011223344aabb', name: 'Fallback Name' }] }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await client.getAvailableForms();
+
+    expect(result.forms[0].name).toBe('Fallback Name');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('calls the correct endpoint URL', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify({ formSummaries: [] }), { status: 200 }),
+    );
+
+    await client.getAvailableForms();
+
+    const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://test-site.squarespace.com/api/rolodex/1/forms');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('uses formId field as id fallback when id is absent', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ formSummaries: [{ formId: 'ccddee001122334455aabbcc', title: 'Legacy Form' }] }),
+        { status: 200 },
+      ),
+    );
+
+    const result = await client.getAvailableForms();
+
+    expect(result.forms[0].id).toBe('ccddee001122334455aabbcc');
+
+    fetchSpy.mockRestore();
+  });
+});
