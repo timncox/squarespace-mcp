@@ -142,16 +142,21 @@ export async function handleAddSection(
   // We need to click "Add Blank" or "+ Add Blank" to add a blank section.
   if (!template && !category) {
     logger.info('addSection[1b]: looking for "Add Blank" in section picker');
-    // In the section picker panel, "Add Blank" appears as "+ Add Blank" (a link, not a button)
+    // In the section picker panel, "Add Blank" appears as "+ Add Blank" (a link, not a button).
+    // IMPORTANT: Specific selectors (a, button, data-test) must come BEFORE broad :has-text()
+    // selectors. :has-text() matches ALL ancestors containing the text; .first() returns the
+    // outermost element (the panel container), and clicking it at center accidentally selects
+    // a template card in the middle of the grid instead of the "Add Blank" link.
     const addBlankSelectors = [
-      ':has-text("Add Blank")',
+      '[data-test="add-blank-section"]',
       'a:has-text("Add Blank")',
       'button:has-text("Add Blank")',
-      ':has-text("+ Add Blank")',
-      '[data-test="add-blank-section"]',
+      'a:has-text("+ Add Blank")',
       'button:has-text("Blank Section")',
       'button:has-text("Blank")',
       'a:has-text("Blank")',
+      ':has-text("+ Add Blank")',
+      ':has-text("Add Blank")',
     ];
 
     let blankClicked = false;
