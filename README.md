@@ -19,10 +19,9 @@ The system tries the fastest execution method first, falling back to slower ones
 1. **Simple edit** (~1s) — Direct API call for single operations (text replace, button edit, CSS change, menu update, footer edit, SEO update, etc.). 14 edit types classified by Haiku LLM.
 2. **API executor** (~5-30s) — Multi-operation content plans executed entirely via Content Save API. No browser needed.
 3. **Two-pass** — Structural changes (pages + sections) first, then content fill via API. Used for plans with 3+ section additions.
-4. **Template fast path** (~30s) — Add template section via browser, then replace placeholder content via API.
-5. **Blank API** (~10s) — Add blank section via browser, populate with text/button/image blocks via API.
-6. **Batched browser** (~120s) — 3 operations per batch with browser agent, API fast paths between batches.
-7. **Browser agent** (~60-180s) — Full Playwright automation for complex layouts.
+4. **Blank API** (~10s) — Add blank section via browser, populate with text/button/image blocks via API. Default strategy for all new section content.
+5. **Batched browser** (~120s) — 3 operations per batch with browser agent, API fast paths between batches.
+6. **Browser agent** (~60-180s) — Full Playwright automation for complex/custom layouts.
 
 ### Agent Pipeline
 
@@ -30,7 +29,7 @@ For complex content tasks, a multi-agent pipeline runs before editing:
 
 1. **Research Agent** — Web search (Brave API) + URL visits for context
 2. **Site Analyst** — Screenshots the target page, analyzes layout/style/brand
-3. **Content Strategist** — Drafts a ContentPlan with exact copy, placement, template selection, and API blocks
+3. **Content Strategist** — Drafts a ContentPlan with exact copy, placement, and API blocks (`blank_api` for sections, `manual` for custom layouts)
 4. **Browser Agent / API Executor** — Executes the plan
 5. **Supervisor** — Verifies via API snapshot comparison + screenshots, retries on failure
 6. **Learning Agent** — Extracts reusable patterns from execution
@@ -85,7 +84,7 @@ npm run build        # TypeScript compile
 npm run start        # Run compiled JS
 npm run start:all    # Server + ngrok tunnel (WhatsApp webhooks)
 npm run cli          # CLI tool for manual task submission
-npm run test         # Run test suite (~1400 tests)
+npm run test         # Run test suite (~2967 tests)
 ```
 
 ### Dashboard
@@ -133,7 +132,7 @@ src/
     types.ts                     # ContentPlan, ContentOperation, etc.
   automation/                    # Browser agent (Playwright)
     browser-agent.ts             # Core loop: screenshot → Claude → action → repeat
-    actions/                     # 6 specialized handler modules (48 action types)
+    actions/                     # 6 specialized handler modules (48 action types, incl. blog post creation)
   config/                        # Model IDs, layout presets, section templates
   db/                            # SQLite schema + migrations + CRUD
   routes/                        # Fastify routes (dashboard, webhooks, health)
@@ -175,13 +174,14 @@ The API client (`ContentSaveClient` in `src/services/content-save.ts`) provides 
 | Quote | 44 | `addQuoteBlock()` | `updateQuoteBlock()` | Quote text / attribution |
 | Button | 46 | `addButtonBlock()` | `updateButtonBlock()` | Label text |
 | Video | 50 | `addVideoBlock()` | `updateVideoBlock()` | Title / URL |
-| Divider | 52 | `addDividerBlock()` | — | — |
+| Divider | 52 | `addDividerBlock()` | `updateDividerBlock()` | — |
 | Image | 1337 | `addImageBlock()` / batch | `updateImageBlock()` | Title / description / alt text |
 
 ### Other Operations
 
-- **Section**: add blank, copy template, move, duplicate, edit style, reorder
-- **Page**: create, delete, update metadata/SEO
+- **Section**: add blank, copy template, move, duplicate, edit style (theme/height/width/alignment/divider), reorder
+- **Page**: create (blank or blog collection), delete, update metadata/SEO
+- **Blog**: create blog post with title, body, publish status
 - **Footer/CSS**: patch footer text, save custom CSS
 - **Block management**: move, resize, swap, remove, duplicate
 
@@ -194,7 +194,7 @@ The API client (`ContentSaveClient` in `src/services/content-save.ts`) provides 
 ## Testing
 
 ```bash
-npm run test              # Full suite (~1400 tests, 46 files)
+npm run test              # Full suite (~2967 tests, 92 files)
 npm run test:unit         # Parse action tests only
 npm run test:integration  # Compound action tests (requires live browser)
 ```
