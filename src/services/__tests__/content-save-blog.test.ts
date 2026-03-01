@@ -7,6 +7,22 @@ const MOCK_SESSION = {
     { name: 'SS_SESSION_ID', value: 'sess123', domain: '.squarespace.com', path: '/' },
     { name: 'crumb', value: 'crumb-token-abc', domain: '.test-site.squarespace.com', path: '/' },
   ],
+  origins: [
+    {
+      origin: 'https://test-site.squarespace.com',
+      localStorage: [
+        {
+          name: 'statsig.cached.evaluations.123',
+          value: JSON.stringify({
+            data: JSON.stringify({
+              website_id: 'abcdef1234567890abcdef12',
+              member_account_id: 'deadbeef1234567890abcdef',
+            }),
+          }),
+        },
+      ],
+    },
+  ],
 };
 
 vi.mock('fs', () => ({
@@ -44,6 +60,66 @@ describe('updateBlogPost', () => {
     expect(result.itemId).toBe('item-123');
     expect(result.updatedFields).toContain('title');
     expect(result.updatedFields).toContain('draft');
+  });
+
+  it('uses blogs/text-posts endpoint with X-CSRF-Token header', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true, status: 200,
+      json: async () => ({ id: 'item-123' }),
+      text: async () => '',
+    } as Response);
+
+    const client = makeClient();
+    await client.updateBlogPost('col-1', 'item-123', { title: 'Updated' });
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
+    expect(url).toContain('/api/content/blogs/col-1/text-posts/item-123');
+    expect(url).not.toContain('crumb=');
+    expect(init.headers['X-CSRF-Token']).toBeTruthy();
+  });
+
+  it('always includes id and authorId in body', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true, status: 200,
+      json: async () => ({ id: 'item-123' }),
+      text: async () => '',
+    } as Response);
+
+    const client = makeClient();
+    await client.updateBlogPost('col-1', 'item-123', { title: 'Test' });
+
+    const sentBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    expect(sentBody.id).toBe('item-123');
+    expect(sentBody.authorId).toBe('deadbeef1234567890abcdef');
+  });
+
+  it('wraps string excerpt into { html, raw: false }', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true, status: 200,
+      json: async () => ({ id: 'item-123' }),
+      text: async () => '',
+    } as Response);
+
+    const client = makeClient();
+    await client.updateBlogPost('col-1', 'item-123', { excerpt: 'Plain text summary' });
+
+    const sentBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    expect(sentBody.excerpt).toEqual({ html: 'Plain text summary', raw: false });
+  });
+
+  it('maps draft boolean to workflowState number', async () => {
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}), text: async () => '' } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}), text: async () => '' } as Response);
+
+    const client = makeClient();
+    await client.updateBlogPost('col-1', 'item-1', { draft: true });
+    await client.updateBlogPost('col-1', 'item-1', { draft: false });
+
+    const body1 = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    const body2 = JSON.parse(mockFetch.mock.calls[1][1].body as string);
+    expect(body1.workflowState).toBe(4); // draft
+    expect(body2.workflowState).toBe(1); // published
   });
 
   it('returns error when no fields provided', async () => {
@@ -90,6 +166,23 @@ describe('findBlogPostByTitle', () => {
     const client = makeClient();
     const result = await client.findBlogPostByTitle('col-1', 'first post');
     expect(result?.id).toBe('post-1');
+  });
+
+  it('handles results key (blog API format) instead of items', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        results: [
+          { id: 'post-r1', title: 'Blog Post from Results' },
+          { id: 'post-r2', title: 'Other Post' },
+        ],
+      }),
+    } as Response);
+
+    const client = makeClient();
+    const result = await client.findBlogPostByTitle('col-1', 'blog post from');
+    expect(result?.id).toBe('post-r1');
   });
 
   it('returns null when no match', async () => {

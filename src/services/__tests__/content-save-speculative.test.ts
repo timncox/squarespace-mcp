@@ -9,6 +9,22 @@ const MOCK_SESSION = {
     { name: 'SS_SESSION_ID', value: 'sess123', domain: '.squarespace.com', path: '/' },
     { name: 'crumb', value: 'crumb-token-abc', domain: '.test-site.squarespace.com', path: '/' },
   ],
+  origins: [
+    {
+      origin: 'https://test-site.squarespace.com',
+      localStorage: [
+        {
+          name: 'statsig.cached.evaluations.123',
+          value: JSON.stringify({
+            data: JSON.stringify({
+              website_id: 'abcdef1234567890abcdef12',
+              member_account_id: 'deadbeef1234567890abcdef',
+            }),
+          }),
+        },
+      ],
+    },
+  ],
 };
 
 vi.mock('fs', () => ({
@@ -195,6 +211,16 @@ describe('ContentSaveClient — Speculative APIs', () => {
       await client.createBlogPost('coll-blog', 'Published Post', { draft: false });
       sentBody = JSON.parse(mockFetch.mock.calls[1][1].body as string);
       expect(sentBody.workflowState).toBe(1);
+    });
+
+    it('includes authorId from session Statsig data', async () => {
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ id: 'post-789', urlId: 'author-post' }),
+      );
+
+      await client.createBlogPost('coll-blog', 'Author Post');
+      const sentBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+      expect(sentBody.authorId).toBe('deadbeef1234567890abcdef');
     });
 
     it('never throws on any error', async () => {
