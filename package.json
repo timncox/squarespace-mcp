@@ -8,6 +8,7 @@
     "start": "node dist/src/index.js",
     "start:all": "bash scripts/start-with-ngrok.sh",
     "dev": "tsx watch src/index.ts",
+    "dev:all": "bash scripts/start-dev.sh",
     "cli": "tsx src/cli.ts",
     "test-login": "tsx scripts/test-login.ts",
     "explore-editor": "tsx scripts/explore-editor.ts",

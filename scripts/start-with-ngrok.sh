@@ -23,6 +23,7 @@ mkdir -p "$LOG_DIR"
 
 SERVER_LOG="$LOG_DIR/server.log"
 NGROK_LOG="$LOG_DIR/ngrok.log"
+PROXY_LOG="$LOG_DIR/proxy.log"
 NGROK_DOMAIN=""
 
 # Parse args
@@ -47,12 +48,38 @@ NC='\033[0m'
 
 SERVER_PID=""
 NGROK_PID=""
+PROXY_PID=""
 
 cleanup() {
   echo -e "\n${YELLOW}Shutting down...${NC}"
+  [[ -n "$PROXY_PID" ]] && kill "$PROXY_PID" 2>/dev/null && echo "Killed proxy (PID $PROXY_PID)"
   [[ -n "$SERVER_PID" ]] && kill "$SERVER_PID" 2>/dev/null && echo "Killed server (PID $SERVER_PID)"
   [[ -n "$NGROK_PID" ]] && kill "$NGROK_PID" 2>/dev/null && echo "Killed ngrok (PID $NGROK_PID)"
   exit 0
+}
+
+start_proxy() {
+  # Skip if already running on :42069
+  if lsof -i :42069 -sTCP:LISTEN -t &>/dev/null; then
+    echo -e "${YELLOW}Proxy already running on :42069 — skipping${NC}"
+    return
+  fi
+
+  echo -e "${GREEN}Starting claude-code-proxy...${NC}"
+  node "$HOME/claude-code-proxy/server/server.js" >> "$PROXY_LOG" 2>&1 &
+  PROXY_PID=$!
+
+  # Wait for proxy to be ready (poll /health, up to 10s)
+  local attempts=0
+  while [[ $attempts -lt 20 ]]; do
+    if curl -sf http://localhost:42069/health &>/dev/null; then
+      echo -e "${GREEN}Proxy ready (PID $PROXY_PID)${NC}"
+      return
+    fi
+    sleep 0.5
+    attempts=$((attempts + 1))
+  done
+  echo -e "${RED}Proxy didn't become ready in 10s — check $PROXY_LOG${NC}"
 }
 
 trap cleanup SIGINT SIGTERM
@@ -100,12 +127,13 @@ echo -e "${GREEN}═════════════════════
 echo -e "${GREEN}  Squarespace Helper — Starting...${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════════${NC}"
 
+start_proxy
 start_server
 start_ngrok
 
 echo ""
-echo -e "${GREEN}Both services running. Monitoring for crashes...${NC}"
-echo -e "${YELLOW}Press Ctrl+C to stop both.${NC}"
+echo -e "${GREEN}All services running. Monitoring for crashes...${NC}"
+echo -e "${YELLOW}Press Ctrl+C to stop all.${NC}"
 echo ""
 
 # ─── Monitor loop ───
@@ -115,6 +143,12 @@ MAX_RESTARTS=10
 
 while true; do
   sleep 10
+
+  # Check proxy
+  if [[ -n "$PROXY_PID" ]] && ! kill -0 "$PROXY_PID" 2>/dev/null; then
+    echo -e "${RED}[$(date '+%H:%M:%S')] Proxy died! Restarting...${NC}"
+    start_proxy
+  fi
 
   # Check server
   if ! kill -0 "$SERVER_PID" 2>/dev/null; then
