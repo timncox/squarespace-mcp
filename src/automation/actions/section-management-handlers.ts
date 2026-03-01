@@ -153,27 +153,35 @@ export async function handleAddSection(
   // We need to click "Add Blank" or "+ Add Blank" to add a blank section.
   if (!template && !category) {
     logger.info('addSection[1b]: looking for "Add Blank" in section picker');
+
+    // Capture picker state for diagnostics — helps identify the correct selector
+    // when "Add Blank" can't be found. Screenshot saved to storage/screenshots/.
+    try {
+      const pickerTs = new Date().toISOString().replace(/[:.]/g, '-');
+      await page.screenshot({ path: `storage/screenshots/add-section-picker-${pickerTs}.png` });
+      logger.info({ file: `add-section-picker-${pickerTs}.png` }, 'addSection[1b]: captured picker state screenshot');
+    } catch { /* non-fatal */ }
     // In the section picker panel, "Add Blank" appears as "+ Add Blank" (a link, not a button).
     // IMPORTANT: Do NOT use bare ':has-text("...")' selectors here — they match ancestor
     // container elements (including <body>), and clicking a large container clicks its center,
     // which lands on the first template card in the picker.
+    // IMPORTANT: Do NOT use bare ':has-text("Blank")' without the "Add" prefix.
+    // Squarespace's section picker shows template cards that may be named "Blank"
+    // (e.g. the hero template). Clicking one of those cards inserts a template
+    // section with placeholder content rather than a truly blank section.
     const addBlankSelectors = [
-      // Scoped within picker panel — most specific, prevents hitting template cards
+      // Scoped within picker panel — use FULL TEXT "Add Blank" only
       '[class*="sectionPicker"] a:has-text("Add Blank")',
-      '[class*="sectionPicker"] button:has-text("Blank")',
       '[class*="section-picker"] a:has-text("Add Blank")',
-      '[class*="section-picker"] button:has-text("Blank")',
-      // layoutPicker variants (Squarespace sometimes uses this class instead)
       '[class*="layoutPicker"] a:has-text("Add Blank")',
       '[class*="layout-picker"] a:has-text("Add Blank")',
-      '[class*="layoutPicker"] button:has-text("Blank")',
-      '[class*="layout-picker"] button:has-text("Blank")',
       // data-test attribute — reliable when present
       '[data-test="add-blank-section"]',
-      // Element-typed selectors (link/button) — safe, won't match ancestor containers
+      // Element-typed selectors — safe (typed elements won't match ancestor containers)
       'a:has-text("Add Blank")',
       'a:has-text("+ Add Blank")',
       'button:has-text("Add Blank")',
+      'button:has-text("+ Add Blank")',
       'button:has-text("Blank Section")',
     ];
 
