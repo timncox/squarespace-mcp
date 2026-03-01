@@ -142,16 +142,22 @@ export async function handleAddSection(
   // We need to click "Add Blank" or "+ Add Blank" to add a blank section.
   if (!template && !category) {
     logger.info('addSection[1b]: looking for "Add Blank" in section picker');
-    // In the section picker panel, "Add Blank" appears as "+ Add Blank" (a link, not a button)
+    // In the section picker panel, "Add Blank" appears as "+ Add Blank" (a link, not a button).
+    // IMPORTANT: Do NOT use bare ':has-text("...")' selectors here — they match ancestor
+    // container elements (including <body>), and clicking a large container clicks its center,
+    // which lands on the first template card in the picker.
     const addBlankSelectors = [
-      ':has-text("Add Blank")',
+      // Scoped within picker panel — most specific, prevents hitting template cards
+      '[class*="sectionPicker"] a:has-text("Add Blank")',
+      '[class*="sectionPicker"] button:has-text("Blank")',
+      '[class*="section-picker"] a:has-text("Add Blank")',
+      '[class*="section-picker"] button:has-text("Blank")',
+      // Element-typed selectors (link/button) — safe, won't match ancestor containers
       'a:has-text("Add Blank")',
+      'a:has-text("+ Add Blank")',
       'button:has-text("Add Blank")',
-      ':has-text("+ Add Blank")',
       '[data-test="add-blank-section"]',
       'button:has-text("Blank Section")',
-      'button:has-text("Blank")',
-      'a:has-text("Blank")',
     ];
 
     let blankClicked = false;
