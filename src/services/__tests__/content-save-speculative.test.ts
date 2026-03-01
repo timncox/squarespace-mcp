@@ -135,7 +135,7 @@ describe('ContentSaveClient — Speculative APIs', () => {
       expect(result.urlId).toBe('my-post');
     });
 
-    it('sends correct body with title, body, tags', async () => {
+    it('sends correct body with title, body, slug and uses correct endpoint', async () => {
       mockFetch.mockResolvedValueOnce(
         jsonResponse({ id: 'post-456', urlId: 'tagged-post' }),
       );
@@ -149,13 +149,26 @@ describe('ContentSaveClient — Speculative APIs', () => {
       });
 
       const fetchCall = mockFetch.mock.calls[0];
+      const fetchUrl = fetchCall[0] as string;
       const sentBody = JSON.parse(fetchCall[1].body as string);
+
+      // Correct endpoint (no ?crumb= query param)
+      expect(fetchUrl).toContain('/api/content/blogs/coll-blog/text-posts');
+      expect(fetchUrl).not.toContain('crumb=');
+
+      // Required fields
       expect(sentBody.title).toBe('Tagged Post');
-      expect(sentBody.body).toBe('<p>Hello world</p>');
-      expect(sentBody.tags).toEqual(['news', 'update']);
-      expect(sentBody.categories).toEqual(['general']);
-      expect(sentBody.excerpt).toBe('A summary');
+      expect(sentBody.body).toEqual({ raw: false, layout: { columns: 12, rows: [] } });
       expect(sentBody.urlId).toBe('tagged-post');
+      expect(sentBody.workflowState).toBe(4); // draft by default
+      expect(sentBody.mediaFocalPoint).toEqual({ x: 0.5, y: 0.5 });
+      expect(typeof sentBody.addedOn).toBe('number');
+      expect(sentBody.likeCount).toBe(0);
+      expect(sentBody.excerpt).toEqual({ html: '', raw: false });
+
+      // X-CSRF-Token header (not X-Squarespace-Crumb)
+      const sentHeaders = fetchCall[1].headers as Record<string, string>;
+      expect(sentHeaders['X-CSRF-Token']).toBeTruthy();
     });
 
     it('returns endpointAvailable: false on 404', async () => {
@@ -166,22 +179,22 @@ describe('ContentSaveClient — Speculative APIs', () => {
       expect(result.endpointAvailable).toBe(false);
     });
 
-    it('handles draft flag', async () => {
-      // Default: draft = true
+    it('uses workflowState 4 for draft, 1 for published', async () => {
+      // Default: draft = true → workflowState 4
       mockFetch.mockResolvedValueOnce(
         jsonResponse({ id: 'post-draft', urlId: 'draft-post' }),
       );
       await client.createBlogPost('coll-blog', 'Draft Post');
       let sentBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-      expect(sentBody.draft).toBe(true);
+      expect(sentBody.workflowState).toBe(4);
 
-      // Explicit: draft = false
+      // Explicit: draft = false → workflowState 1
       mockFetch.mockResolvedValueOnce(
         jsonResponse({ id: 'post-pub', urlId: 'pub-post' }),
       );
       await client.createBlogPost('coll-blog', 'Published Post', { draft: false });
       sentBody = JSON.parse(mockFetch.mock.calls[1][1].body as string);
-      expect(sentBody.draft).toBe(false);
+      expect(sentBody.workflowState).toBe(1);
     });
 
     it('never throws on any error', async () => {
