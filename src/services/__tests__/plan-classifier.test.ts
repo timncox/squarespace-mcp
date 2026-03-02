@@ -578,5 +578,98 @@ describe('classifyPlanForApi', () => {
       ]);
       expect(classifyPlanForApi(plan).capability).toBe('browser_required');
     });
+
+    // duplicate_block — requires duplicateBlockSearchText
+    it('classifies duplicate_block with searchText as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'duplicate_block',
+          content: { duplicateBlockSearchText: 'About Us' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies duplicate_block without searchText as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'duplicate_block',
+          content: {},
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
+
+    // duplicate_section — requires duplicateSectionSearch
+    it('classifies duplicate_section with string search as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'duplicate_section',
+          content: { duplicateSectionSearch: 'Hero Section' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies duplicate_section with index 0 as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'duplicate_section',
+          content: { duplicateSectionSearch: 0 },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies duplicate_section without search as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'duplicate_section',
+          content: {},
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
+
+    // swap_blocks — requires both search texts
+    it('classifies swap_blocks with both texts as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'swap_blocks',
+          content: { swapBlock1SearchText: 'About Us', swapBlock2SearchText: 'Our Mission' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies swap_blocks with only first text as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'swap_blocks',
+          content: { swapBlock1SearchText: 'About Us' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
+
+    it('classifies swap_blocks with only second text as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'swap_blocks',
+          content: { swapBlock2SearchText: 'Our Mission' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
+
+    it('classifies swap_blocks with neither text as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'swap_blocks',
+          content: {},
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
   });
 });

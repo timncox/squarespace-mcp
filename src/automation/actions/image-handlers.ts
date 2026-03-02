@@ -2,7 +2,7 @@ import { Page } from 'playwright';
 import { logger } from '../../utils/logger.js';
 import { clickThroughOverlay, findTextOnPage, getSiteFrame } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
-import { validateFileExists, isFluidEngineActive, clickEditorButton, tryMediaApiUpload, tryImageBlockUpdateApi, extractSubdomain } from './handler-utils.js';
+import { validateFileExists, isFluidEngineActive, clickEditorButton, tryMediaApiUpload, tryImageBlockUpdateApi, tryReplaceImageApi, tryAddImageBlockApi, extractSubdomain } from './handler-utils.js';
 import type { ActionResult } from './types.js';
 
 // ─── Shared Helper: select image from library picker ─────────────────────
@@ -214,6 +214,10 @@ export async function handleReplaceImage(
   // Validate file exists before starting multi-step process
   const fileError = validateFileExists(imagePath, 'replaceImage');
   if (fileError) return fileError;
+
+  // API fast path — try upload + API update before 7-step UI
+  const apiResult = await tryReplaceImageApi(page, searchText, imagePath, altText);
+  if (apiResult) return apiResult;
 
   // ── Step 1: Find the image block ──────────────────────────────────────
   logger.info({ searchText }, 'replaceImage[1/7]: finding image block');
@@ -502,6 +506,10 @@ export async function handleAddImageBlock(
   // Validate file exists before starting multi-step process
   const fileError = validateFileExists(imagePath, 'addImageBlock');
   if (fileError) return fileError;
+
+  // API fast path — try upload + API add before 7-step UI
+  const apiResult = await tryAddImageBlockApi(page, imagePath, altText);
+  if (apiResult) return apiResult;
 
   // ── Step 1: Verify section edit mode ────────────────────────────────
   logger.info({ imagePath }, 'addImageBlock[1/7]: verifying section edit mode');

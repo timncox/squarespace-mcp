@@ -10,7 +10,7 @@ AI agent that edits Squarespace websites based on forwarded client emails and Wh
 npm run dev          # Start dev server (tsx watch)
 npm run build        # TypeScript compile
 npm run start        # Run compiled JS (node dist/src/index.js)
-npm run test         # vitest run (~1712 tests, 56 files)
+npm run test         # vitest run (~1738 tests, 56 files)
 npm run test:unit    # Parse agent action tests only
 npm run cli          # CLI tool (tsx src/cli.ts)
 npm run setup-gmail  # Gmail OAuth setup
@@ -144,7 +144,8 @@ Several browser agent actions try the Content Save API first (~100-500ms) before
 | `resizeBlock` | `ContentSaveClient.resizeBlock()` — adjusts grid end coordinates | Drag edge handles |
 | `removeBlock` | `ContentSaveClient.removeBlock()` — splices block from gridContents | 6-step UI compound action |
 | `moveSectionUp/Down` | `ContentSaveClient.moveSection()` — reorders sections array | Section toolbar arrows |
-| `replaceImage` / `addImageBlock` | `ContentSaveClient.updateImageBlock()` — updates title/description/subtitle/altText | UI automation (7-step compound) |
+| `replaceImage` | `tryReplaceImageApi()` — upload via MediaUploadClient + `updateImageBlock(assetUrl, altText)` | 7-step UI compound action |
+| `addImageBlock` | `tryAddImageBlockApi()` — detect active section + upload + `addImageBlock()` | 7-step UI compound action |
 | `editMenuBlock` | `ContentSaveClient.updateMenuBlock()` — structured JSON read-modify-write on type 18 blocks | 8-step UI automation (select-all/replace) |
 
 Block finding uses `ContentSaveClient.findBlock()` — a generalized finder that searches text blocks (stripped HTML), image blocks (title/description), menu blocks (type 18: raw text, tab/section/item titles), blocks with `value.text`/`value.label`, and block ID prefix fallback.
@@ -371,4 +372,4 @@ Upload strategies (fallback chain):
 - `src/services/__tests__/content-save-design-nav.test.ts` — design write + navigation tests (30 tests: fonts, colors, tweaks, nav reorder)
 - Integration test: `src/automation/__tests__/compound-actions.integration.test.ts` (requires live browser session)
 - Run: `npm run test` (integration test files show as "failed" when no browser session — this is expected)
-- **operationType union** now includes 20 types: `create_page`, `delete_page`, `update_page_metadata`, `add_section`, `add_block`, `add_gallery`, `modify_text`, `replace_image`, `remove_block`, `modify_block`, `modify_style`, `edit_footer`, `edit_css`, `reorder_sections`, `move_block`, `resize_block`, `create_blog_post`, `update_blog_post`, `edit_code_injection`, `modify_gallery_settings`. Site-wide ops (footer/CSS/code-injection/blog) skip `resolvePageContext()` in the api-executor.
+- **operationType union** now includes 23 types: `create_page`, `delete_page`, `update_page_metadata`, `add_section`, `add_block`, `add_gallery`, `modify_text`, `replace_image`, `remove_block`, `modify_block`, `modify_style`, `edit_footer`, `edit_css`, `reorder_sections`, `move_block`, `resize_block`, `create_blog_post`, `update_blog_post`, `edit_code_injection`, `modify_gallery_settings`, `duplicate_block`, `duplicate_section`, `swap_blocks`. Site-wide ops (footer/CSS/code-injection/blog) skip `resolvePageContext()` in the api-executor.
