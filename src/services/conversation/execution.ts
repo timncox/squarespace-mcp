@@ -79,6 +79,34 @@ export async function executeTasks(conversation: Conversation, contentPlan?: Con
     logger.warn({ error: errMsg(err) }, 'Failed to decay old learnings');
   }
 
+  // ── MCP Agent Pipeline gate ────────────────────────────────────────────────
+  if (process.env.USE_MCP_AGENTS === 'true') {
+    const { orchestrateTask } = await import('../../orchestrator/orchestrator.js');
+    const expandedIds = expandMultiSiteTasks(conversation.taskIds);
+    for (const taskId of expandedIds) {
+      const task = getTask(taskId);
+      if (!task) continue;
+      updateTaskStatus(taskId, 'executing');
+      try {
+        const result = await orchestrateTask(task, conversation);
+        updateTaskStatus(taskId, result.success ? 'done' : 'failed');
+        if (conversation.source !== 'dashboard') {
+          await sendToTim(
+            result.success
+              ? `Task completed: ${task.description}`
+              : `Task failed: ${result.verdict?.issues?.join(', ') ?? 'Unknown error'}`,
+            conversation.id,
+          );
+        }
+      } catch (err) {
+        updateTaskStatus(taskId, 'failed', errMsg(err));
+        logger.error({ taskId, error: errMsg(err) }, 'MCP orchestration error');
+      }
+    }
+    updateConversationStatus(conversation.id, 'completed');
+    return;
+  }
+
   // Expand multi-site tasks before execution
   const expandedTaskIds = expandMultiSiteTasks(conversation.taskIds);
 
