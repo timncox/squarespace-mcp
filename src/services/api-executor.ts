@@ -439,7 +439,7 @@ async function executeAddSectionTemplate(
       for (const btn of replacements.buttons) {
         const result = await client.updateButtonBlock(
           ctx.pageSectionsId, ctx.collectionId, btn.searchText,
-          { newLabel: btn.newLabel, url: btn.url },
+          { newLabel: btn.newLabel, url: btn.url, size: btn.size, style: btn.style, alignment: btn.alignment, variant: btn.variant },
         );
         if (result.success) replacementsApplied++;
         else logger.warn({ error: result.error, searchText: btn.searchText }, 'api-executor: template button replacement failed');
@@ -560,7 +560,14 @@ async function executeModifyBlock(
 
     const result = await client.updateButtonBlock(
       ctx.pageSectionsId, ctx.collectionId, searchText,
-      { newLabel: button?.label, url: button?.url },
+      {
+        newLabel: button?.label,
+        url: button?.url,
+        size: button?.size,
+        style: button?.style,
+        alignment: button?.alignment,
+        variant: button?.variant,
+      },
     );
     if (!result.success) throw new Error(result.error ?? 'updateButtonBlock failed');
     return `Updated button "${searchText.slice(0, 50)}"`;
@@ -667,7 +674,16 @@ async function executeAddBlock(
     case 'button': {
       const label = op.content.button?.label ?? 'Button';
       const url = op.content.button?.url ?? '#';
-      const result = await client.addButtonBlock(ctx.pageSectionsId, ctx.collectionId, lastSectionIndex, label, url);
+      const result = await client.addButtonBlock(
+        ctx.pageSectionsId, ctx.collectionId, lastSectionIndex, label, url,
+        undefined, // layout
+        {
+          size: op.content.button?.size,
+          style: op.content.button?.style,
+          alignment: op.content.button?.alignment,
+          variant: op.content.button?.variant,
+        },
+      );
       if (!result.success) throw new Error(result.error ?? 'addButtonBlock failed');
       return `Added button "${label}" to section ${lastSectionIndex}`;
     }

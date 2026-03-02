@@ -68,8 +68,15 @@ export interface ContentSpec {
   heading?: string;
   /** For text content: the exact body copy */
   bodyText?: string;
-  /** For buttons: label and destination URL */
-  button?: { label: string; url: string };
+  /** For buttons: label, destination URL, and optional design properties */
+  button?: {
+    label: string;
+    url: string;
+    size?: 'small' | 'medium' | 'large';
+    style?: 'primary' | 'secondary' | 'tertiary';
+    alignment?: 'left' | 'center' | 'right';
+    variant?: 'solid' | 'outline';
+  };
   /** For images: description/search query (for stock photo search) */
   imageQuery?: string;
   /** Absolute file path to an image to upload (for addImageBlock) */
