@@ -25,6 +25,7 @@ export interface RecentAction {
 export type StuckPattern =
   | 'cant_add_section'
   | 'cant_add_block'
+  | 'cant_edit_form'
   | 'cant_edit_text'
   | 'cant_edit_button'
   | 'cant_find_element'
@@ -84,6 +85,20 @@ export function detectStuckPattern(recentActions: RecentAction[]): StuckPattern 
     selectors.includes('addblock')
   ) {
     return 'cant_add_block';
+  }
+
+  // Pattern: trying to edit form settings (must be checked BEFORE cant_edit_text)
+  if (
+    reasonings.includes('form') &&
+    (reasonings.includes('storage') ||
+      reasonings.includes('email notification') ||
+      reasonings.includes('connected to') ||
+      reasonings.includes('form settings') ||
+      reasonings.includes('form editor') ||
+      reasonings.includes('send to') ||
+      reasonings.includes('recipient'))
+  ) {
+    return 'cant_edit_form';
   }
 
   // Pattern: trying to edit text
@@ -180,6 +195,39 @@ export function getRescueHint(pattern: StuckPattern, recentReasoning: string): s
 **CRITICAL: If click and clickInIframe both fail, ALWAYS try jsClick before giving up.** The jsClick action dispatches JavaScript events directly on the DOM element, bypassing the overlay entirely.
 
 **STOP trying the same click approach repeatedly.** If click/clickInIframe failed twice, switch to jsClick immediately.`,
+
+    cant_edit_form: `
+⚠️ RESCUE HINT — You seem stuck trying to edit form settings (likely the email notification recipient). Here is the EXACT workflow:
+
+**Step 1: Open the form editor**
+- Double-click (dblclickInIframe) the form block to open its editor panel
+- The panel has 3 tabs: **Content**, **Design**, **Storage**
+
+**Step 2: Navigate to the email settings**
+- Click the **"Storage"** tab
+- You'll see: Manage Submissions, Export Form Submissions, **EMAIL NOTIFICATION** (shows current email with > arrow), Additional Storage, Google reCAPTCHA
+
+**Step 3: Open the Email sub-panel**
+- Click the **EMAIL NOTIFICATION row** (the one showing the email address with a > arrow on the right)
+- This opens a sub-panel titled "Email" with a BACK button at top-left
+- Under "CONNECTED TO" you'll see the current email address with an X button
+
+**Step 4: Change the email (THIS IS THE TRICKY PART)**
+- The email under "CONNECTED TO" looks like a static label/chip, but it IS editable
+- **Click directly on the email text** (not the X button)
+- Press **Meta+a** to select all the text
+- **Type the new email address** — it replaces the selected text
+- Do NOT try to click the X to remove and re-add. Just overwrite directly.
+
+**Step 5: Go back and close**
+- Click **BACK** to return to the Storage tab
+- Click outside the panel or press Escape to close the form editor
+- Changes auto-save — no explicit save button needed
+
+**Common mistakes:**
+- Trying to click the X button to remove the email (unreliable, may not reveal an add-email input)
+- Not clicking directly ON the email text (clicking the row background does nothing)
+- Expecting a standard input field — it's a special Squarespace component that looks static but is editable`,
 
     cant_add_block: `
 ⚠️ RESCUE HINT — You seem stuck trying to add a block. Follow this EXACT workflow:
