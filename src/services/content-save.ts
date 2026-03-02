@@ -1034,8 +1034,18 @@ export class ContentSaveClient {
           }
         }
 
+        // Type 1337 buttons: check definitionName before falling into image/code/form checks
+        if (bv.type === BLOCK_TYPE_IMAGE && bv.definitionName === BUTTON_DEFINITION_NAME) {
+          const btnText = bv.value?.buttonText ?? '';
+          const btnLink = bv.value?.buttonLink ?? '';
+          if ((btnText && String(btnText).toLowerCase().includes(needle)) ||
+              (btnLink && String(btnLink).toLowerCase().includes(needle))) {
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
         // Type 1337: Code HTML blocks, Form blocks, or Image blocks (same outer type, different value structure)
-        if (bv.type === BLOCK_TYPE_IMAGE) {
+        if (bv.type === BLOCK_TYPE_IMAGE && bv.definitionName !== BUTTON_DEFINITION_NAME) {
           if (bv.value?.wysiwyg?.engine === CODE_BLOCK_ENGINE) {
             // Code HTML block: match on html content
             const html = bv.value?.html ?? '';

@@ -734,3 +734,69 @@ describe('ContentSaveClient — button type helpers', () => {
     expect(bv.value.buttonSize).toBe('large'); // unchanged
   });
 });
+
+// ── findBlock with button types ───────────────────────────────────────────
+
+describe('ContentSaveClient — findBlock button type support', () => {
+  let client: ContentSaveClient;
+
+  beforeEach(() => {
+    client = new ContentSaveClient('test-site');
+    client.loadSessionCookies('/fake/session.json');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('finds type 46 button by label', () => {
+    const sections = makeSections(makeButtonBlock('btn-1', 'Contact Us', 'https://example.com'));
+    const result = client.findBlock(sections, 'Contact Us');
+    expect(result).not.toBeNull();
+    expect(result!.gridContent.content.value.id).toBe('btn-1');
+  });
+
+  it('finds type 1337 button by buttonText', () => {
+    const sections = makeSections(makeNewButtonBlock('btn-2', 'Learn More', 'https://example.com'));
+    const result = client.findBlock(sections, 'Learn More');
+    expect(result).not.toBeNull();
+    expect(result!.gridContent.content.value.id).toBe('btn-2');
+  });
+
+  it('finds type 1337 button by buttonLink', () => {
+    const sections = makeSections(makeNewButtonBlock('btn-2', 'Click', 'https://example.com/special'));
+    const result = client.findBlock(sections, 'example.com/special');
+    expect(result).not.toBeNull();
+    expect(result!.gridContent.content.value.id).toBe('btn-2');
+  });
+
+  it('finds type 1337 button among mixed blocks', () => {
+    const sections = makeSections(
+      makeTextBlock('t1', '<p>Header text</p>'),
+      makeNewButtonBlock('btn-new', 'Reserve Now', 'https://example.com/reserve'),
+      makeButtonBlock('btn-old', 'Old Button', 'https://old.com'),
+    );
+    const result = client.findBlock(sections, 'Reserve Now');
+    expect(result).not.toBeNull();
+    expect(result!.gridContent.content.value.id).toBe('btn-new');
+  });
+
+  it('does not match type 1337 image block when searching for button text', () => {
+    const imageBlock: GridContent = {
+      layout: { ...STUB_LAYOUT },
+      content: {
+        value: {
+          id: 'img-1',
+          type: 1337,
+          value: { title: 'Reserve Now', assetUrl: 'https://images.squarespace-cdn.com/test.jpg' },
+        },
+      },
+    };
+    const sections = makeSections(
+      imageBlock,
+      makeNewButtonBlock('btn-1', 'Reserve Now', 'https://example.com'),
+    );
+    const result = client.findBlock(sections, 'Reserve Now');
+    expect(result).not.toBeNull();
+  });
+});
