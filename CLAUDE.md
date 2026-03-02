@@ -10,7 +10,7 @@ AI agent that edits Squarespace websites based on forwarded client emails and Wh
 npm run dev          # Start dev server (tsx watch)
 npm run build        # TypeScript compile
 npm run start        # Run compiled JS (node dist/src/index.js)
-npm run test         # vitest run (2487 tests)
+npm run test         # vitest run (~1590 tests, 52 files)
 npm run test:unit    # Parse agent action tests only
 npm run cli          # CLI tool (tsx src/cli.ts)
 npm run setup-gmail  # Gmail OAuth setup
@@ -73,10 +73,11 @@ storage/            # Runtime data (uploads/, screenshots/) — not committed
 | `src/agents/content-strategist-agent.ts` | Generates ContentPlan with template indexes + blank_api routing + page structure context + discovered templates |
 | `src/agents/types.ts` | Shared agent types (ContentPlan, ContentOperation, ContentSpec, SupervisorVerdict, PageStructure, ResearchSynthesis) |
 | `src/services/template-discovery.ts` | Template probing + 7-day SQLite cache |
+| `src/services/template-registry.ts` | Template section registry — maps `{category, templateName}` → `sectionId` per site, SQLite cache (Phase 17), 7-day TTL |
 | `src/services/content-validator.ts` | Post-operation validation via API snapshot comparison |
 | `src/db/plan-operations.ts` | CRUD for granular per-operation tracking (plan_operations table) |
 | `src/config/section-templates.json` | Template catalog (27 templates, 8 categories) with placeholder patterns |
-| `src/services/content-save.ts` | Content Save API client (text/image/block/section/menu manipulation) |
+| `src/services/content-save.ts` | Content Save API client (75+ methods, ~8200 lines — text/image/block/section/menu/navigation/settings/code-injection) |
 | `src/services/menu-parser.ts` | Menu block text ↔ structured JSON (`parseMenuText`, `serializeMenu`) |
 | `src/services/menu-merger.ts` | Menu merge: LLM (`mergeMenuContent`) + deterministic (`mergeMenuStructured`, `mergeMenuFromText`) |
 | `src/services/whatsapp.ts` | WhatsApp Cloud API + dashboard SSE bridge |
@@ -150,7 +151,9 @@ Block finding uses `ContentSaveClient.findBlock()` — a generalized finder that
 
 Grid system: Desktop = 24 columns (X: 1–24), `start` inclusive / `end` exclusive. `gridSettings.breakpointSettings.desktop.columns` provides the max. Mobile auto-reflows — only desktop coordinates are modified.
 
-Additional methods: `swapBlocks()` exchanges two blocks' full layout objects (desktop + mobile + zIndex) in a single GET + PUT. `removeBlock()` splices a block from its section's gridContents array. `moveSection()` reorders sections by splicing/inserting in the sections array (boundary-safe: returns success with oldIndex === newIndex at edges). `updateImageBlock()` updates image block metadata (title, description, subtitle, altText, linkTo) via read-modify-write. `addTextBlock()` adds a new text block to a section via API (generates block ID, calculates grid position with configurable `gapRows`/`rowHeight` spacing, includes `verticalAlignment` and `zIndex` fields, backfills missing fields on existing blocks before PUT).
+Additional methods: `swapBlocks()` exchanges two blocks' full layout objects (desktop + mobile + zIndex) in a single GET + PUT. `removeBlock()` splices a block from its section's gridContents array. `moveSection()` reorders sections by splicing/inserting in the sections array (boundary-safe: returns success with oldIndex === newIndex at edges). `updateImageBlock()` updates image block metadata (title, description, subtitle, altText, linkTo, assetUrl) via read-modify-write — `assetUrl` writes to `content.value.value.assetUrl` for full image replacement. `addTextBlock()` adds a new text block to a section via API (generates block ID, calculates grid position with configurable `gapRows`/`rowHeight` spacing, includes `verticalAlignment` and `zIndex` fields, backfills missing fields on existing blocks before PUT).
+
+**Site-wide methods**: `getNavigation()` returns page structure (mainNavigation + notLinked). `getSettings()` returns full ~63-field settings object. `getCodeInjection()` extracts header/footer scripts from settings. `saveCodeInjection(header?, footer?)` saves via `POST /api/config/SaveInjectionSettings`.
 
 **Block spacing**: `addTextBlock()` accepts `layout.gapRows` (default 2 for non-first blocks, 0 for first) and `layout.rowHeight` (default 3). Content strategist outputs layout hints per `apiBlock`. Section styling (`sectionPadding`, `blockSpacing`, `sectionTheme`) applied after both blank_api and template operations.
 
@@ -349,7 +352,7 @@ Upload strategies (fallback chain):
 
 ## Testing
 
-- `vitest` for unit tests — **2164 tests** across 38+ test files
+- `vitest` for unit tests — **~1590 tests** across 52 test files
 - Main test suite: `src/automation/__tests__/parse-agent-action.test.ts` (parse tests including templateIndex)
 - `src/services/__tests__/content-save-add-block.test.ts` — addTextBlock tests (block ID generation, layout calculation, backfill, gapRows/rowHeight spacing)
 - `src/services/__tests__/content-validator.test.ts` — content validation tests
@@ -360,4 +363,4 @@ Upload strategies (fallback chain):
 - `src/services/__tests__/menu-merger.test.ts` — menu merger (LLM + structured) tests (36 tests)
 - Integration test: `src/automation/__tests__/compound-actions.integration.test.ts` (requires live browser session)
 - Run: `npm run test` (integration test files show as "failed" when no browser session — this is expected)
-- **Pre-existing TS errors**: `operationType` union doesn't include `'create_page'` or `'create_blog_post'`, causing TS2367 in tests and execution.ts. Workaround: cast to `string` for comparison. Server runs via `tsx watch` which ignores type errors.
+- **operationType union** now includes 19 types: `create_page`, `delete_page`, `update_page_metadata`, `add_section`, `add_block`, `add_gallery`, `modify_text`, `replace_image`, `remove_block`, `modify_block`, `modify_style`, `edit_footer`, `edit_css`, `reorder_sections`, `move_block`, `resize_block`, `create_blog_post`, `update_blog_post`, `edit_code_injection`, `modify_gallery_settings`. Site-wide ops (footer/CSS/code-injection/blog) skip `resolvePageContext()` in the api-executor.

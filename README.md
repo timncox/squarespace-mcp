@@ -84,7 +84,7 @@ npm run build        # TypeScript compile
 npm run start        # Run compiled JS
 npm run start:all    # Server + ngrok tunnel (WhatsApp webhooks)
 npm run cli          # CLI tool for manual task submission
-npm run test         # Run test suite (~1561 tests)
+npm run test         # Run test suite (~1590 tests)
 ```
 
 ### Dashboard
@@ -137,9 +137,10 @@ src/
   db/                            # SQLite schema + migrations + CRUD
   routes/                        # Fastify routes (dashboard, webhooks, health)
   services/
-    content-save.ts              # Squarespace Content Save API (~4500 lines)
-    content-save-types.ts        # Type definitions (~500 lines)
-    api-executor.ts              # Multi-operation API executor
+    content-save.ts              # Squarespace Content Save API (75+ methods, ~8200 lines)
+    content-save-types.ts        # Type definitions (~900 lines)
+    api-executor.ts              # Multi-operation API executor (17 operation types)
+    template-registry.ts         # Template section registry (SQLite cache, 7-day TTL)
     plan-classifier.ts           # Routes plans to API vs browser
     simple-edit-classifier.ts    # Fast path classifier (14 edit types)
     simple-edit-executor.ts      # Fast path dispatch
@@ -148,14 +149,15 @@ src/
     menu-parser.ts               # Menu text ↔ structured JSON
     media-upload.ts              # Image upload to Squarespace
     conversation/                # Conversation sub-modules
-scripts/                         # Dev/debug scripts
+scripts/
+  sq.ts                          # Squarespace CLI (40 commands)
 data/                            # SQLite database (sqhelper.db)
 storage/                         # Runtime data (uploads/, screenshots/, auth/)
 ```
 
 ## Content Save API
 
-The API client (`ContentSaveClient` in `src/services/content-save.ts`) provides 40+ methods for editing Squarespace pages without a browser. Uses a read-modify-write pattern: GET page sections → modify JSON in memory → PUT back.
+The API client (`ContentSaveClient` in `src/services/content-save.ts`) provides 75+ methods for editing Squarespace pages without a browser. Uses a read-modify-write pattern: GET page sections → modify JSON in memory → PUT back.
 
 ### Authentication
 
@@ -182,8 +184,9 @@ The API client (`ContentSaveClient` in `src/services/content-save.ts`) provides 
 - **Section**: add blank, copy template, move, duplicate, edit style (theme/height/width/alignment/divider), reorder
 - **Page**: create (blank or blog collection), delete, update metadata/SEO
 - **Blog**: create blog post with title, body, publish status
-- **Footer/CSS**: patch footer text, save custom CSS
+- **Footer/CSS**: patch footer text, save custom CSS, code injection (header/footer scripts)
 - **Block management**: move, resize, swap, remove, duplicate
+- **Site-wide**: get navigation, get/update settings, site identity
 
 ### Grid System
 
@@ -194,7 +197,7 @@ The API client (`ContentSaveClient` in `src/services/content-save.ts`) provides 
 ## Testing
 
 ```bash
-npm run test              # Full suite (~1561 tests, 49 files)
+npm run test              # Full suite (~1590 tests, 52 files)
 npm run test:unit         # Parse action tests only
 npm run test:integration  # Compound action tests (requires live browser)
 ```
