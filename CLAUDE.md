@@ -21,6 +21,20 @@ npm run start:all    # Server + ngrok tunnel
 
 Entry point: `src/index.ts` — starts Fastify server + Gmail polling loop (60s interval).
 
+### MCP Autonomous Agents Architecture (Planned)
+
+Design doc: `docs/plans/2026-03-02-mcp-autonomous-agents-design.md`
+
+Replaces direct Anthropic SDK calls + claude-code-proxy with:
+- **MCP server** (`src/mcp-server/`) wrapping ContentSaveClient as ~40 tools
+- **Autonomous Claude CLI agents** spawned via `claude -p --mcp-config --output-format stream-json`
+- **Orchestrator** (`src/orchestrator/`) routes: classifier fast path → direct API, complex → agent pipeline
+- **Self-improving loop**: browser fallbacks logged → dashboard → new API tools created
+
+Preservation: `USE_MCP_AGENTS` env flag. Old path stays intact. Tag: `v1-direct-api`.
+Agent prompts built from existing skill files (`.claude/skills/squarespace-*.md`).
+ContentSaveClient is shared foundation — called by MCP tools (new) or directly (old).
+
 ### Core Flow
 
 1. **Email arrives** → Gmail API poll → `email-processor.ts` parses + extracts tasks via Claude
