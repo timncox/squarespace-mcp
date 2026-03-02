@@ -6961,12 +6961,12 @@ export class ContentSaveClient {
       const cloned: PageSection = JSON.parse(JSON.stringify(originalSection));
 
       // Step 4: Generate new section ID
-      const newSectionId = ContentSaveClient.generateBlockId();
+      const newSectionId = ContentSaveClient.generateSectionId();
       cloned.id = newSectionId;
 
       // Step 5: Regenerate fluidEngineContext.id if present
       if (cloned.fluidEngineContext) {
-        (cloned.fluidEngineContext as Record<string, unknown>).id = ContentSaveClient.generateBlockId();
+        (cloned.fluidEngineContext as Record<string, unknown>).id = ContentSaveClient.generateSectionId();
 
         // Step 6: Regenerate ALL block IDs in the cloned section
         const gridContents = cloned.fluidEngineContext.gridContents;
