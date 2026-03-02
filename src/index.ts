@@ -14,6 +14,7 @@ import { startServer } from './server.js';
 import { pollAndProcess } from './services/email-processor.js';
 import { notifyNewTasks } from './services/conversation-handler.js';
 import { shutdownBrowser } from './automation/browser-manager.js';
+import { ensureProxy, stopProxy } from './utils/proxy-manager.js';
 
 const POLL_INTERVAL_MS = 60_000; // Check Gmail every 60 seconds
 
@@ -35,6 +36,9 @@ async function main(): Promise<void> {
 
   // Clean up old screenshots to prevent unbounded disk growth
   pruneOldScreenshots();
+
+  // Ensure claude-code-proxy is running (needed for Anthropic API calls)
+  await ensureProxy();
 
   // Start the HTTP server
   const app = await startServer();
@@ -93,14 +97,52 @@ function startEmailPolling(): void {
 function recoverOrphanedExecutions(): void {
   const db = getDb();
 
-  // Reset orphaned tasks: executing → failed (with diagnostic message)
-  const stuckTasks = db.prepare(
-    `UPDATE tasks SET status = 'failed', error_message = 'Server restarted while task was executing — marked as failed for safety'
-     WHERE status = 'executing'`,
-  ).run();
+  // Check for orphaned executing tasks
+  const orphanedTasks = db
+    .prepare(`SELECT id FROM tasks WHERE status = 'executing'`)
+    .all() as { id: string }[];
 
-  if (stuckTasks.changes > 0) {
-    logger.warn({ count: stuckTasks.changes }, 'Recovered orphaned executing tasks → failed');
+  if (orphanedTasks.length > 0) {
+    // For each orphaned task, check if the browser agent completed successfully
+    // before the server restart (i.e., the supervisor was interrupted, not the agent)
+    const checkAgentCompleted = db.prepare(
+      `SELECT 1 FROM agent_events
+       WHERE task_id = ? AND event_type = 'agent_activity'
+       AND data LIKE '%"agent":"browser_agent"%'
+       AND data LIKE '%"status":"completed"%'
+       LIMIT 1`,
+    );
+
+    const markDone = db.prepare(
+      `UPDATE tasks SET status = 'done', error_message = 'Browser agent completed; supervisor verification interrupted by server restart'
+       WHERE id = ?`,
+    );
+    const markFailed = db.prepare(
+      `UPDATE tasks SET status = 'failed', error_message = 'Server restarted while task was executing — marked as failed for safety'
+       WHERE id = ?`,
+    );
+
+    let doneCount = 0;
+    let failedCount = 0;
+
+    for (const task of orphanedTasks) {
+      const agentCompleted = checkAgentCompleted.get(task.id);
+      if (agentCompleted) {
+        markDone.run(task.id);
+        doneCount++;
+        logger.info({ taskId: task.id }, 'Orphaned task recovered as done — browser agent had completed');
+      } else {
+        markFailed.run(task.id);
+        failedCount++;
+      }
+    }
+
+    if (doneCount > 0) {
+      logger.warn({ count: doneCount }, 'Recovered orphaned executing tasks → done (browser agent had completed)');
+    }
+    if (failedCount > 0) {
+      logger.warn({ count: failedCount }, 'Recovered orphaned executing tasks → failed');
+    }
   }
 
   // Reset orphaned conversations: executing → completed
@@ -176,10 +218,13 @@ function setupShutdownHandlers(app: Awaited<ReturnType<typeof startServer>>): vo
       logger.warn({ error: err }, 'Error closing Fastify server');
     }
 
-    // 2. Close browser processes
+    // 2. Stop proxy if we spawned it
+    stopProxy();
+
+    // 3. Close browser processes
     await shutdownBrowser();
 
-    // 3. Close SQLite database (flushes WAL)
+    // 4. Close SQLite database (flushes WAL)
     try {
       closeDb();
     } catch (err) {
