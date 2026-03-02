@@ -1527,6 +1527,7 @@ async function executeBlankApiOperation(
           block.label,
           block.url,
           block.layout,
+          { size: block.size, style: block.style, alignment: block.alignment, variant: block.variant, newWindow: block.newWindow },
         );
 
         if (result.success) {
@@ -3200,6 +3201,7 @@ async function executeContentOnlyBlankApi(
         block.label,
         block.url,
         block.layout,
+        { size: block.size, style: block.style, alignment: block.alignment, variant: block.variant, newWindow: block.newWindow },
       );
 
       if (result.success) {
