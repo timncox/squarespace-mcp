@@ -57,6 +57,46 @@ function makeButtonBlock(blockId: string, label: string, url: string): GridConte
   };
 }
 
+/** Type 1337 (new format) button block — matches real Squarespace output */
+function makeNewButtonBlock(
+  blockId: string,
+  buttonText: string,
+  buttonLink: string,
+  options?: { size?: string; style?: string; alignment?: string; variant?: string; newWindow?: boolean },
+): GridContent {
+  return {
+    layout: { ...STUB_LAYOUT },
+    content: {
+      value: {
+        id: blockId,
+        type: 1337,
+        value: {
+          buttonText,
+          buttonLink,
+          newWindow: options?.newWindow ?? false,
+          buttonAlignment: options?.alignment ?? 'center',
+          buttonSize: options?.size ?? 'medium',
+          ...(options?.style ? { buttonStyle: options.style } : {}),
+          ...(options?.variant ? { buttonVariant: options.variant } : {}),
+          containerStyles: { stretchedToFill: true },
+          transforms: {
+            rotation: { value: 0, unit: 'deg' },
+            scale: { x: { value: 100, unit: '%' }, y: { value: 100, unit: '%' } },
+            opacity: { value: 100, unit: '%' },
+            offset: { x: { value: 0, unit: 'px' }, y: { value: 0, unit: 'px' } },
+            origin: { x: { value: 50, unit: '%' }, y: { value: 50, unit: '%' } },
+            skew: { x: { value: 0, unit: 'deg' }, y: { value: 0, unit: 'deg' } },
+          },
+          animations: [],
+          breakpointOverrides: {},
+        },
+        containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+        definitionName: 'website.components.button',
+      },
+    },
+  };
+}
+
 function makeBlockWithLayout(
   blockId: string,
   html: string,
@@ -597,5 +637,100 @@ describe('ContentSaveClient — updateButtonBlock', () => {
     expect(result.error).toBeDefined();
 
     fetchSpy.mockRestore();
+  });
+});
+
+// ── Button type detection helpers ──────────────────────────────────────────
+
+describe('ContentSaveClient — button type helpers', () => {
+  it('isButtonBlock returns true for type 46', () => {
+    const block = makeButtonBlock('btn-1', 'Click', 'https://example.com');
+    expect(ContentSaveClient.isButtonBlock(block.content.value)).toBe(true);
+  });
+
+  it('isButtonBlock returns true for type 1337 with button definitionName', () => {
+    const block = makeNewButtonBlock('btn-2', 'Click', 'https://example.com');
+    expect(ContentSaveClient.isButtonBlock(block.content.value)).toBe(true);
+  });
+
+  it('isButtonBlock returns false for type 1337 image block', () => {
+    const imageBlock: GridContent = {
+      layout: { ...STUB_LAYOUT },
+      content: {
+        value: {
+          id: 'img-1',
+          type: 1337,
+          value: { title: 'Photo', assetUrl: 'https://images.squarespace-cdn.com/test.jpg' },
+        },
+      },
+    };
+    expect(ContentSaveClient.isButtonBlock(imageBlock.content.value)).toBe(false);
+  });
+
+  it('isButtonBlock returns false for text block', () => {
+    const block = makeTextBlock('t1', '<p>Text</p>');
+    expect(ContentSaveClient.isButtonBlock(block.content.value)).toBe(false);
+  });
+
+  it('getButtonFields normalizes type 46 fields', () => {
+    const block = makeButtonBlock('btn-1', 'Book Now', 'https://example.com/book');
+    const fields = ContentSaveClient.getButtonFields(block.content.value);
+    expect(fields).toEqual({
+      text: 'Book Now',
+      url: 'https://example.com/book',
+    });
+  });
+
+  it('getButtonFields normalizes type 1337 fields', () => {
+    const block = makeNewButtonBlock('btn-2', 'Reserve', 'https://example.com/reserve', {
+      size: 'large', style: 'secondary', alignment: 'left', variant: 'outline', newWindow: true,
+    });
+    const fields = ContentSaveClient.getButtonFields(block.content.value);
+    expect(fields).toEqual({
+      text: 'Reserve',
+      url: 'https://example.com/reserve',
+      size: 'large',
+      style: 'secondary',
+      alignment: 'left',
+      variant: 'outline',
+      newWindow: true,
+    });
+  });
+
+  it('getButtonFields returns null for non-button', () => {
+    const block = makeTextBlock('t1', '<p>Text</p>');
+    expect(ContentSaveClient.getButtonFields(block.content.value)).toBeNull();
+  });
+
+  it('setButtonFields updates type 46 label and url', () => {
+    const block = makeButtonBlock('btn-1', 'Old', 'https://old.com');
+    const bv = block.content.value;
+    ContentSaveClient.setButtonFields(bv, { text: 'New', url: 'https://new.com' });
+    expect(bv.value.label).toBe('New');
+    expect(bv.value.url).toBe('https://new.com');
+  });
+
+  it('setButtonFields updates type 1337 buttonText, buttonLink, and design fields', () => {
+    const block = makeNewButtonBlock('btn-2', 'Old', 'https://old.com');
+    const bv = block.content.value;
+    ContentSaveClient.setButtonFields(bv, {
+      text: 'New', url: 'https://new.com',
+      size: 'small', style: 'tertiary', alignment: 'right', variant: 'outline',
+    });
+    expect(bv.value.buttonText).toBe('New');
+    expect(bv.value.buttonLink).toBe('https://new.com');
+    expect(bv.value.buttonSize).toBe('small');
+    expect(bv.value.buttonStyle).toBe('tertiary');
+    expect(bv.value.buttonAlignment).toBe('right');
+    expect(bv.value.buttonVariant).toBe('outline');
+  });
+
+  it('setButtonFields skips undefined fields', () => {
+    const block = makeNewButtonBlock('btn-2', 'Keep', 'https://keep.com', { size: 'large' });
+    const bv = block.content.value;
+    ContentSaveClient.setButtonFields(bv, { text: 'Changed' });
+    expect(bv.value.buttonText).toBe('Changed');
+    expect(bv.value.buttonLink).toBe('https://keep.com'); // unchanged
+    expect(bv.value.buttonSize).toBe('large'); // unchanged
   });
 });

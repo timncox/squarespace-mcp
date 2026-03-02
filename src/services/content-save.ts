@@ -278,6 +278,9 @@ const BLOCK_TYPE_SOCIAL_LINKS = 54;
 // Embed block type — confirmed via live site discovery (Feb 28 2026, grey-yellow-hbxc test-page)
 const BLOCK_TYPE_EMBED = 22;
 
+// Button block definitionName for type 1337 (new format)
+const BUTTON_DEFINITION_NAME = 'website.components.button';
+
 interface SessionCookie {
   name: string;
   value: string;
@@ -2880,6 +2883,70 @@ export class ContentSaveClient {
   /** Generate a 24-char hex ID for sections (Squarespace validates 12-byte ObjectID format). */
   static generateSectionId(): string {
     return randomBytes(12).toString('hex');
+  }
+
+  /**
+   * Check if a block value represents a button block (either type 46 or type 1337 with button definitionName).
+   */
+  static isButtonBlock(blockValue: { type: number; definitionName?: string }): boolean {
+    if (blockValue.type === BLOCK_TYPE_BUTTON) return true;
+    if (blockValue.type === BLOCK_TYPE_IMAGE && blockValue.definitionName === BUTTON_DEFINITION_NAME) return true;
+    return false;
+  }
+
+  /**
+   * Get normalized button fields from either type 46 or type 1337 button blocks.
+   * Returns null if block is not a button.
+   */
+  static getButtonFields(
+    blockValue: { type: number; definitionName?: string; value?: Record<string, unknown> },
+  ): { text: string; url: string; size?: string; style?: string; alignment?: string; variant?: string; newWindow?: boolean } | null {
+    if (!ContentSaveClient.isButtonBlock(blockValue)) return null;
+    const v = blockValue.value ?? {};
+
+    if (blockValue.type === BLOCK_TYPE_BUTTON) {
+      return { text: v.label as string ?? '', url: v.url as string ?? '' };
+    }
+
+    // Type 1337 new button
+    const result: { text: string; url: string; size?: string; style?: string; alignment?: string; variant?: string; newWindow?: boolean } = {
+      text: v.buttonText as string ?? '',
+      url: v.buttonLink as string ?? '',
+    };
+    if (v.buttonSize) result.size = v.buttonSize as string;
+    if (v.buttonStyle) result.style = v.buttonStyle as string;
+    if (v.buttonAlignment) result.alignment = v.buttonAlignment as string;
+    if (v.buttonVariant) result.variant = v.buttonVariant as string;
+    if (v.newWindow !== undefined) result.newWindow = v.newWindow as boolean;
+    return result;
+  }
+
+  /**
+   * Set button fields on either type 46 or type 1337 button blocks.
+   * Only updates fields that are explicitly provided (not undefined).
+   */
+  static setButtonFields(
+    blockValue: { type: number; definitionName?: string; value?: Record<string, unknown> },
+    updates: { text?: string; url?: string; size?: string; style?: string; alignment?: string; variant?: string; newWindow?: boolean },
+  ): void {
+    if (!blockValue.value) blockValue.value = {};
+    const v = blockValue.value;
+
+    if (blockValue.type === BLOCK_TYPE_BUTTON) {
+      // Type 46 legacy
+      if (updates.text !== undefined) v.label = updates.text;
+      if (updates.url !== undefined) v.url = updates.url;
+      return;
+    }
+
+    // Type 1337 new button
+    if (updates.text !== undefined) v.buttonText = updates.text;
+    if (updates.url !== undefined) v.buttonLink = updates.url;
+    if (updates.size !== undefined) v.buttonSize = updates.size;
+    if (updates.style !== undefined) v.buttonStyle = updates.style;
+    if (updates.alignment !== undefined) v.buttonAlignment = updates.alignment;
+    if (updates.variant !== undefined) v.buttonVariant = updates.variant;
+    if (updates.newWindow !== undefined) v.newWindow = updates.newWindow;
   }
 
   /**
