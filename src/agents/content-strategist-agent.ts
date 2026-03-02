@@ -136,6 +136,90 @@ function formatCatalogForPrompt(): string {
 }
 
 /**
+ * Generate a reference guide for all 18+ operation types.
+ * Included in the strategist prompt so the LLM knows which operationType
+ * to use and which ContentSpec fields each requires.
+ */
+export function formatOperationTypeReference(): string {
+  return `## Operation Type Reference
+
+Choose the correct \`operationType\` for each operation. Each type maps to a specific API executor method.
+
+### Content Editing
+| operationType | Required Fields | Description |
+|---------------|----------------|-------------|
+| \`modify_text\` | heading and/or bodyText, placement (searchText to find block) | Edit existing text block content |
+| \`modify_block\` | blockType + type-specific fields, placement | Edit existing non-text block (button, menu, quote, code, image metadata) |
+| \`replace_image\` | imagePath or imageQuery, placement, imageAltText | Replace an existing image |
+| \`remove_block\` | placement (searchText to find block) | Remove a block from a section |
+
+### Block Addition
+| operationType | Required Fields | Description |
+|---------------|----------------|-------------|
+| \`add_block\` | blockType, contentStrategy: "blank_api", apiBlocks | Add a single block to an existing section |
+| \`add_gallery\` | apiBlocks with type:"gallery", images array | Add multiple images in a grid layout |
+
+### Section Operations
+| operationType | Required Fields | Description |
+|---------------|----------------|-------------|
+| \`add_section\` | contentStrategy: "blank_api", apiBlocks | Add a new section with content |
+| \`modify_style\` | sectionTheme/sectionHeight/contentWidth/etc, placement | Change section visual styling |
+| \`reorder_sections\` | sectionDirection ("up"/"down") OR sectionOrder (index array) | Move sections up/down or reorder |
+
+### Block Layout
+| operationType | Required Fields | Description |
+|---------------|----------------|-------------|
+| \`move_block\` | blockDirection ("up"/"down"/"left"/"right"), gridSteps (optional), placement | Move a block within its section grid |
+| \`resize_block\` | blockWidth ("smaller"/"larger"/"full") and/or blockHeight ("shorter"/"taller"), placement | Resize a block |
+
+### Page Management
+| operationType | Required Fields | Description |
+|---------------|----------------|-------------|
+| \`create_page\` | heading (page title), targetPage (slug) | Create a new page |
+| \`delete_page\` | targetPage (slug) | Delete an existing page |
+| \`update_page_metadata\` | heading (new title) and/or bodyText (SEO description), targetPage | Update page title/SEO |
+
+### Blog Operations
+| operationType | Required Fields | Description |
+|---------------|----------------|-------------|
+| \`create_blog_post\` | blogCollectionId, blogTitle, blogBody (HTML), blogTags (optional), blogDraft (optional) | Create a new blog post |
+| \`update_blog_post\` | blogCollectionId, blogPostId, blogTitle/blogBody/blogTags | Update an existing blog post |
+
+### Site-Wide Operations
+| operationType | Required Fields | Description |
+|---------------|----------------|-------------|
+| \`edit_footer\` | apiBlocks with footer content, placement | Edit the site footer |
+| \`edit_css\` | cssCode (full CSS string) | Add or replace custom CSS |
+| \`edit_code_injection\` | codeInjectionHeader and/or codeInjectionFooter | Add tracking/analytics code |
+
+### Gallery Display
+| operationType | Required Fields | Description |
+|---------------|----------------|-------------|
+| \`modify_gallery_settings\` | galleryColumns/galleryAspectRatio/galleryDesign/galleryPadding/galleryLightbox/galleryAutoCrop, placement | Change gallery display settings |
+
+## When to Use Each Operation Type
+
+| User Request | Operation Type | Key Distinction |
+|-------------|---------------|-----------------|
+| "change the heading" | \`modify_text\` | Editing EXISTING text |
+| "add a new section about..." | \`add_section\` | Adding NEW section |
+| "add a text block to..." | \`add_block\` | Adding block to EXISTING section |
+| "update the button link" | \`modify_block\` (blockType: "button") | Editing EXISTING button |
+| "write a blog post" | \`create_blog_post\` | Need blogCollectionId from navigation data |
+| "move the section up" | \`reorder_sections\` (sectionDirection: "up") | Section reorder |
+| "move the image left" | \`move_block\` (blockDirection: "left") | Block grid movement |
+| "make the block wider" | \`resize_block\` (blockWidth: "larger") | Block resize |
+| "add custom CSS" | \`edit_css\` | Site-wide CSS |
+| "add Google Analytics" | \`edit_code_injection\` | Header/footer scripts |
+| "change section to dark" | \`modify_style\` (sectionTheme: "dark") | Section styling |
+| "edit the footer" | \`edit_footer\` | Footer content |
+
+## Blog Collection IDs
+
+Use the navigation data to find blog collection IDs. Blog pages have \`collectionType: 1\` or \`typeName: "blog"\` in the navigation. Pass the collection's ID as \`blogCollectionId\`. If no blog collection exists in navigation, the site doesn't have a blog — use \`create_page\` with the blog page type first.`;
+}
+
+/**
  * Draft a content plan for one or more tasks.
  *
  * @param tasks — The tasks to plan content for
@@ -626,6 +710,9 @@ You can combine gallery blocks with text blocks in the same section for captions
 
 NEVER use blank_api for font/color/typography/design changes. These MUST use contentStrategy: "manual".\n`);
 
+  // Operation type reference
+  parts.push(formatOperationTypeReference());
+
   // Output format
   parts.push(`## Output Format
 
@@ -980,7 +1067,7 @@ function parsePlanResponse(text: string, tasks: Task[]): ContentPlan {
   }
 }
 
-function parseContentSpec(raw: Record<string, unknown> | undefined): ContentOperation['content'] {
+export function parseContentSpec(raw: Record<string, unknown> | undefined): ContentOperation['content'] {
   if (!raw) return {};
   const button = raw.button as Record<string, unknown> | undefined;
   return {
@@ -1015,6 +1102,32 @@ function parseContentSpec(raw: Record<string, unknown> | undefined): ContentOper
     replacements: parseReplacements(raw.replacements),
     galleryImageCount: typeof raw.galleryImageCount === 'number' ? raw.galleryImageCount : undefined,
     galleryAltTexts: Array.isArray(raw.galleryAltTexts) ? (raw.galleryAltTexts as string[]) : undefined,
+    // Gallery display settings
+    galleryColumns: typeof raw.galleryColumns === 'number' ? raw.galleryColumns : undefined,
+    galleryAspectRatio: typeof raw.galleryAspectRatio === 'string' ? raw.galleryAspectRatio : undefined,
+    galleryDesign: typeof raw.galleryDesign === 'string' ? raw.galleryDesign : undefined,
+    galleryPadding: typeof raw.galleryPadding === 'number' ? raw.galleryPadding : undefined,
+    galleryLightbox: typeof raw.galleryLightbox === 'boolean' ? raw.galleryLightbox : undefined,
+    galleryAutoCrop: typeof raw.galleryAutoCrop === 'boolean' ? raw.galleryAutoCrop : undefined,
+    // Section reorder
+    sectionDirection: (raw.sectionDirection as ContentOperation['content']['sectionDirection']) ?? undefined,
+    sectionOrder: Array.isArray(raw.sectionOrder) ? (raw.sectionOrder as number[]) : undefined,
+    // Block layout
+    blockDirection: (raw.blockDirection as ContentOperation['content']['blockDirection']) ?? undefined,
+    gridSteps: typeof raw.gridSteps === 'number' ? raw.gridSteps : undefined,
+    blockWidth: (raw.blockWidth as ContentOperation['content']['blockWidth']) ?? undefined,
+    blockHeight: (raw.blockHeight as ContentOperation['content']['blockHeight']) ?? undefined,
+    // Code injection + CSS
+    codeInjectionHeader: typeof raw.codeInjectionHeader === 'string' ? raw.codeInjectionHeader : undefined,
+    codeInjectionFooter: typeof raw.codeInjectionFooter === 'string' ? raw.codeInjectionFooter : undefined,
+    cssCode: typeof raw.cssCode === 'string' ? raw.cssCode : undefined,
+    // Blog
+    blogCollectionId: typeof raw.blogCollectionId === 'string' ? raw.blogCollectionId : undefined,
+    blogPostId: typeof raw.blogPostId === 'string' ? raw.blogPostId : undefined,
+    blogTitle: typeof raw.blogTitle === 'string' ? raw.blogTitle : undefined,
+    blogBody: typeof raw.blogBody === 'string' ? raw.blogBody : undefined,
+    blogTags: Array.isArray(raw.blogTags) ? (raw.blogTags as string[]) : undefined,
+    blogDraft: typeof raw.blogDraft === 'boolean' ? raw.blogDraft : undefined,
   };
 }
 

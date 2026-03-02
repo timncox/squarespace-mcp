@@ -39,6 +39,15 @@ export interface PlanClassification {
  *   - remove_block (removeBlock)
  *   - modify_block (updateButtonBlock / updateMenuBlock / updateImageBlock)
  *   - modify_style (editSectionStyle)
+ *   - modify_gallery_settings (gallery display settings)
+ *   - edit_footer (footer text/content)
+ *   - edit_css (custom CSS via cssCode)
+ *   - edit_code_injection (header/footer code injection)
+ *   - reorder_sections (section reordering via direction or explicit order)
+ *   - move_block (block movement via direction)
+ *   - resize_block (block resizing via width/height)
+ *   - create_blog_post (blog post creation via blogCollectionId)
+ *   - update_blog_post (blog post update via blogCollectionId + blogPostId)
  *
  * Browser-required:
  *   - contentStrategy 'manual' (needs full browser control)
@@ -93,6 +102,33 @@ function canRunViaApi(op: ContentOperation): boolean {
 
     case 'modify_style':
       return true;
+
+    case 'modify_gallery_settings':
+      return true;
+
+    case 'edit_footer':
+      return true;
+
+    case 'edit_css':
+      return !!content.cssCode;
+
+    case 'edit_code_injection':
+      return !!(content.codeInjectionHeader || content.codeInjectionFooter);
+
+    case 'reorder_sections':
+      return !!(content.sectionDirection || content.sectionOrder);
+
+    case 'move_block':
+      return !!content.blockDirection;
+
+    case 'resize_block':
+      return !!(content.blockWidth || content.blockHeight);
+
+    case 'create_blog_post':
+      return !!content.blogCollectionId;
+
+    case 'update_blog_post':
+      return !!(content.blogCollectionId && content.blogPostId);
 
     default:
       // Unknown operation type — assume browser required

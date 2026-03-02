@@ -332,4 +332,217 @@ describe('classifyPlanForApi', () => {
       expect(result.reason).toContain('manual strategy');
     });
   });
+
+  // ── New operation types (Phase 2 API expansion) ───────────────────────
+
+  describe('new operation types', () => {
+    // modify_gallery_settings — always API-capable
+    it('classifies modify_gallery_settings as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'modify_gallery_settings',
+          content: { galleryColumns: 3, galleryLightbox: true },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    // edit_footer — always API-capable
+    it('classifies edit_footer as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'edit_footer',
+          content: { bodyText: 'Footer content' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    // edit_css — requires cssCode
+    it('classifies edit_css with cssCode as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'edit_css',
+          content: { cssCode: 'body { color: red; }' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies edit_css without cssCode as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'edit_css',
+          content: {},
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
+
+    // edit_code_injection — requires header or footer
+    it('classifies edit_code_injection with header as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'edit_code_injection',
+          content: { codeInjectionHeader: '<script>ga("send")</script>' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies edit_code_injection with footer as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'edit_code_injection',
+          content: { codeInjectionFooter: '<script>footer()</script>' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies edit_code_injection without either as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'edit_code_injection',
+          content: {},
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
+
+    // reorder_sections — requires direction or order
+    it('classifies reorder_sections with sectionDirection as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'reorder_sections',
+          content: { sectionDirection: 'up' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies reorder_sections with sectionOrder as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'reorder_sections',
+          content: { sectionOrder: [2, 0, 1] },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies reorder_sections without either as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'reorder_sections',
+          content: {},
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
+
+    // move_block — requires blockDirection
+    it('classifies move_block with blockDirection as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'move_block',
+          content: { blockDirection: 'left' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies move_block without blockDirection as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'move_block',
+          content: {},
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
+
+    // resize_block — requires width or height
+    it('classifies resize_block with blockWidth as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'resize_block',
+          content: { blockWidth: 'larger' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies resize_block with blockHeight as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'resize_block',
+          content: { blockHeight: 'taller' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies resize_block without either as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'resize_block',
+          content: {},
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
+
+    // create_blog_post — requires blogCollectionId
+    it('classifies create_blog_post with blogCollectionId as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'create_blog_post',
+          content: { blogCollectionId: 'col-123', blogTitle: 'Test', blogBody: '<p>Hi</p>' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies create_blog_post without blogCollectionId as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'create_blog_post',
+          content: { blogTitle: 'Test', blogBody: '<p>Hi</p>' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
+
+    // update_blog_post — requires both IDs
+    it('classifies update_blog_post with both IDs as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'update_blog_post',
+          content: { blogCollectionId: 'col-123', blogPostId: 'post-456', blogTitle: 'Updated' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('full_api');
+    });
+
+    it('classifies update_blog_post with only collectionId as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'update_blog_post',
+          content: { blogCollectionId: 'col-123', blogTitle: 'Updated' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
+
+    it('classifies update_blog_post with only postId as browser_required', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'update_blog_post',
+          content: { blogPostId: 'post-456', blogTitle: 'Updated' },
+        }),
+      ]);
+      expect(classifyPlanForApi(plan).capability).toBe('browser_required');
+    });
+  });
 });
