@@ -9,6 +9,7 @@ export default defineConfig({
       '**/node_modules/**',
       '**/dist/**',
       '**/*.integration.test.ts',
+      '.claude/**',
     ],
   },
 });
