@@ -102,6 +102,12 @@ export type {
   MobileLayoutSetResult,
   MobileMoveResult,
   MobileResizeResult,
+  NavigationItem,
+  NavigationData,
+  NavigationResult,
+  SiteSettings,
+  SettingsResult,
+  CodeInjectionData,
 } from './content-save-types.js';
 
 import type {
@@ -179,6 +185,12 @@ import type {
   MobileLayoutSetResult,
   MobileMoveResult,
   MobileResizeResult,
+  NavigationItem,
+  NavigationData,
+  NavigationResult,
+  SiteSettings,
+  SettingsResult,
+  CodeInjectionData,
 } from './content-save-types.js';
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -1974,7 +1986,7 @@ export class ContentSaveClient {
     pageSectionsId: string,
     collectionId: string,
     searchText: string,
-    fields: { title?: string; description?: string; subtitle?: string; altText?: string; linkTo?: string },
+    fields: { title?: string; description?: string; subtitle?: string; altText?: string; linkTo?: string; assetUrl?: string },
   ): Promise<ImageBlockUpdateResult> {
     try {
       // Step 1: GET current sections
@@ -2026,6 +2038,10 @@ export class ContentSaveClient {
       if (fields.linkTo !== undefined) {
         blockValue.value.linkTo = fields.linkTo;
         updatedFields.push('linkTo');
+      }
+      if (fields.assetUrl !== undefined) {
+        blockValue.value.assetUrl = fields.assetUrl;
+        updatedFields.push('assetUrl');
       }
 
       if (updatedFields.length === 0) {
@@ -6348,8 +6364,16 @@ export class ContentSaveClient {
       }),
     };
 
-    for (const endpoint of endpoints) {
+    for (let i = 0; i < endpoints.length; i++) {
+      const endpoint = endpoints[i];
+
+      // Short delay between retries (not before first attempt)
+      if (i > 0) {
+        await new Promise(r => setTimeout(r, 500));
+      }
+
       try {
+        logger.info({ endpoint, attempt: i + 1, totalEndpoints: endpoints.length }, 'createPageViaApi: trying endpoint');
         const url = this.buildApiUrl(endpoint, true);
         const response = await fetch(url, {
           method: 'POST',
@@ -6363,7 +6387,7 @@ export class ContentSaveClient {
 
         // 404/405 means this endpoint doesn't exist — try next
         if (response.status === 404 || response.status === 405) {
-          logger.debug({ endpoint, status: response.status }, 'createPageViaApi: endpoint not available, trying next');
+          logger.info({ endpoint, status: response.status }, 'createPageViaApi: endpoint not available, trying next');
           continue;
         }
 
@@ -6397,7 +6421,7 @@ export class ContentSaveClient {
           };
         }
 
-        logger.info({ endpoint, pageId: data.id, urlId: data.urlId }, 'createPageViaApi: page created');
+        logger.info({ endpoint, pageId: data.id, urlId: data.urlId, title }, 'createPageViaApi: page created via %s', endpoint);
 
         return {
           success: true,
@@ -6407,19 +6431,21 @@ export class ContentSaveClient {
         };
       } catch (err) {
         // Network/timeout error — endpoint might exist, just unreachable
+        logger.warn({ endpoint, error: errMsg(err), title }, 'createPageViaApi: network/timeout error on %s', endpoint);
         return {
           success: false,
           endpointAvailable: true,
-          error: errMsg(err),
+          error: `${endpoint}: ${errMsg(err)}`,
         };
       }
     }
 
     // All endpoints returned 404/405
+    logger.warn({ title, endpoints }, 'createPageViaApi: all endpoints returned 404/405');
     return {
       success: false,
       endpointAvailable: false,
-      error: 'No page creation endpoint found',
+      error: `No page creation endpoint found (tried: ${endpoints.join(', ')})`,
     };
   }
 
@@ -7920,6 +7946,255 @@ export class ContentSaveClient {
     }
 
     return { success: false, error: `Job ${jobId} timed out after ${maxAttempts} attempts` };
+  }
+
+  // ── Navigation ──────────────────────────────────────────────────────────
+
+  /**
+   * Get the site navigation structure.
+   * Uses GET /api/navigation (read-only, discovered via API surface scan).
+   * Returns mainNavigation and notLinked page lists with enriched item data.
+   */
+  async getNavigation(): Promise<NavigationResult> {
+    this.ensureCookies();
+
+    const url = this.buildApiUrl('/api/navigation');
+
+    logger.info({ siteSubdomain: this.siteSubdomain }, 'Fetching navigation');
+
+    try {
+      const response = await fetch(url, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `${response.status} ${response.statusText}: ${body}` };
+      }
+
+      const raw = await response.json() as Record<string, unknown>;
+
+      const parseItem = (item: Record<string, unknown>): NavigationItem => ({
+        id: String(item.id ?? ''),
+        title: String(item.title ?? item.navigationTitle ?? ''),
+        urlSlug: String(item.urlId ?? item.urlSlug ?? ''),
+        collectionId: typeof item.collectionId === 'string' ? item.collectionId : undefined,
+        collectionType: typeof item.collectionType === 'number' ? item.collectionType : undefined,
+        enabled: typeof item.enabled === 'boolean' ? item.enabled : undefined,
+        isDraft: typeof item.draft === 'boolean' ? item.draft : undefined,
+        isFolder: typeof item.folder === 'boolean' ? item.folder : undefined,
+        ordering: typeof item.ordering === 'number' ? item.ordering : undefined,
+        type: typeof item.type === 'string' ? item.type : undefined,
+        children: Array.isArray(item.children)
+          ? (item.children as Record<string, unknown>[]).map(parseItem)
+          : undefined,
+      });
+
+      const mainNavigation = Array.isArray(raw.mainNavigation)
+        ? (raw.mainNavigation as Record<string, unknown>[]).map(parseItem)
+        : [];
+      const notLinked = Array.isArray(raw.notLinked)
+        ? (raw.notLinked as Record<string, unknown>[]).map(parseItem)
+        : [];
+
+      const data: NavigationData = { mainNavigation, notLinked };
+      logger.info(
+        { mainCount: mainNavigation.length, notLinkedCount: notLinked.length },
+        'Navigation fetched',
+      );
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Settings ────────────────────────────────────────────────────────────
+
+  /**
+   * Get the full site settings object.
+   * Uses GET /api/settings (read-only, ~63 fields).
+   * Note: /api/settings is already called internally by getSiteIdentity(), but
+   * this exposes it as a standalone method for full settings access.
+   */
+  async getSettings(): Promise<SettingsResult> {
+    this.ensureCookies();
+
+    const url = this.buildApiUrl('/api/settings');
+
+    logger.info({ siteSubdomain: this.siteSubdomain }, 'Fetching site settings');
+
+    try {
+      const response = await fetch(url, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `${response.status} ${response.statusText}: ${body}` };
+      }
+
+      const data = await response.json() as SiteSettings;
+      logger.info('Site settings fetched');
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update site settings via read-modify-write on PUT /api/settings.
+   * Accepts any subset of SiteSettings fields. Merges into the current
+   * settings and PUTs the full object back.
+   */
+  async updateSettings(fields: Partial<SiteSettings>): Promise<SettingsResult> {
+    this.ensureCookies();
+
+    const fieldKeys = Object.keys(fields).filter(k => fields[k] !== undefined);
+    if (fieldKeys.length === 0) {
+      return { success: false, error: 'No fields to update' };
+    }
+
+    try {
+      const url = this.buildApiUrl('/api/settings');
+
+      // GET current settings
+      const getRes = await fetch(url, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!getRes.ok) {
+        const body = await getRes.text().catch(() => '');
+        return { success: false, error: `GET /api/settings failed: ${getRes.status} ${body}` };
+      }
+      const current = await getRes.json() as Record<string, unknown>;
+
+      // Merge updated fields
+      for (const key of fieldKeys) {
+        current[key] = fields[key as keyof SiteSettings];
+      }
+
+      // PUT merged settings
+      let putUrl = url;
+      if (this.crumbToken) putUrl += `?crumb=${encodeURIComponent(this.crumbToken)}`;
+
+      const putRes = await fetch(putUrl, {
+        method: 'PUT',
+        headers: { ...this.buildHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(current),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!putRes.ok) {
+        const body = await putRes.text().catch(() => '');
+        return { success: false, error: `PUT /api/settings failed: ${putRes.status} ${body}` };
+      }
+
+      logger.info({ siteSubdomain: this.siteSubdomain, updatedFields: fieldKeys }, 'Settings updated');
+      return { success: true, updatedFields: fieldKeys };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Code Injection ──────────────────────────────────────────────────────
+
+  /**
+   * Get the current code injection (header/footer scripts).
+   * Reads from GET /api/settings and extracts the codeInjection field.
+   */
+  async getCodeInjection(): Promise<{ success: boolean; data?: CodeInjectionData; error?: string }> {
+    this.ensureCookies();
+
+    const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
+    const url = `${siteUrl}/api/settings`;
+
+    logger.info({ siteSubdomain: this.siteSubdomain }, 'Fetching code injection settings');
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `${response.status} ${response.statusText}: ${body}` };
+      }
+
+      const settings = await response.json() as Record<string, unknown>;
+      const injection = settings.codeInjection as Record<string, string> | undefined;
+
+      const data: CodeInjectionData = {
+        header: injection?.header ?? (settings.injectHeader as string | undefined) ?? '',
+        footer: injection?.footer ?? (settings.injectFooter as string | undefined) ?? '',
+      };
+
+      logger.info(
+        { headerLength: data.header.length, footerLength: data.footer.length },
+        'Code injection fetched',
+      );
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Save code injection (header/footer scripts).
+   * Uses POST /api/config/SaveInjectionSettings?crumb=...
+   * Body: { injectHeader: string, injectFooter: string }
+   */
+  async saveCodeInjection(header?: string, footer?: string): Promise<{ success: boolean; error?: string }> {
+    this.ensureCookies();
+
+    const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
+    let url = `${siteUrl}/api/config/SaveInjectionSettings`;
+    if (this.crumbToken) {
+      url += `?crumb=${encodeURIComponent(this.crumbToken)}`;
+    }
+
+    const body: Record<string, string> = {};
+    if (header !== undefined) body.injectHeader = header;
+    if (footer !== undefined) body.injectFooter = footer;
+
+    logger.info(
+      { siteSubdomain: this.siteSubdomain, headerLength: header?.length, footerLength: footer?.length },
+      'Saving code injection',
+    );
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      const responseBody = await response.text().catch(() => '');
+
+      if (!response.ok) {
+        const error = `Code injection save failed: ${response.status} ${response.statusText}. Body: ${responseBody}`;
+        logger.error({ status: response.status }, error);
+        return { success: false, error };
+      }
+
+      if (responseBody.includes('"crumbFail":true') || responseBody.includes('Invalid session crumb')) {
+        const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
+        const error = `Code injection save rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.`;
+        logger.error(error);
+        return { success: false, error };
+      }
+
+      logger.info('Code injection saved successfully');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
   }
 }
 

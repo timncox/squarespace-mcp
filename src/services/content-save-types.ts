@@ -802,6 +802,70 @@ export interface MobileResizeResult {
   error?: string;
 }
 
+// ── Navigation Types ─────────────────────────────────────────────────────────
+
+/** A single navigation item from GET /api/navigation */
+export interface NavigationItem {
+  id: string;
+  title: string;
+  urlSlug: string;
+  collectionId?: string;
+  collectionType?: number;  // 10=page, 1=blog
+  enabled?: boolean;
+  isDraft?: boolean;
+  isFolder?: boolean;
+  ordering?: number;
+  type?: string;
+  children?: NavigationItem[];
+}
+
+/** Navigation data from GET /api/navigation */
+export interface NavigationData {
+  mainNavigation: NavigationItem[];
+  notLinked: NavigationItem[];
+}
+
+/** Full site settings from GET /api/settings (~63 fields) */
+export interface SiteSettings {
+  [key: string]: unknown;
+  siteTitle?: string;
+  siteDescription?: string;
+  siteTagLine?: string;
+  businessName?: string;
+  contactEmail?: string;
+  contactPhoneNumber?: string;
+  internalContactPhoneNumber?: string;
+  internalContactEmail?: string;
+  businessHours?: Record<string, unknown>;
+  commentsEnabled?: boolean;
+  isCookieBannerEnabled?: boolean;
+  seoHidden?: boolean;
+  homepageTitleFormat?: string;
+  collectionTitleFormat?: string;
+  announcementBarSettings?: Record<string, unknown>;
+}
+
+/** Result of getNavigation() */
+export interface NavigationResult {
+  success: boolean;
+  data?: NavigationData;
+  error?: string;
+}
+
+/** Result of getSettings() or updateSettings() */
+export interface SettingsResult {
+  success: boolean;
+  data?: SiteSettings;
+  updatedFields?: string[];
+  error?: string;
+}
+
+/** Code injection data (header/footer scripts) */
+export interface CodeInjectionData {
+  header: string;
+  footer: string;
+}
+
 // ── Site Identity Types ──────────────────────────────────────────────────────
 
 /** Site identity data from GET /api/rest/websites/mine and GET /api/settings */
