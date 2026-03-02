@@ -127,6 +127,9 @@ export type {
   FontUpdateResult,
   PaletteColorUpdateResult,
   AdvancedSettingsSaveResult,
+  TemplateTweakSettings,
+  TemplateTweakSettingsResult,
+  TemplateTweakSettingsUpdateResult,
 } from './content-save-types.js';
 
 import type {
@@ -229,6 +232,9 @@ import type {
   FontUpdateResult,
   PaletteColorUpdateResult,
   AdvancedSettingsSaveResult,
+  TemplateTweakSettings,
+  TemplateTweakSettingsResult,
+  TemplateTweakSettingsUpdateResult,
 } from './content-save-types.js';
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -8483,6 +8489,83 @@ export class ContentSaveClient {
       }
 
       logger.info({ siteSubdomain: this.siteSubdomain }, 'Advanced settings saved');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Get template tweak settings via GET /api/template/GetTemplateTweakSettings?version=3.
+   * Returns a flat Record<string, string> of all tweak key-value pairs.
+   */
+  async getTemplateTweakSettings(): Promise<TemplateTweakSettingsResult> {
+    this.ensureCookies();
+
+    const url = this.buildApiUrl('/api/template/GetTemplateTweakSettings?version=3');
+
+    try {
+      const response = await fetch(url, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `${response.status} ${response.statusText}: ${body}` };
+      }
+
+      const data = await response.json() as TemplateTweakSettings;
+      logger.info({ tweakCount: Object.keys(data).length }, 'Template tweak settings fetched');
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Save template tweak settings via POST /api/template/SetTemplateTweakSettings.
+   * Body is URL-encoded: tweakJson=<url-encoded-json-string>.
+   * Uses read-modify-write: fetches current tweaks, merges updates, POSTs back.
+   *
+   * @param updates  Partial tweak settings to merge (key-value pairs)
+   */
+  async setTemplateTweakSettings(updates: Record<string, string>): Promise<TemplateTweakSettingsUpdateResult> {
+    this.ensureCookies();
+
+    // Read current settings first
+    const getResult = await this.getTemplateTweakSettings();
+    if (!getResult.success || !getResult.data) {
+      return { success: false, error: getResult.error ?? 'Failed to fetch current tweak settings' };
+    }
+
+    // Merge updates
+    const merged = { ...getResult.data, ...updates };
+
+    const url = this.buildApiUrl('/api/template/SetTemplateTweakSettings', true);
+
+    try {
+      const formBody = `tweakJson=${encodeURIComponent(JSON.stringify(merged))}`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formBody,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `POST /api/template/SetTemplateTweakSettings failed: ${response.status} ${body}` };
+      }
+
+      logger.info(
+        { siteSubdomain: this.siteSubdomain, updatedKeys: Object.keys(updates) },
+        'Template tweak settings updated',
+      );
       return { success: true };
     } catch (err) {
       return { success: false, error: errMsg(err) };

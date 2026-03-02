@@ -1084,3 +1084,21 @@ export interface AdvancedSettingsSaveResult {
   error?: string;
 }
 
+// ── Template Tweak Settings Types ───────────────────────────────────────────
+
+/** Response from GET /api/template/GetTemplateTweakSettings?version=3 */
+export type TemplateTweakSettings = Record<string, string>;
+
+/** Result of getTemplateTweakSettings() */
+export interface TemplateTweakSettingsResult {
+  success: boolean;
+  data?: TemplateTweakSettings;
+  error?: string;
+}
+
+/** Result of setTemplateTweakSettings() */
+export interface TemplateTweakSettingsUpdateResult {
+  success: boolean;
+  error?: string;
+}
+

@@ -1017,22 +1017,38 @@ async function cmdGetTweaks(flags: Record<string, string>): Promise<void> {
 
   const { subdomain } = resolveSite(siteId);
   const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
-  // No public method for tweaks yet — call the API directly via private helpers
-  const c = client as any;
-  c.ensureCookies();
-  const url = c.buildApiUrl('/api/template/GetTemplateTweakSettings?version=3');
-  const response = await fetch(url, {
-    headers: c.buildHeaders(),
-    signal: AbortSignal.timeout(15000),
-  });
+  const result = await client.getTemplateTweakSettings();
+  console.log(JSON.stringify(result, null, 2));
+}
 
-  if (!response.ok) {
-    const body = await response.text().catch(() => '');
-    throw new Error(`${response.status} ${response.statusText}: ${body}`);
+async function cmdSetTweaks(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  // Accept key=value pairs from --set flags or a JSON file
+  const filePath = flags.file;
+  const setValues = flags.set;
+
+  let updates: Record<string, string> = {};
+
+  if (filePath) {
+    if (!existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
+    updates = JSON.parse(readFileSync(filePath, 'utf-8'));
+  } else if (setValues) {
+    // Parse comma-separated key=value pairs
+    for (const pair of setValues.split(',')) {
+      const eqIdx = pair.indexOf('=');
+      if (eqIdx === -1) throw new Error(`Invalid key=value pair: ${pair}`);
+      updates[pair.slice(0, eqIdx).trim()] = pair.slice(eqIdx + 1).trim();
+    }
+  } else {
+    throw new Error('--set <key=value,...> or --file <path> is required');
   }
 
-  const data = await response.json();
-  console.log(JSON.stringify(data, null, 2));
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.setTemplateTweakSettings(updates);
+  console.log(JSON.stringify(result, null, 2));
 }
 
 async function cmdReorderNav(flags: Record<string, string>): Promise<void> {
@@ -1376,6 +1392,7 @@ Subcommands:
   get-advanced-settings --site <id>                             (get advanced settings: URL mappings, 404, etc.)
   set-advanced-settings --site <id> --file <path>               (save advanced settings from JSON file)
   get-tweaks       --site <id>                                  (get tweak definitions and values)
+  set-tweaks       --site <id> --set <k=v,...> | --file <path>   (set template tweak settings)
 
   Utilities:
   session-health   --site <id>
@@ -1431,6 +1448,7 @@ async function main(): Promise<void> {
     case 'get-advanced-settings': return cmdGetAdvancedSettings(flags);
     case 'set-advanced-settings': return cmdSetAdvancedSettings(flags);
     case 'get-tweaks':      return cmdGetTweaks(flags);
+    case 'set-tweaks':      return cmdSetTweaks(flags);
     case 'add-quote':       return cmdAddQuote(flags);
     case 'add-code':        return cmdAddCode(flags);
     case 'add-video':       return cmdAddVideo(flags);

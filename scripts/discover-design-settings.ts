@@ -742,10 +742,16 @@ async function main(): Promise<void> {
       console.log('  Write endpoints (POST/PUT/PATCH) will be highlighted.');
       console.log('');
 
+      const timeoutSec = parseInt(flags.timeout ?? '120', 10);
+      console.log(`  Capture will run for ${timeoutSec} seconds.`);
+      console.log('  Save after EACH change (font save, then color save).\n');
+
       // Start capture and wait
       capture.clear();
       await capture.start();
       const startMs = Date.now();
+
+      let lastWriteCount = 0;
 
       // Live-log write requests as they happen
       const writeLogInterval = setInterval(() => {
@@ -753,16 +759,27 @@ async function main(): Promise<void> {
         const writes = requests.filter(
           (r) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method) && r.path.includes('/api/'),
         );
-        if (writes.length > 0) {
-          const lastWrite = writes[writes.length - 1];
-          const statusStr = lastWrite.responseStatus !== null ? `[${lastWrite.responseStatus}]` : '[pending]';
-          process.stdout.write(`\r  Last write: ${lastWrite.method} ${lastWrite.path} ${statusStr}   `);
+        if (writes.length > lastWriteCount) {
+          // New write detected — log it fully
+          for (let i = lastWriteCount; i < writes.length; i++) {
+            const req = writes[i];
+            const statusStr = req.responseStatus !== null ? `[${req.responseStatus}]` : '[pending]';
+            const bodySize = req.requestBody ? JSON.stringify(req.requestBody).length : 0;
+            console.log(`  WRITE: ${req.method} ${req.path} ${statusStr} (${bodySize} bytes)`);
+          }
+          lastWriteCount = writes.length;
+        }
+        const elapsed = Math.floor((Date.now() - startMs) / 1000);
+        const remaining = timeoutSec - elapsed;
+        if (remaining > 0 && remaining % 30 === 0) {
+          process.stdout.write(`\r  ${remaining}s remaining...   `);
         }
       }, 1000);
 
-      await waitForEnter('\n  Press ENTER when done capturing...\n\n');
+      // Wait for timeout
+      await new Promise((resolve) => setTimeout(resolve, timeoutSec * 1000));
       clearInterval(writeLogInterval);
-      console.log('');
+      console.log('\n\n  Capture period ended.');
 
       capture.stop();
       const requests = capture.getCapturedRequests();
