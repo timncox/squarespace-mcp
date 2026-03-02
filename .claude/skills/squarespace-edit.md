@@ -82,6 +82,7 @@ All update methods use `searchText` to locate the target block. The underlying `
 | Image (type 1337) | `title`, `description`, `subtitle` fields |
 | Code (type 1337) | Raw HTML content |
 | Button (type 46) | `label` field |
+| Button (type 1337) | `buttonText`, `buttonLink` fields (definitionName: `'website.components.button'`) |
 | Menu (type 18) | `raw` text + tab/section/item titles |
 | Quote (type 31) | HTML content + source |
 | Video (type 50) | Title, description |
@@ -115,14 +116,17 @@ tsx scripts/sq.ts update-text --site <id> --page <slug> --search "old heading" -
 tsx scripts/sq.ts patch-text --site <id> --page <slug> --search "555-1234" --new "555-5678"
 ```
 
-### Button Blocks (type 46)
+### Button Blocks (type 46 + type 1337)
 
 | Method | Signature | What it does |
 |--------|-----------|-------------|
-| `updateButtonBlock` | `(psId, colId, searchText, { newLabel?, url? })` | Update label and/or URL |
+| `updateButtonBlock` | `(psId, colId, searchText, { newLabel?, url?, size?, style?, alignment?, variant? })` | Update label, URL, and/or design fields |
 
-- `searchText` matches the button's current `label`
-- Must provide at least `newLabel` or `url`
+- **Type 46 (legacy)**: `searchText` matches the button's `label` field
+- **Type 1337 (new)**: `searchText` matches `buttonText` or `buttonLink` field
+- A normalization layer (`isButtonBlock`/`getButtonFields`/`setButtonFields`) abstracts over both types
+- Must provide at least one update field (`newLabel`, `url`, or a design field)
+- Design fields: `size` (`'small'`/`'medium'`/`'large'`), `style` (`'primary'`/`'secondary'`/`'tertiary'`), `alignment` (`'left'`/`'center'`/`'right'`), `variant` (`'solid'`/`'outline'`)
 
 ```bash
 tsx scripts/sq.ts update-button --site <id> --page <slug> --search "Book Now" --label "Reserve" --url "https://new-url.com"
@@ -132,10 +136,11 @@ tsx scripts/sq.ts update-button --site <id> --page <slug> --search "Book Now" --
 
 | Method | Signature | What it does |
 |--------|-----------|-------------|
-| `updateImageBlock` | `(psId, colId, searchText, { title?, description?, subtitle?, altText?, linkTo? })` | Update image metadata |
+| `updateImageBlock` | `(psId, colId, searchText, { title?, description?, subtitle?, altText?, linkTo?, assetUrl? })` | Update image metadata or replace asset |
 
-- Updates metadata only — does NOT change the actual image file
-- To replace the image asset, use browser agent `replaceImage` action
+- With `assetUrl`: replaces the actual image (writes to `content.value.value.assetUrl`)
+- Without `assetUrl`: updates metadata only (title, alt text, etc.)
+- API fast paths: `replaceImage` and `addImageBlock` browser actions try API first (~200ms) before falling back to 7-step UI automation
 - `searchText` matches `title`, `description`, or `subtitle`
 
 ```bash
@@ -432,4 +437,4 @@ tsx scripts/sq.ts footer --site acme --search "555-1234" --text "555-5678"
 - HTML for `--html` must be valid: `<h2>Heading</h2><p>Paragraph.</p>`, `<ul><li>Item</li></ul>`.
 - Special characters: use `$'...'` bash quoting for unicode (e.g., `$'Let\u2019s'` for curly apostrophe).
 - Footer editing requires dedicated footer methods — standard page methods won't find footer blocks.
-- `updateImageBlock` changes metadata only (alt text, title, description). To swap the actual image file, use the browser agent's `replaceImage` action.
+- `updateImageBlock` supports both metadata updates and full image replacement via `assetUrl`. The browser agent's `replaceImage` and `addImageBlock` actions have API fast paths that try `MediaUploadClient.uploadImage()` + `updateImageBlock(assetUrl)` before falling back to UI automation.

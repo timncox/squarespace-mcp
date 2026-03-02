@@ -64,17 +64,18 @@ Strip HTML tags when displaying text snippets. Truncate to 80 characters with `.
 | 22   | Embed          | `html` (embed code), `url`                                     |
 | 31   | Quote          | `quote` (HTML), `attribution`                                  |
 | 32   | Video          | `url` (YouTube/Vimeo), `html` (embed code)                     |
-| 46   | Button         | `label`, `url`                                                 |
+| 46   | Button (legacy)| `label`, `url`                                                 |
 | 47   | Divider        | (no significant fields)                                        |
 | 51   | Newsletter     | `headline`, `description`, `buttonText`                        |
 | 54   | Social Links   | `accounts[]`, `iconSize`, `iconStyle`                          |
 | 69   | Accordion      | `title`, `paragraphs[]`                                        |
 | 70   | Marquee        | `text`, `speed`                                                |
+| 1337 | Button (new)   | `buttonText`, `buttonLink`, `buttonSize`, `buttonAlignment`, `buttonStyle`, `buttonVariant` (definitionName: `website.components.button`) |
 | 1337 | Image          | `altText`, `assetUrl`                                          |
 | 1337 | Code           | `wysiwyg.engine === 'code'` (distinguishes from Image)         |
 | 1337 | Form           | `buttonVariant` field present (distinguishes from Image/Code)  |
 
-**Note**: Types 1337 (Image), 1337 (Code), and 1337 (Form) share the same type number. Distinguish by: Code has `wysiwyg.engine === 'code'`; Form has `buttonVariant` field; Image is the default.
+**Note**: Types 1337 (Button), 1337 (Image), 1337 (Code), and 1337 (Form) share the same type number. Distinguish by: Button has `definitionName === 'website.components.button'`; Code has `wysiwyg.engine === 'code'`; Form has `buttonVariant` field but no `definitionName`; Image is the default.
 
 Any other type number: display as `[Unknown type <N>]`.
 

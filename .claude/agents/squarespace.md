@@ -40,7 +40,8 @@ for (const gc of section.gridContents) {
 | 18 | Menu | — | `updateMenuBlock()` | Raw text, tab/section/item titles |
 | 23 | Code | `addCodeBlock()` | `updateCodeBlock()` | Code content match |
 | 44 | Quote | `addQuoteBlock()` | `updateQuoteBlock()` | Quote text / attribution |
-| 46 | Button | `addButtonBlock()` | `updateButtonBlock()` | Label text match |
+| 46 | Button (legacy) | `addButtonBlock()` | `updateButtonBlock()` | Label text match |
+| 1337 | Button (new) | `addButtonBlock()` | `updateButtonBlock()` | `buttonText`/`buttonLink` match (definitionName: `website.components.button`) |
 | 1337 | Image | `addImageBlock()` / `addImageBlockBatch()` | `updateImageBlock()` | title/description/altText |
 | 8 | Gallery | — | — | — |
 | 52 | Divider | `addDividerBlock()` | — | — |
@@ -49,7 +50,9 @@ for (const gc of section.gridContents) {
 ### Block JSON Structure
 
 **Text (type 2)**: `content.value.value.html` = `"<p>text</p>"`
-**Button (type 46)**: `content.value.value = { label, url }`
+**Button (type 46 legacy)**: `content.value.value = { label, url }`
+**Button (type 1337 new)**: `content.value.value = { buttonText, buttonLink, buttonSize, buttonAlignment, buttonStyle?, buttonVariant?, newWindow, containerStyles, transforms }` (definitionName: `website.components.button`)
+**Button normalization**: `isButtonBlock(block)` detects both types; `getButtonFields(block)` → `{ label, url, size?, style?, alignment?, variant? }`; `setButtonFields(block, fields)` writes back to correct format
 **Image (type 1337)**: `content.value.value.assetUrl` = image URL
 **Menu (type 18)**: `content.value.value = { menus: MenuTab[], raw: string, menuStyle, currencySymbol }`
 **Block IDs**: Generated via `randomBytes(10).toString('hex')`
@@ -84,13 +87,16 @@ full-width, two-column, three-column, hero-wide, sidebar-content, content-sideba
 - `fillLastTextBlockInSection(psId, colId, sectionIdx, html)` — fill placeholder block
 
 ### Button Operations
-- `addButtonBlock(psId, colId, sectionIdx, label, url, layout?)` — add button (type 46)
-- `updateButtonBlock(psId, colId, searchLabel, { newLabel?, url? })` — update button
+- `addButtonBlock(psId, colId, sectionIdx, label, url, layout?, design?)` — add button (type 1337 by default). `design?: { size?, style?, alignment?, variant? }`
+- `updateButtonBlock(psId, colId, searchText, { newLabel?, url?, size?, style?, alignment?, variant? })` — update button (handles both type 46 and type 1337 via normalization)
+- `isButtonBlock(block)` — static: detects both type 46 and type 1337 buttons
+- `getButtonFields(block)` — static: returns `{ label, url, size?, style?, alignment?, variant? }` from either type
+- `setButtonFields(block, fields)` — static: writes fields back in correct format for the block's type
 
 ### Image Operations
 - `addImageBlock(psId, colId, sectionIdx, assetUrl, options?)` — add image (type 1337)
 - `addImageBlockBatch(psId, colId, sectionIdx, images[])` — batch add (single PUT)
-- `updateImageBlock(psId, colId, search, { title?, description?, altText?, ... })` — metadata only
+- `updateImageBlock(psId, colId, search, { title?, description?, altText?, linkTo?, assetUrl? })` — metadata + optional asset replacement via `assetUrl`
 
 ### Menu Operations
 - `updateMenuBlock(psId, colId, search, newMenus, options?)` — structured JSON update
@@ -248,7 +254,7 @@ simple edit → API executor → two-pass → template → blank_api → batch �
 
 | File | Purpose |
 |------|---------|
-| `src/services/content-save.ts` | Core API client (88+ methods) |
+| `src/services/content-save.ts` | Core API client (91+ methods) |
 | `src/services/content-save-types.ts` | Type definitions (~1100 lines) |
 | `src/services/api-executor.ts` | Multi-operation API executor |
 | `src/services/plan-classifier.ts` | Plan → API/browser routing |

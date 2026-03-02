@@ -63,7 +63,7 @@ Every `add*Block` method follows the same pattern: `(pageSectionsId, collectionI
 | Method | Content param(s) | Default size (cols x rows) |
 |--------|-----------------|---------------------------|
 | `addTextBlock(psId, colId, sIdx, html, layout?, formatting?)` | `html` string + optional `formatting` | 24 x 3 |
-| `addButtonBlock(psId, colId, sIdx, label, url, layout?)` | `label`, `url` | 7 x 2 |
+| `addButtonBlock(psId, colId, sIdx, label, url, layout?, design?)` | `label`, `url`, `design?: { size?, style?, alignment?, variant? }` | 7 x 2 |
 | `addImageBlock(psId, colId, sIdx, assetUrl, options?)` | `assetUrl` + `options.altText/title/description/subtitle/linkTo` | 12 x 8 |
 | `addImageBlockBatch(psId, colId, sIdx, images[])` | Array of `{ assetUrl, altText?, title?, layout? }` | Per-image customizable |
 | `addDividerBlock(psId, colId, sIdx, layout?)` | None (horizontal rule) | 24 x 1 |
@@ -83,6 +83,7 @@ Every `add*Block` method follows the same pattern: `(pageSectionsId, collectionI
 | Method | What it does | Key params |
 |--------|-------------|------------|
 | `uploadImageToSite(imageUrl)` | Upload image by URL to site assets | Returns `{ assetId, contentItemId }` |
+| `MediaUploadClient.uploadImage(filePath)` | Upload local file to site assets | Returns `{ assetUrl }` — used by API fast paths |
 
 ### Gallery Collections (native gallery blocks)
 
@@ -184,6 +185,14 @@ For multi-element structured content, use `richContent`:
 ```json
 { "type": "button", "label": "Book a Call", "url": "https://calendly.com/example" }
 ```
+
+With design fields (optional — creates type 1337 button by default):
+
+```json
+{ "type": "button", "label": "Book a Call", "url": "https://calendly.com/example", "size": "large", "style": "primary", "alignment": "center", "variant": "solid" }
+```
+
+Design field values: `size` (`'small'`/`'medium'`/`'large'`), `style` (`'primary'`/`'secondary'`/`'tertiary'`), `alignment` (`'left'`/`'center'`/`'right'`), `variant` (`'solid'`/`'outline'`).
 
 ### Image
 
@@ -417,7 +426,8 @@ await client.addTextBlock(psId, collectionId, 0,
   '<h2>Web Design</h2><p>Custom websites built for your brand.</p>');
 
 await client.addButtonBlock(psId, collectionId, 0,
-  'Get a Quote', '/contact');
+  'Get a Quote', '/contact', undefined,
+  { size: 'large', style: 'primary', alignment: 'center' });
 ```
 
 ### Example 3: Add an image gallery
@@ -457,7 +467,7 @@ await client.addImageBlockBatch(psId, collectionId, sectionIndex, [
 ## Known Limitations
 
 - **Menu blocks**: Cannot be created via API. Use browser agent `addBlockToSection("Menu")`, then update with `updateMenuBlock()`.
-- **Image asset replacement**: `uploadImageToSite()` uploads new images. To replace an existing image block's file, use browser agent `replaceImage` action.
+- **Image asset replacement**: `uploadImageToSite()` and `MediaUploadClient.uploadImage()` upload new images. `updateImageBlock(psId, colId, search, { assetUrl })` replaces the asset on an existing block via API. Browser agent `replaceImage`/`addImageBlock` actions also have API fast paths.
 - **Footer blocks**: Footer uses `saveHeaderFooter()`, not `savePageSections()`. Add blocks to footer via browser agent.
 - **Form blocks need existing form**: `addFormBlock()` requires a `formId` from a pre-created form. Create forms in the Squarespace UI first.
 - **Social links are site-global**: `addSocialLinksBlock()` displays links configured in site settings. Block options control display style only.
