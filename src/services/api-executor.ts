@@ -11,17 +11,13 @@
  *   - Section styling (editSectionStyle)
  *   - Template replacements (updateTextBlock + removeBlock)
  *
- * NOT yet wired (would need new operationType values or special handling):
- *   - Footer editing (updateFooterTextBlock / patchFooterTextBlock / saveHeaderFooter)
- *     → Footer uses site-wide header/footer config, not per-page sections
- *   - Custom CSS (getCustomCSS / saveCustomCSS)
- *     → Site-wide setting, not per-page
- *   - Block layout ops (moveBlock / swapBlocks / resizeBlock)
- *     → No operationType in ContentOperation union; used by browser agent fast paths
- *   - Section reorder (moveSection)
- *     → No operationType; used by browser agent fast path
- *   - Blog posts (createBlogPost)
- *     → Speculative endpoint, not yet used in content plans
+ * Also wired (site-wide or non-page operations):
+ *   - Footer editing (updateFooterTextBlock / patchFooterTextBlock) — site-wide, no page context
+ *   - Custom CSS (getCustomCSS / saveCustomCSS) — site-wide
+ *   - Code injection (getCodeInjection / saveCodeInjection) — site-wide
+ *   - Block layout ops (moveBlock / resizeBlock) — page-scoped
+ *   - Section reorder (moveSection / reorderSections) — page-scoped
+ *   - Blog posts (createBlogPost / updateBlogPost) — collection-scoped
  *
  * Key insight: the known issue "API-added sections get wiped by editor save"
  * only occurs when a browser editor is open. An API-only pipeline eliminates
@@ -37,6 +33,7 @@ import {
   ContentSaveClient,
   type SectionStyleOptions,
   type PageMetadataUpdateOptions,
+  type GallerySettings,
 } from './content-save.js';
 import { resolvePageIds, cachePageIds } from './page-id-resolver.js';
 import {
@@ -422,22 +419,23 @@ async function executeReplaceImage(
     throw new Error('replace_image needs imageAltText, heading, or placement to find the image');
   }
 
-  const fields: { title?: string; description?: string; altText?: string } = {};
+  const fields: { title?: string; description?: string; altText?: string; assetUrl?: string } = {};
   if (op.content.imageAltText) fields.altText = op.content.imageAltText;
   if (op.content.heading) fields.title = op.content.heading;
 
-  // If there's a local image to upload
+  // If there's a local image to upload, get the assetUrl and wire it through
   if (op.content.imagePath) {
-    await uploadImageForBlock(subdomain, op.content.imagePath);
-    // Note: updateImageBlock only updates metadata, not the image asset itself.
-    // For full image replacement, we'd need a different approach.
+    const assetUrl = await uploadImageForBlock(subdomain, op.content.imagePath);
+    if (assetUrl) {
+      fields.assetUrl = assetUrl;
+    }
   }
 
   const result = await client.updateImageBlock(
     ctx.pageSectionsId, ctx.collectionId, searchText, fields,
   );
   if (!result.success) throw new Error(result.error ?? 'updateImageBlock failed');
-  return `Updated image "${searchText.slice(0, 50)}"`;
+  return `Updated image "${searchText.slice(0, 50)}" (${result.updatedFields?.join(', ') ?? 'fields'})`;
 }
 
 async function executeRemoveBlock(
@@ -776,6 +774,32 @@ async function executeModifyStyle(
   return `Updated section style (${result.updatedFields?.join(', ') ?? 'styles'})`;
 }
 
+async function executeModifyGallerySettings(
+  client: ContentSaveClient,
+  ctx: PageContext,
+  op: ContentOperation,
+): Promise<string> {
+  const content = op.content;
+  const searchText = content.heading ?? op.placement;
+  if (!searchText) {
+    throw new Error('modify_gallery_settings needs heading or placement to find the gallery block');
+  }
+
+  const settings: GallerySettings = {};
+  if (content.galleryColumns != null) settings['thumbnails-per-row'] = content.galleryColumns;
+  if (content.galleryAspectRatio) settings['aspect-ratio'] = content.galleryAspectRatio;
+  if (content.galleryDesign) settings.design = content.galleryDesign;
+  if (content.galleryPadding != null) settings.padding = content.galleryPadding;
+  if (content.galleryLightbox != null) settings.lightbox = content.galleryLightbox;
+  if (content.galleryAutoCrop != null) settings['auto-crop'] = content.galleryAutoCrop;
+
+  const result = await client.updateGallerySettings(
+    ctx.pageSectionsId, ctx.collectionId, searchText, settings,
+  );
+  if (!result.success) throw new Error(result.error ?? 'updateGallerySettings failed');
+  return `Updated gallery settings (${result.updatedFields?.join(', ') ?? 'settings'})`;
+}
+
 // ── Helper: apply section styling after section addition ─────────────────────
 
 async function applySectionStyle(
@@ -807,6 +831,184 @@ async function applySectionStyle(
   }
 }
 
+// ── Site-Wide & Non-Page Operation Executors ─────────────────────────────────
+
+async function executeEditFooter(
+  client: ContentSaveClient,
+  op: ContentOperation,
+): Promise<string> {
+  const searchText = op.content.heading ?? op.content.bodyText ?? op.placement;
+  if (!searchText) {
+    throw new Error('edit_footer needs heading, bodyText, or placement to find the footer block');
+  }
+
+  // If bodyText looks like full HTML replacement, use updateFooterTextBlock
+  // Otherwise use patchFooterTextBlock for surgical find-and-replace
+  if (op.content.bodyText && op.content.bodyText.includes('<')) {
+    const result = await client.updateFooterTextBlock(searchText, op.content.bodyText);
+    if (!result.success) throw new Error(result.error ?? 'updateFooterTextBlock failed');
+    return `Updated footer block: "${searchText.slice(0, 50)}"`;
+  }
+
+  const newText = op.content.bodyText ?? '';
+  if (!newText) {
+    throw new Error('edit_footer: no bodyText content to apply');
+  }
+
+  const result = await client.patchFooterTextBlock(searchText, newText);
+  if (!result.success) throw new Error(result.error ?? 'patchFooterTextBlock failed');
+  return `Patched footer block: "${searchText.slice(0, 50)}"`;
+}
+
+async function executeEditCss(
+  client: ContentSaveClient,
+  op: ContentOperation,
+): Promise<string> {
+  const cssCode = op.content.cssCode;
+  if (!cssCode) {
+    throw new Error('edit_css needs cssCode in the content spec');
+  }
+
+  // If the editorInstruction mentions "append", get current CSS and append
+  const isAppend = op.editorInstruction?.toLowerCase().includes('append');
+  if (isAppend) {
+    const current = await client.getCustomCSS();
+    if (!current.success) throw new Error(current.error ?? 'getCustomCSS failed');
+    const combined = current.css ? current.css + '\n' + cssCode : cssCode;
+    const result = await client.saveCustomCSS(combined);
+    if (!result.success) throw new Error(result.error ?? 'saveCustomCSS failed');
+    return `Appended ${cssCode.length} chars to custom CSS (total: ${combined.length})`;
+  }
+
+  const result = await client.saveCustomCSS(cssCode);
+  if (!result.success) throw new Error(result.error ?? 'saveCustomCSS failed');
+  return `Saved custom CSS (${cssCode.length} chars)`;
+}
+
+async function executeReorderSections(
+  client: ContentSaveClient,
+  ctx: PageContext,
+  op: ContentOperation,
+): Promise<string> {
+  const { sectionDirection, sectionOrder } = op.content;
+
+  if (sectionOrder) {
+    const result = await client.reorderSections(ctx.pageSectionsId, ctx.collectionId, sectionOrder);
+    if (!result.success) throw new Error(result.error ?? 'reorderSections failed');
+    return `Reordered sections: [${sectionOrder.join(', ')}]`;
+  }
+
+  if (sectionDirection) {
+    const searchText = op.content.heading ?? op.placement;
+    if (!searchText) {
+      throw new Error('reorder_sections with sectionDirection needs heading or placement');
+    }
+    const result = await client.moveSection(ctx.pageSectionsId, ctx.collectionId, searchText, sectionDirection);
+    if (!result.success) throw new Error(result.error ?? 'moveSection failed');
+    return `Moved section "${searchText.slice(0, 50)}" ${sectionDirection}`;
+  }
+
+  throw new Error('reorder_sections needs either sectionDirection or sectionOrder');
+}
+
+async function executeMoveBlock(
+  client: ContentSaveClient,
+  ctx: PageContext,
+  op: ContentOperation,
+): Promise<string> {
+  const searchText = op.content.heading ?? op.content.bodyText ?? op.placement;
+  if (!searchText) {
+    throw new Error('move_block needs heading, bodyText, or placement to find the block');
+  }
+
+  const direction = op.content.blockDirection;
+  if (!direction) {
+    throw new Error('move_block needs blockDirection in content spec');
+  }
+
+  const result = await client.moveBlock(
+    ctx.pageSectionsId, ctx.collectionId, searchText, direction, op.content.gridSteps,
+  );
+  if (!result.success) throw new Error(result.error ?? 'moveBlock failed');
+  return `Moved block "${searchText.slice(0, 50)}" ${direction}${op.content.gridSteps ? ` by ${op.content.gridSteps} steps` : ''}`;
+}
+
+async function executeResizeBlock(
+  client: ContentSaveClient,
+  ctx: PageContext,
+  op: ContentOperation,
+): Promise<string> {
+  const searchText = op.content.heading ?? op.content.bodyText ?? op.placement;
+  if (!searchText) {
+    throw new Error('resize_block needs heading, bodyText, or placement to find the block');
+  }
+
+  const result = await client.resizeBlock(
+    ctx.pageSectionsId, ctx.collectionId, searchText, op.content.blockWidth, op.content.blockHeight,
+  );
+  if (!result.success) throw new Error(result.error ?? 'resizeBlock failed');
+  return `Resized block "${searchText.slice(0, 50)}" (width: ${op.content.blockWidth ?? 'unchanged'}, height: ${op.content.blockHeight ?? 'unchanged'})`;
+}
+
+async function executeCreateBlogPost(
+  client: ContentSaveClient,
+  op: ContentOperation,
+): Promise<string> {
+  const collectionId = op.content.blogCollectionId;
+  if (!collectionId) {
+    throw new Error('create_blog_post needs blogCollectionId in content spec');
+  }
+
+  const title = op.content.blogTitle ?? op.content.heading ?? 'New Post';
+  const result = await client.createBlogPost(collectionId, title, {
+    body: op.content.blogBody ?? op.content.bodyText,
+    tags: op.content.blogTags,
+    draft: op.content.blogDraft,
+  });
+  if (!result.success) throw new Error(result.error ?? 'createBlogPost failed');
+  return `Created blog post "${title}" (id: ${result.itemId ?? 'unknown'})`;
+}
+
+async function executeUpdateBlogPost(
+  client: ContentSaveClient,
+  op: ContentOperation,
+): Promise<string> {
+  const collectionId = op.content.blogCollectionId;
+  const itemId = op.content.blogPostId;
+  if (!collectionId || !itemId) {
+    throw new Error('update_blog_post needs blogCollectionId and blogPostId in content spec');
+  }
+
+  const result = await client.updateBlogPost(collectionId, itemId, {
+    title: op.content.blogTitle ?? op.content.heading,
+    body: op.content.blogBody ?? op.content.bodyText,
+    tags: op.content.blogTags,
+    draft: op.content.blogDraft,
+  });
+  if (!result.success) throw new Error(result.error ?? 'updateBlogPost failed');
+  return `Updated blog post "${itemId}" (${result.updatedFields?.join(', ') ?? 'fields'})`;
+}
+
+async function executeEditCodeInjection(
+  client: ContentSaveClient,
+  op: ContentOperation,
+): Promise<string> {
+  const { codeInjectionHeader, codeInjectionFooter } = op.content;
+  if (!codeInjectionHeader && !codeInjectionFooter) {
+    throw new Error('edit_code_injection needs codeInjectionHeader or codeInjectionFooter');
+  }
+
+  const current = await client.getCodeInjection();
+  if (!current.success) throw new Error(current.error ?? 'getCodeInjection failed');
+
+  const newHeader = codeInjectionHeader ?? current.data?.header ?? '';
+  const newFooter = codeInjectionFooter ?? current.data?.footer ?? '';
+
+  const result = await client.saveCodeInjection(newHeader, newFooter);
+  if (!result.success) throw new Error(result.error ?? 'saveCodeInjection failed');
+  return `Updated code injection (header: ${newHeader.length} chars, footer: ${newFooter.length} chars)`;
+}
+
 // ── Main Entry Point ─────────────────────────────────────────────────────────
 
 /**
@@ -815,7 +1017,7 @@ async function applySectionStyle(
  * Operations are executed in dependency order:
  *   1. create_page
  *   2. add_section (blank_api + template)
- *   3. Content fill / modify / style
+ *   3. Content fill / modify / style / site-wide ops
  *
  * Failed operations are collected in `failedOperations` for browser fallback.
  */
@@ -1000,41 +1202,78 @@ export async function executeContentPlanViaApi(
     await emitActivity(`${op.operationType}: "${label}"`, op.taskId, 'started');
 
     try {
-      const ctx = await getPageContext(op.targetPage);
-      if (!ctx) throw new Error(`Could not resolve page context for "${op.targetPage}"`);
-
       let summary: string;
 
-      switch (op.operationType) {
-        case 'modify_text':
-          summary = await executeModifyText(client, ctx, op);
-          break;
-        case 'replace_image':
-          summary = await executeReplaceImage(client, ctx, op, subdomain);
-          break;
-        case 'remove_block':
-          summary = await executeRemoveBlock(client, ctx, op);
-          break;
-        case 'modify_block':
-          summary = await executeModifyBlock(client, ctx, op);
-          break;
-        case 'add_block':
-          summary = await executeAddBlock(client, ctx, op, subdomain);
-          break;
-        case 'add_gallery':
-          summary = await executeAddGallery(client, ctx, op, subdomain);
-          break;
-        case 'modify_style':
-          summary = await executeModifyStyle(client, ctx, op);
-          break;
-        case 'delete_page':
-          summary = await executeDeletePage(client, ctx, op);
-          break;
-        case 'update_page_metadata':
-          summary = await executeUpdatePageMetadata(client, ctx, op);
-          break;
-        default:
-          throw new Error(`Unsupported operation type: ${op.operationType}`);
+      // Site-wide operations — no page context needed
+      const siteWideOps = ['edit_footer', 'edit_css', 'edit_code_injection', 'create_blog_post', 'update_blog_post'];
+      if (siteWideOps.includes(op.operationType)) {
+        switch (op.operationType) {
+          case 'edit_footer':
+            summary = await executeEditFooter(client, op);
+            break;
+          case 'edit_css':
+            summary = await executeEditCss(client, op);
+            break;
+          case 'edit_code_injection':
+            summary = await executeEditCodeInjection(client, op);
+            break;
+          case 'create_blog_post':
+            summary = await executeCreateBlogPost(client, op);
+            break;
+          case 'update_blog_post':
+            summary = await executeUpdateBlogPost(client, op);
+            break;
+          default:
+            throw new Error(`Unsupported site-wide operation: ${op.operationType}`);
+        }
+      } else {
+        // Page-scoped operations — need page context
+        const ctx = await getPageContext(op.targetPage);
+        if (!ctx) throw new Error(`Could not resolve page context for "${op.targetPage}"`);
+
+        switch (op.operationType) {
+          case 'modify_text':
+            summary = await executeModifyText(client, ctx, op);
+            break;
+          case 'replace_image':
+            summary = await executeReplaceImage(client, ctx, op, subdomain);
+            break;
+          case 'remove_block':
+            summary = await executeRemoveBlock(client, ctx, op);
+            break;
+          case 'modify_block':
+            summary = await executeModifyBlock(client, ctx, op);
+            break;
+          case 'add_block':
+            summary = await executeAddBlock(client, ctx, op, subdomain);
+            break;
+          case 'add_gallery':
+            summary = await executeAddGallery(client, ctx, op, subdomain);
+            break;
+          case 'modify_style':
+            summary = await executeModifyStyle(client, ctx, op);
+            break;
+          case 'modify_gallery_settings':
+            summary = await executeModifyGallerySettings(client, ctx, op);
+            break;
+          case 'delete_page':
+            summary = await executeDeletePage(client, ctx, op);
+            break;
+          case 'update_page_metadata':
+            summary = await executeUpdatePageMetadata(client, ctx, op);
+            break;
+          case 'reorder_sections':
+            summary = await executeReorderSections(client, ctx, op);
+            break;
+          case 'move_block':
+            summary = await executeMoveBlock(client, ctx, op);
+            break;
+          case 'resize_block':
+            summary = await executeResizeBlock(client, ctx, op);
+            break;
+          default:
+            throw new Error(`Unsupported operation type: ${op.operationType}`);
+        }
       }
 
       results.push({ operation: op, success: true, summary, durationMs: Date.now() - opStartMs });

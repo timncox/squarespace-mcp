@@ -8106,8 +8106,7 @@ export class ContentSaveClient {
   async getCodeInjection(): Promise<{ success: boolean; data?: CodeInjectionData; error?: string }> {
     this.ensureCookies();
 
-    const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
-    const url = `${siteUrl}/api/settings`;
+    const url = this.buildApiUrl('/api/settings');
 
     logger.info({ siteSubdomain: this.siteSubdomain }, 'Fetching code injection settings');
 
@@ -8149,11 +8148,7 @@ export class ContentSaveClient {
   async saveCodeInjection(header?: string, footer?: string): Promise<{ success: boolean; error?: string }> {
     this.ensureCookies();
 
-    const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
-    let url = `${siteUrl}/api/config/SaveInjectionSettings`;
-    if (this.crumbToken) {
-      url += `?crumb=${encodeURIComponent(this.crumbToken)}`;
-    }
+    const url = this.buildApiUrl('/api/config/SaveInjectionSettings', true);
 
     const body: Record<string, string> = {};
     if (header !== undefined) body.injectHeader = header;

@@ -248,6 +248,20 @@ function migrate(db: Database.Database): void {
     )
   `);
 
+  // Phase 17 migrations — Template section registry (maps category+templateName → sectionId per site)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS template_sections (
+      site_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      template_name TEXT NOT NULL,
+      section_id TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (site_id, category, template_name)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_template_sections_site ON template_sections(site_id);
+  `);
+
   logger.debug('Database migrations applied');
 }
 

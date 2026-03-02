@@ -38,7 +38,16 @@ export interface ContentOperation {
     | 'replace_image'
     | 'remove_block'
     | 'modify_block'
-    | 'modify_style';
+    | 'modify_style'
+    | 'modify_gallery_settings'
+    | 'edit_footer'
+    | 'edit_css'
+    | 'reorder_sections'
+    | 'move_block'
+    | 'resize_block'
+    | 'create_blog_post'
+    | 'update_blog_post'
+    | 'edit_code_injection';
   /** Where on the page (e.g., "below the hero section", "replace the current mountain image") */
   placement: string;
   /** The exact content to use */
@@ -112,6 +121,18 @@ export interface ContentSpec {
   galleryImageCount?: number;
   /** For gallery operations: expected alt texts (for validation) */
   galleryAltTexts?: string[];
+  /** Gallery display: columns (thumbnails-per-row) */
+  galleryColumns?: number;
+  /** Gallery display: aspect ratio (e.g., "1:1", "3:2") */
+  galleryAspectRatio?: string;
+  /** Gallery display: design style */
+  galleryDesign?: string;
+  /** Gallery display: padding between items */
+  galleryPadding?: number;
+  /** Gallery display: enable lightbox on click */
+  galleryLightbox?: boolean;
+  /** Gallery display: auto-crop images to fit grid */
+  galleryAutoCrop?: boolean;
   /** Structured replacements for template sections (texts, buttons, images, block removals) */
   replacements?: {
     texts?: Array<{ searchText: string; newText: string }>;
@@ -119,6 +140,36 @@ export interface ContentSpec {
     images?: Array<{ searchText: string; imagePath: string; altText?: string }>;
     removeBlocks?: string[];
   };
+  /** Direction to move a section (up/down) */
+  sectionDirection?: 'up' | 'down';
+  /** New section order as array of 0-based indices */
+  sectionOrder?: number[];
+  /** Direction to move a block within its section grid */
+  blockDirection?: 'up' | 'down' | 'left' | 'right';
+  /** Number of grid steps to move a block */
+  gridSteps?: number;
+  /** Resize block width */
+  blockWidth?: 'smaller' | 'larger' | 'full';
+  /** Resize block height */
+  blockHeight?: 'shorter' | 'taller';
+  /** Code injection: header HTML/JS */
+  codeInjectionHeader?: string;
+  /** Code injection: footer HTML/JS */
+  codeInjectionFooter?: string;
+  /** Custom CSS code */
+  cssCode?: string;
+  /** Blog collection ID for blog operations */
+  blogCollectionId?: string;
+  /** Blog post item ID (for updates) */
+  blogPostId?: string;
+  /** Blog post title */
+  blogTitle?: string;
+  /** Blog post body HTML */
+  blogBody?: string;
+  /** Blog post tags */
+  blogTags?: string[];
+  /** Whether the blog post is a draft */
+  blogDraft?: boolean;
 }
 
 // ─── API Block Types (for blank_api strategy) ──────────────────────────────

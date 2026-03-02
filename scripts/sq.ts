@@ -10,8 +10,9 @@ import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { createInterface } from 'readline';
-import { createContentSaveClient } from '../src/services/content-save.js';
+import { createContentSaveClient, ContentSaveClient } from '../src/services/content-save.js';
 import type { SectionStyleOptions } from '../src/services/content-save.js';
+import { extractAndValidateLinks } from '../src/services/link-validator.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -839,6 +840,265 @@ async function cmdUpdateMenu(flags: Record<string, string>): Promise<void> {
   console.log(JSON.stringify(result, null, 2));
 }
 
+// ── Navigation / Settings / Code Injection ──────────────────────────────────
+
+async function cmdNavigation(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.getNavigation();
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdSettings(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.getSettings();
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdFooter(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+
+  if (flags.text && flags.search) {
+    const result = await client.patchFooterTextBlock(flags.search, flags.text);
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    const result = await client.getFooterSections();
+    console.log(JSON.stringify(result, null, 2));
+  }
+}
+
+async function cmdCodeInjection(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+
+  if (flags.get === 'true' || (!flags.header && !flags.footer)) {
+    const result = await client.getCodeInjection();
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    const result = await client.saveCodeInjection(
+      flags.header !== 'true' ? flags.header : undefined,
+      flags.footer !== 'true' ? flags.footer : undefined,
+    );
+    console.log(JSON.stringify(result, null, 2));
+  }
+}
+
+// ── Block addition commands ──────────────────────────────────────────────────
+
+async function cmdAddQuote(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  const text = flags.text;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+  if (!text) throw new Error('--text is required');
+
+  const sectionIndex = parseInt(flags.section || '0', 10);
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.addQuoteBlock(pageSectionsId, collectionId, sectionIndex, text, flags.attribution);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdAddCode(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  const code = flags.code;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+  if (!code) throw new Error('--code is required');
+
+  const sectionIndex = parseInt(flags.section || '0', 10);
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.addCodeBlock(pageSectionsId, collectionId, sectionIndex, code, flags.language);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdAddVideo(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  const url = flags.url;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+  if (!url) throw new Error('--url is required');
+
+  const sectionIndex = parseInt(flags.section || '0', 10);
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.addVideoBlock(pageSectionsId, collectionId, sectionIndex, url, {
+    title: flags.title,
+  });
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdAddDivider(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+
+  const sectionIndex = parseInt(flags.section || '0', 10);
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.addDividerBlock(pageSectionsId, collectionId, sectionIndex);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+// ── Section/block management commands ────────────────────────────────────────
+
+async function cmdDuplicateSection(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  const search = flags.search;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+  if (!search) throw new Error('--search is required');
+
+  const sectionSearch: string | number = /^\d+$/.test(search) ? parseInt(search, 10) : search;
+
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.duplicateSection(pageSectionsId, collectionId, sectionSearch);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdSwapBlocks(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  const block1 = flags.block1;
+  const block2 = flags.block2;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+  if (!block1) throw new Error('--block1 is required');
+  if (!block2) throw new Error('--block2 is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.swapBlocks(pageSectionsId, collectionId, block1, block2);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdDuplicateBlock(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  const search = flags.search;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+  if (!search) throw new Error('--search is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.duplicateBlock(pageSectionsId, collectionId, search);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdGallery(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  const imageUrls = flags.images;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+  if (!imageUrls) throw new Error('--images is required (comma-separated asset URLs)');
+
+  const sectionIndex = parseInt(flags.section || '0', 10);
+  const columns = flags.cols ? parseInt(flags.cols, 10) : undefined;
+
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const images = imageUrls.split(',').map((url) => ({
+    assetUrl: url.trim(),
+    ...(columns ? { layout: { columns } } : {}),
+  }));
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.addImageBlockBatch(pageSectionsId, collectionId, sectionIndex, images);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+// ── Utility commands ─────────────────────────────────────────────────────────
+
+async function cmdSessionHealth(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const cookiePath = getCookiePath(subdomain);
+  const result = ContentSaveClient.checkSessionHealth(cookiePath);
+  console.log(JSON.stringify({ subdomain, cookiePath, ...result }, null, 2));
+}
+
+async function cmdValidateLinks(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const data = await client.getPageSections(pageSectionsId);
+  const result = await extractAndValidateLinks(data.sections);
+  console.log(JSON.stringify(result, null, 2));
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const USAGE = `
@@ -877,10 +1137,30 @@ Subcommands:
   update-post      --site <id> --blog <slug> --search <str> [--title <str>] [--body <str>] [--tags <csv>] [--draft]
   list-posts       --site <id> --blog <slug> [--limit <n>]
 
+  More block types:
+  add-quote        --site <id> --page <slug> --section <idx> --text <str> [--attribution <str>]
+  add-code         --site <id> --page <slug> --section <idx> --code <str> [--language <str>]
+  add-video        --site <id> --page <slug> --section <idx> --url <str> [--title <str>]
+  add-divider      --site <id> --page <slug> --section <idx>
+  gallery          --site <id> --page <slug> --section <idx> --images <csv-urls> [--cols <n>]
+
+  Section/block operations:
+  duplicate-section --site <id> --page <slug> --search <str|idx>
+  swap-blocks      --site <id> --page <slug> --block1 <str> --block2 <str>
+  duplicate-block  --site <id> --page <slug> --search <str>
+
   Site-wide:
   upload-image     --site <id> --url <image-url> [--filename <str>]
   custom-css       --site <id> [--css <str> | --file <path>]   (read if no flags, write if --css or --file)
   site-identity    --site <id> [--name <str>] [--phone <str>] [--email <str>] [--address <str>]
+  navigation       --site <id>
+  settings         --site <id>
+  footer           --site <id> [--search <str> --text <str>]   (read if no flags, patch text if --search + --text)
+  code-injection   --site <id> [--header <str>] [--footer <str>] [--get]   (read if --get or no flags, write if --header/--footer)
+
+  Utilities:
+  session-health   --site <id>
+  validate-links   --site <id> --page <slug>
 
 Common flags:
   --psid <id>    Override pageSectionsId (skip page ID resolution)
@@ -920,6 +1200,20 @@ async function main(): Promise<void> {
     case 'update-button':   return cmdUpdateButton(flags);
     case 'update-image':    return cmdUpdateImage(flags);
     case 'update-menu':     return cmdUpdateMenu(flags);
+    case 'navigation':      return cmdNavigation(flags);
+    case 'settings':        return cmdSettings(flags);
+    case 'footer':          return cmdFooter(flags);
+    case 'code-injection':  return cmdCodeInjection(flags);
+    case 'add-quote':       return cmdAddQuote(flags);
+    case 'add-code':        return cmdAddCode(flags);
+    case 'add-video':       return cmdAddVideo(flags);
+    case 'add-divider':     return cmdAddDivider(flags);
+    case 'duplicate-section': return cmdDuplicateSection(flags);
+    case 'swap-blocks':     return cmdSwapBlocks(flags);
+    case 'duplicate-block': return cmdDuplicateBlock(flags);
+    case 'gallery':         return cmdGallery(flags);
+    case 'session-health':  return cmdSessionHealth(flags);
+    case 'validate-links':  return cmdValidateLinks(flags);
     default:
       console.error(USAGE);
       process.exit(subcommand ? 1 : 0);

@@ -46,6 +46,10 @@ export interface SupervisorApiOptions {
   collectionId: string;
   /** Pre-edit sections snapshot captured before the browser agent ran */
   beforeSections: PageSection[];
+  /** Operation type for targeted verification (e.g., 'create_page', 'delete_page') */
+  operationType?: string;
+  /** Expected page slug for navigation verification */
+  expectedSlug?: string;
 }
 
 // ─── DOM Evidence Types ───────────────────────────────────────────────────────
@@ -1186,6 +1190,38 @@ async function collectApiEvidence(
     if (!afterSections.some((s) => s.id === beforeSection.id)) {
       const label = beforeSection.sectionName || beforeSection.id.substring(0, 8);
       changes.push(`- Removed section: "${label}"`);
+    }
+  }
+
+  // Navigation verification for page create/delete operations
+  if (options.operationType === 'create_page' || options.operationType === 'delete_page') {
+    try {
+      const navResult = await client.getNavigation();
+      if (navResult.success && navResult.data) {
+        const allPages = [...navResult.data.mainNavigation, ...navResult.data.notLinked];
+        // Flatten children too (nested pages inside folders)
+        const flatPages = allPages.flatMap(p => [p, ...(p.children ?? [])]);
+        const slug = options.expectedSlug?.toLowerCase();
+        const pageFound = slug
+          ? flatPages.some(p => p.urlSlug?.toLowerCase() === slug)
+          : false;
+
+        if (options.operationType === 'create_page') {
+          if (pageFound) {
+            changes.push(`✓ Navigation confirms page "${options.expectedSlug}" exists`);
+          } else {
+            changes.push(`✗ Navigation: page "${options.expectedSlug}" not found (may need slug check)`);
+          }
+        } else {
+          if (!pageFound) {
+            changes.push(`✓ Navigation confirms page "${options.expectedSlug}" removed`);
+          } else {
+            changes.push(`✗ Navigation: page "${options.expectedSlug}" still present`);
+          }
+        }
+      }
+    } catch (navErr) {
+      logger.warn({ error: errMsg(navErr) }, 'Supervisor: navigation verification failed');
     }
   }
 

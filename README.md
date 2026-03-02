@@ -84,7 +84,7 @@ npm run build        # TypeScript compile
 npm run start        # Run compiled JS
 npm run start:all    # Server + ngrok tunnel (WhatsApp webhooks)
 npm run cli          # CLI tool for manual task submission
-npm run test         # Run test suite (~2967 tests)
+npm run test         # Run test suite (~1561 tests)
 ```
 
 ### Dashboard
@@ -194,7 +194,7 @@ The API client (`ContentSaveClient` in `src/services/content-save.ts`) provides 
 ## Testing
 
 ```bash
-npm run test              # Full suite (~2967 tests, 92 files)
+npm run test              # Full suite (~1561 tests, 49 files)
 npm run test:unit         # Parse action tests only
 npm run test:integration  # Compound action tests (requires live browser)
 ```
