@@ -40,7 +40,7 @@ function normalizeSlug(slug: string): string {
 
 // ── Edit type does NOT need page IDs ─────────────────────────────────────────
 
-const NO_PAGE_ID_TYPES: ReadonlySet<SimpleEditType> = new Set(['footer_edit', 'css_change', 'page_seo', 'site_identity', 'business_hours_update']);
+const NO_PAGE_ID_TYPES: ReadonlySet<SimpleEditType> = new Set(['footer_edit', 'header_edit', 'css_change', 'page_seo', 'site_identity', 'business_hours_update']);
 
 // Blog operations only need collectionId (no pageSectionsId) — use lighter resolution
 const COLLECTION_ONLY_TYPES: ReadonlySet<SimpleEditType> = new Set(['blog_post_create', 'blog_post_update']);
@@ -173,6 +173,18 @@ async function execFooterEdit(
   const result = await client.patchFooterTextBlock(params.searchText, params.newContent);
   if (!result.success) throw new Error(result.error ?? 'patchFooterTextBlock failed');
   return `Updated footer text: replaced "${params.searchText}" with "${params.newContent}"`;
+}
+
+async function execHeaderEdit(
+  client: ContentSaveClient,
+  params: SimpleEditClassification['params'],
+): Promise<string> {
+  if (!params.searchText) throw new Error('searchText required for header_edit');
+  if (!params.newContent) throw new Error('newContent required for header_edit');
+
+  const result = await client.patchHeaderTextBlock(params.searchText, params.newContent);
+  if (!result.success) throw new Error(result.error ?? 'patchHeaderTextBlock failed');
+  return `Updated header text: replaced "${params.searchText}" with "${params.newContent}"`;
 }
 
 async function execCssChange(
@@ -509,6 +521,9 @@ export async function executeSimpleEdit(
         break;
       case 'footer_edit':
         summary = await execFooterEdit(client, classification.params);
+        break;
+      case 'header_edit':
+        summary = await execHeaderEdit(client, classification.params);
         break;
       case 'css_change':
         summary = await execCssChange(client, classification.params);

@@ -23,6 +23,7 @@ export type SimpleEditType =
   | 'block_remove'
   | 'menu_update'
   | 'footer_edit'
+  | 'header_edit'
   | 'css_change'
   | 'section_style'
   | 'image_replace'
@@ -241,7 +242,11 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are a task classifier for a Squarespace we
    Examples: "Update the footer phone number to 555-9999"
    Params: searchText (existing footer text), newContent (new text)
 
-8. **css_change** — Add or modify custom CSS
+8. **header_edit** — Edit site header text (announcement bar, header button text, tagline)
+   Examples: "Change the header announcement to 'Now Open!'", "Update the header tagline"
+   Params: searchText (existing header text), newContent (new text)
+
+9. **css_change** — Add or modify custom CSS
    Examples: "Make the header font larger", "Add CSS to hide the announcement bar"
    Params: cssContent (the CSS code), cssMode ("append" or "replace")
 
@@ -280,6 +285,8 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are a task classifier for a Squarespace we
 18. **business_hours_update** — Update business/opening/trading hours
     Examples: "Set Monday hours to 9am-5pm", "Close on Sundays", "Update business hours to 9am-5pm weekdays"
     Params: businessHours (Record<string, string> — day → hours text, e.g. { "monday": "9am - 5pm", "tuesday": "Closed" })
+
+19. **header_edit** — Note: Use this type ONLY when the user explicitly mentions "header", "announcement bar", or "header button". Page headings (h1/h2 text) should use text_replace instead.
 
 ## Blog Post Param Extraction
 - postTitle: title of the blog post (for create) or new title (for update)

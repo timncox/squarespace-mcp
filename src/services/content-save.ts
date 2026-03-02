@@ -2580,6 +2580,179 @@ export class ContentSaveClient {
   }
 
   /**
+   * Get the header's page sections data.
+   *
+   * Mirrors getFooterSections() but reads from config.header instead.
+   * The header may store sections via pageSectionsId (separate page-sections doc)
+   * or embedded directly in the header-footer config.
+   */
+  async getHeaderSections(): Promise<{
+    success: boolean;
+    sections?: PageSection[];
+    pageSectionsId?: string;
+    collectionId?: string;
+    error?: string;
+  }> {
+    try {
+      const configResult = await this.getHeaderFooter();
+      if (!configResult.success || !configResult.config) {
+        return { success: false, error: configResult.error ?? 'Failed to get header/footer config' };
+      }
+
+      const config = configResult.config;
+
+      const headerPsId =
+        config.header?.pageSectionsId as string | undefined ??
+        (config as Record<string, unknown>).headerPageSectionsId as string | undefined ??
+        config.header?.id as string | undefined;
+
+      if (!headerPsId || typeof headerPsId !== 'string') {
+        const embeddedSections = config.header?.sections as PageSection[] | undefined;
+        if (embeddedSections && Array.isArray(embeddedSections)) {
+          logger.info(
+            { sectionsCount: embeddedSections.length },
+            'Found embedded header sections in header-footer config',
+          );
+          return { success: true, sections: embeddedSections };
+        }
+
+        return {
+          success: false,
+          error: 'Header pageSectionsId not found in header-footer config. ' +
+            `Available keys: ${JSON.stringify(Object.keys(config))}` +
+            (config.header ? `, header keys: ${JSON.stringify(Object.keys(config.header))}` : ''),
+        };
+      }
+
+      logger.info({ headerPsId }, 'Found header pageSectionsId — fetching sections');
+
+      const data = await this.getPageSections(headerPsId);
+      const collectionId = data.collectionId ?? (data as Record<string, unknown>).websiteId as string | undefined;
+
+      return {
+        success: true,
+        sections: data.sections,
+        pageSectionsId: headerPsId,
+        collectionId: collectionId ?? undefined,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Surgical find-and-replace within a header text block.
+   *
+   * Mirrors patchFooterTextBlock() — finds a substring in the header's
+   * text blocks and replaces only that portion.
+   */
+  async patchHeaderTextBlock(
+    searchText: string,
+    newText: string,
+  ): Promise<FooterTextUpdateResult> {
+    try {
+      const headerResult = await this.getHeaderSections();
+      if (!headerResult.success || !headerResult.sections) {
+        return { success: false, error: headerResult.error ?? 'Failed to get header sections' };
+      }
+
+      const { sections, pageSectionsId, collectionId } = headerResult;
+
+      const match = this.findTextBlock(sections, searchText);
+      if (!match) {
+        return {
+          success: false,
+          error: `No text block found in the header containing "${searchText}"`,
+        };
+      }
+
+      const { gridContent, sectionIndex, blockIndex } = match;
+      const blockValue = gridContent.content.value;
+      const oldHtml = blockValue.value?.html ?? '';
+      const blockId = blockValue.id;
+
+      // Surgical replacement in HTML
+      const strippedOld = this.stripHtml(oldHtml).toLowerCase();
+      const needle = searchText.toLowerCase();
+      if (!strippedOld.includes(needle)) {
+        return {
+          success: false,
+          error: `Text "${searchText}" found in block ${blockId} metadata but not in stripped HTML`,
+        };
+      }
+
+      let patchedHtml = oldHtml;
+      if (patchedHtml.includes(searchText)) {
+        patchedHtml = patchedHtml.replace(searchText, newText);
+      } else {
+        const regex = new RegExp(searchText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        patchedHtml = patchedHtml.replace(regex, newText);
+      }
+
+      if (patchedHtml === oldHtml) {
+        return {
+          success: false,
+          error: `Could not replace "${searchText}" in HTML of block ${blockId}. The text may span HTML tags.`,
+        };
+      }
+
+      logger.info(
+        { blockId, sectionIndex, blockIndex, searchText, newText },
+        'Patching header text block (surgical replacement)',
+      );
+
+      if (blockValue.value) {
+        blockValue.value.html = patchedHtml;
+        blockValue.value.source = patchedHtml;
+      }
+
+      // Save
+      if (!pageSectionsId) {
+        // Embedded header path
+        const configResult = await this.getHeaderFooter();
+        if (!configResult.success || !configResult.config) {
+          return { success: false, error: configResult.error ?? 'Failed to get header-footer config for save' };
+        }
+        const config = configResult.config as Record<string, unknown>;
+        if (config.header && typeof config.header === 'object') {
+          (config.header as Record<string, unknown>).sections = sections;
+        }
+        const saveResult = await this.saveHeaderFooter(config);
+        if (!saveResult.success) {
+          return { success: false, error: saveResult.error };
+        }
+        return { success: true, blockId, oldText: this.stripHtml(oldHtml), newHtml: patchedHtml };
+      }
+
+      // Regular path
+      let saveCollectionId = collectionId;
+      if (!saveCollectionId) {
+        const configResult = await this.getHeaderFooter();
+        if (configResult.config) {
+          saveCollectionId = (configResult.config as Record<string, unknown>).websiteId as string | undefined;
+        }
+      }
+      if (!saveCollectionId) {
+        saveCollectionId = pageSectionsId;
+      }
+
+      const saveResult = await this.savePageSections(pageSectionsId, saveCollectionId, sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return {
+        success: true,
+        blockId,
+        oldText: this.stripHtml(oldHtml),
+        newHtml: patchedHtml,
+      };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
    * Save header/footer configuration.
    */
   async saveHeaderFooter(config: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
