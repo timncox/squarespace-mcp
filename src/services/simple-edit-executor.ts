@@ -53,14 +53,79 @@ async function execTextReplace(
   collectionId: string,
   params: SimpleEditClassification['params'],
 ): Promise<string> {
-  if (!params.searchText) throw new Error('searchText required for text_replace');
   if (!params.newContent) throw new Error('newContent required for text_replace');
 
-  const result = await client.patchTextBlock(
-    pageSectionsId, collectionId, params.searchText, params.newContent,
-  );
-  if (!result.success) throw new Error(result.error ?? 'patchTextBlock failed');
-  return `Replaced "${params.searchText}" with "${params.newContent}"`;
+  const headingTag = params.headingLevel ? `h${params.headingLevel}` as const : null;
+
+  // When searchText is provided, use surgical replacement
+  if (params.searchText) {
+    if (headingTag) {
+      // Replace the entire block's HTML with proper heading tag
+      const newHtml = `<${headingTag}>${params.newContent}</${headingTag}>`;
+      const result = await client.updateTextBlockHtml(
+        pageSectionsId, collectionId, params.searchText, newHtml,
+      );
+      if (!result.success) throw new Error(result.error ?? 'updateTextBlockHtml failed');
+      return `Replaced "${params.searchText}" with <${headingTag}>${params.newContent}</${headingTag}>`;
+    }
+    const result = await client.patchTextBlock(
+      pageSectionsId, collectionId, params.searchText, params.newContent,
+    );
+    if (!result.success) throw new Error(result.error ?? 'patchTextBlock failed');
+    return `Replaced "${params.searchText}" with "${params.newContent}"`;
+  }
+
+  // When searchText is missing but blockType is 'heading', find the heading/text block
+  if (params.blockType === 'heading') {
+    const tag = headingTag || 'h1';
+    const data = await client.getPageSections(pageSectionsId);
+    const sections = data.sections || [];
+
+    // First pass: look for actual heading tags (h1-h4)
+    for (const section of sections) {
+      const blocks = section.fluidEngineContext?.gridContents || [];
+      for (const block of blocks) {
+        const html = block.content?.value?.value?.html || block.content?.value?.html || '';
+        if (/<h[1-4][^>]*>/i.test(html)) {
+          const textContent = html.replace(/<[^>]+>/g, '').trim();
+          if (textContent) {
+            const newHtml = `<${tag}>${params.newContent}</${tag}>`;
+            const result = await client.updateTextBlockHtml(
+              pageSectionsId, collectionId, textContent, newHtml,
+            );
+            if (!result.success) throw new Error(result.error ?? 'updateTextBlockHtml failed');
+            return `Replaced heading "${textContent}" with <${tag}>${params.newContent}</${tag}>`;
+          }
+        }
+      }
+    }
+
+    // Second pass: fall back to first text block in first section
+    // Squarespace often uses <p> tags for headings with CSS styling
+    if (sections.length > 0) {
+      const blocks = sections[0].fluidEngineContext?.gridContents || [];
+      for (const block of blocks) {
+        const blockType = block.content?.value?.type;
+        const html = block.content?.value?.value?.html || block.content?.value?.html || '';
+        // Type 2 = text block
+        if ((blockType === 2 || /<[ph][^>]*>/i.test(html)) && html) {
+          const textContent = html.replace(/<[^>]+>/g, '').trim();
+          if (textContent) {
+            const newHtml = `<${tag}>${params.newContent}</${tag}>`;
+            const result = await client.updateTextBlockHtml(
+              pageSectionsId, collectionId, textContent, newHtml,
+            );
+            if (!result.success) throw new Error(result.error ?? 'updateTextBlockHtml failed');
+            return `Replaced heading "${textContent}" with <${tag}>${params.newContent}</${tag}>`;
+          }
+        }
+      }
+    }
+
+    throw new Error('No heading block found on the page');
+  }
+
+  throw new Error('searchText required for text_replace (no blockType hint available)');
 }
 
 async function execTextAdd(

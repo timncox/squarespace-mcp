@@ -43,6 +43,8 @@ export interface SimpleEditClassification {
   params: {
     searchText?: string;
     newContent?: string;
+    blockType?: 'heading' | 'text';
+    headingLevel?: 1 | 2 | 3 | 4;
     buttonLabel?: string;
     buttonUrl?: string;
     cssContent?: string;
@@ -215,8 +217,8 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are a task classifier for a Squarespace we
 ## Simple Edit Types
 
 1. **text_replace** — Find existing text and replace it with new text
-   Examples: "Change the phone number from 555-1234 to 555-5678", "Update the address to 123 Main St"
-   Params: searchText (existing text to find), newContent (replacement text)
+   Examples: "Change the phone number from 555-1234 to 555-5678", "Update the address to 123 Main St", "Change the main heading to Welcome"
+   Params: searchText (existing text to find — set null if user refers to element by role like "the heading"), newContent (replacement text), blockType (optional: "heading" if targeting a heading/h1/h2/h3 element), headingLevel (1-4, required when blockType is "heading" — h1 for main/page heading, h2 for section titles, h3 for sub-sections, h4 for minor headings)
 
 2. **text_add** — Add a line of text to an existing block
    Examples: "Add 'Now open Sundays' below the hours section"
@@ -397,35 +399,56 @@ export async function classifySimpleEdit(
     };
   }
 
-  // 4. LLM classification
-  try {
-    const userMessage = buildUserMessage(task, pageStructure);
+  // 4. LLM classification (with one retry on connection errors)
+  const userMessage = buildUserMessage(task, pageStructure);
+  const MAX_ATTEMPTS = 2;
 
-    const response = await getAnthropicClient().messages.create({
-      model: MODEL_HAIKU,
-      max_tokens: 1024,
-      system: CLASSIFIER_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: userMessage }],
-    });
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const response = await getAnthropicClient().messages.create({
+        model: MODEL_HAIKU,
+        max_tokens: 1024,
+        system: CLASSIFIER_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userMessage }],
+      });
 
-    const textBlock = response.content.find((b) => b.type === 'text');
-    const responseText = textBlock?.type === 'text' ? textBlock.text : '';
+      const textBlock = response.content.find((b) => b.type === 'text');
+      const responseText = textBlock?.type === 'text' ? textBlock.text : '';
 
-    const classification = parseLlmResponse(responseText);
+      const classification = parseLlmResponse(responseText);
 
-    logger.info(
-      { taskId: task.id, isSimpleEdit: classification.isSimpleEdit, editType: classification.editType, confidence: classification.confidence },
-      'LLM simple edit classification',
-    );
+      logger.info(
+        { taskId: task.id, isSimpleEdit: classification.isSimpleEdit, editType: classification.editType, confidence: classification.confidence },
+        'LLM simple edit classification',
+      );
 
-    return classification;
-  } catch (err) {
-    logger.error({ taskId: task.id, error: errMsg(err) }, 'Simple edit classification failed');
-    return {
-      isSimpleEdit: false,
-      confidence: 'low',
-      params: {},
-      reason: `Classification failed: ${errMsg(err)}`,
-    };
+      return classification;
+    } catch (err) {
+      const msg = errMsg(err);
+      const isConnectionError = /ECONNREFUSED|ECONNRESET|ETIMEDOUT|fetch failed|Connection error|Could not resolve authentication/i.test(msg);
+
+      if (isConnectionError && attempt < MAX_ATTEMPTS) {
+        logger.warn({ taskId: task.id, error: msg, attempt }, 'Simple edit classifier: connection error — retrying after proxy restart');
+        try {
+          const { ensureProxy } = await import('../utils/proxy-manager.js');
+          await ensureProxy();
+        } catch {
+          // Best effort — retry anyway
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+        continue;
+      }
+
+      logger.error({ taskId: task.id, error: msg }, 'Simple edit classification failed');
+      return {
+        isSimpleEdit: false,
+        confidence: 'low',
+        params: {},
+        reason: `Classification failed: ${msg}`,
+      };
+    }
   }
+
+  // Unreachable, but TypeScript needs it
+  return { isSimpleEdit: false, confidence: 'low' as const, params: {}, reason: 'Classification exhausted retries' };
 }

@@ -380,6 +380,12 @@ export async function trySimpleEditFastPath(
       tasks.map(t => classifySimpleEdit(t))
     );
 
+    // Log full classification results for debugging
+    logger.info(
+      { classifications: classifications.map(c => ({ isSimpleEdit: c.isSimpleEdit, editType: c.editType, confidence: c.confidence, reason: c.reason })) },
+      'Simple edit fast path: classification results',
+    );
+
     // ALL tasks must be simple edits with high confidence
     if (!classifications.every(c => c.isSimpleEdit && c.confidence === 'high')) {
       const reasons = classifications
@@ -457,6 +463,7 @@ export async function handleConfirmation(conversation: Conversation, msg: Incomi
     // === Simple Edit Fast Path ===
     // Try to handle simple edits directly via Content Save API (~500ms each)
     // instead of browser agent (~2-5 min each). Only for high-confidence classifications.
+    logger.info({ taskCount: tasks.length, convId: conversation.id }, 'Attempting simple edit fast path');
     const simpleEditResult = await trySimpleEditFastPath(conversation, tasks);
     if (simpleEditResult) {
       // All tasks handled via API — skip browser agent entirely

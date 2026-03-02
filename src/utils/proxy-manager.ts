@@ -42,23 +42,17 @@ function isPortInUse(port: number): Promise<boolean> {
 }
 
 /**
- * Poll GET /health on the proxy until it responds, or timeout.
+ * Poll until the proxy port is accepting TCP connections, or timeout.
  * 20 attempts, 500ms apart = 10s max.
  */
-async function waitForHealth(port: number): Promise<boolean> {
+async function waitForReady(port: number): Promise<boolean> {
   const maxAttempts = 20;
   const intervalMs = 500;
-  const url = `http://127.0.0.1:${port}/health`;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
-      if (res.ok) {
-        proxyLogger.info({ attempt, port }, 'Proxy health check passed');
-        return true;
-      }
-    } catch {
-      // Not ready yet — keep trying
+    if (await isPortInUse(port)) {
+      proxyLogger.info({ attempt, port }, 'Proxy is accepting connections');
+      return true;
     }
     if (attempt < maxAttempts) {
       await new Promise((r) => setTimeout(r, intervalMs));
@@ -121,12 +115,12 @@ export async function ensureProxy(): Promise<void> {
 
     proxyLogger.info({ pid: proxyProcess.pid }, 'Proxy process spawned — waiting for health check');
 
-    // Wait for the proxy to become healthy
-    const healthy = await waitForHealth(port);
+    // Wait for the proxy to become ready
+    const healthy = await waitForReady(port);
     if (!healthy) {
       proxyLogger.warn(
         { port },
-        'Proxy did not become healthy within 10s — AI features may not work',
+        'Proxy did not become ready within 10s — AI features may not work',
       );
     }
   } catch (err) {
