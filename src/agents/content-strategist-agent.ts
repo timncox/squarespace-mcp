@@ -563,6 +563,25 @@ You can combine gallery blocks with text blocks in the same section for captions
   // Layout presets for blank_api sections
   parts.push(`\n${formatPresetsForPrompt()}\n`);
 
+  // API vs Browser boundaries
+  parts.push(`\n## API vs Browser Boundaries — CRITICAL for contentStrategy routing
+
+### API-capable (use blank_api):
+- Text, button, image, menu, quote, code, video, divider, gallery, accordion, marquee, newsletter, embed, social links blocks
+- Section creation, styling (theme/height/width/padding), reordering
+- Page create/delete/metadata, blog post create/update
+- Business info, SEO settings, footer text, custom CSS read/write
+
+### Browser-only (use contentStrategy: "manual"):
+- **Site design** (fonts, colors, typography, global spacing) — Damask WebSocket, no REST API
+- **Page reordering in navigation** — /api/navigation is READ-ONLY
+- **Form creation** — form blocks can be styled via API but form fields must be created in the UI
+- **Social media account connections** — site-level OAuth, not block-level
+- **URL redirects** — Damask only
+- **Member area config** — Damask only
+
+NEVER use blank_api for font/color/typography/design changes. These MUST use contentStrategy: "manual".\n`);
+
   // Output format
   parts.push(`## Output Format
 

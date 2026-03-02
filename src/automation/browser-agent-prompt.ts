@@ -554,6 +554,23 @@ For the actions below, the system **automatically attempts the Content Save API 
 
 **After an API-backed action:** Use \`navigate\` to reload the page (same URL) to see the changes reflected in the editor. Do not try to verify changes by reading the DOM before reloading — the editor's in-memory state won't show server-side changes until reload.`,
   },
+  {
+    id: 'api_boundaries',
+    category: 'workflow_sequence',
+    minHighConfToReduce: 5,
+    removable: true,
+    reduced: 'Design/font/color changes → Design panel (no API). Text/menu/button/image edits → API handles automatically.',
+    full: `### Operations You Handle vs API Fast Paths
+API fast paths run BEFORE you for: editTextBlock, editMenuBlock, editButtonBlock, removeBlock, moveBlock, resizeBlock, addSection (blank), editSectionStyle, replaceImage, addImageBlock. You are the FALLBACK when API fails.
+
+You MUST handle directly (no API exists):
+- Design changes (fonts, colors, typography) → Design panel in sidebar
+- Custom CSS → CSS editor panel
+- Page reordering → drag in Pages panel
+- Form creation → form builder UI
+- Social link management → connected accounts panel
+- URL redirects → URL redirects panel`,
+  },
 ];
 
 // ─── System Prompt ─────────────────────────────────────────────────────────
