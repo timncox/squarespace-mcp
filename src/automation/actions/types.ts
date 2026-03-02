@@ -19,7 +19,7 @@ export type AgentAction =
   | { action: 'exitFooter' }
   | { action: 'editTextBlock'; searchText: string; newText: string }
   | { action: 'formatTextBlock'; searchText: string; formatLevel?: 'heading1' | 'heading2' | 'heading3' | 'heading4' | 'paragraph1' | 'paragraph2' | 'paragraph3' | 'monospace'; bold?: boolean; italic?: boolean; alignment?: 'left' | 'center' | 'right'; fontSize?: 'increase' | 'decrease' }
-  | { action: 'editButtonBlock'; searchText: string; newLabel?: string; url?: string; size?: 'small' | 'medium' | 'large'; style?: 'primary' | 'secondary' | 'tertiary'; alignment?: 'left' | 'center' | 'right' }
+  | { action: 'editButtonBlock'; searchText: string; newLabel?: string; url?: string; size?: 'small' | 'medium' | 'large'; style?: 'primary' | 'secondary' | 'tertiary'; alignment?: 'left' | 'center' | 'right'; variant?: 'solid' | 'outline' }
   | { action: 'addBlockToSection'; blockType: string; content?: string }
   | { action: 'addSection'; template?: string; category?: string; templateIndex?: number }
   | { action: 'addSectionFromTemplate'; category: string; template: string; templateIndex?: number; replacements: {
@@ -35,7 +35,7 @@ export type AgentAction =
   | { action: 'replaceImage'; searchText: string; imagePath: string; altText?: string }
   | { action: 'addImageBlock'; imagePath: string; altText?: string }
   | { action: 'addGalleryBlock'; imagePaths: string[]; altTexts?: string[]; galleryStyle?: 'grid' | 'slideshow' | 'collage' }
-  | { action: 'addButtonBlock'; label: string; url: string; size?: 'small' | 'medium' | 'large'; style?: 'primary' | 'secondary' | 'tertiary'; alignment?: 'left' | 'center' | 'right' }
+  | { action: 'addButtonBlock'; label: string; url: string; size?: 'small' | 'medium' | 'large'; style?: 'primary' | 'secondary' | 'tertiary'; alignment?: 'left' | 'center' | 'right'; variant?: 'solid' | 'outline' }
   | { action: 'createPage'; title: string; slug?: string; template?: string; pageType?: 'page' | 'blog' }
   | { action: 'deletePage'; title: string }
   | { action: 'editSectionStyle'; searchText: string; backgroundColor?: string; backgroundImage?: string; sectionTheme?: string; sectionHeight?: 'auto' | 'small' | 'medium' | 'large' | 'full'; contentWidth?: 'inset' | 'full'; verticalAlignment?: 'top' | 'middle' | 'bottom'; overlayOpacity?: number; sectionPadding?: 'none' | 'small' | 'medium' | 'large'; blockSpacing?: 'none' | 'small' | 'medium' | 'large' }

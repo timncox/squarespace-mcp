@@ -1255,19 +1255,18 @@ export async function handleFormatTextBlock(
  */
 export async function handleEditButtonBlock(
   page: Page,
-  action: { action: 'editButtonBlock'; searchText: string; newLabel?: string; url?: string; size?: 'small' | 'medium' | 'large'; style?: 'primary' | 'secondary' | 'tertiary'; alignment?: 'left' | 'center' | 'right' },
+  action: { action: 'editButtonBlock'; searchText: string; newLabel?: string; url?: string; size?: 'small' | 'medium' | 'large'; style?: 'primary' | 'secondary' | 'tertiary'; alignment?: 'left' | 'center' | 'right'; variant?: 'solid' | 'outline' },
 ): Promise<ActionResult> {
-  const { searchText, newLabel, url, size, style, alignment } = action;
+  const { searchText, newLabel, url, size, style, alignment, variant } = action;
 
-  if (!newLabel && !url && !size && !style && !alignment) {
-    return { success: false, message: 'editButtonBlock: must provide at least newLabel, url, size, style, or alignment' };
+  if (!newLabel && !url && !size && !style && !alignment && !variant) {
+    return { success: false, message: 'editButtonBlock: must provide at least newLabel, url, size, style, alignment, or variant' };
   }
 
   // ── Fast path: try Content Save API first (no UI, ~100ms) ─────────────
-  // Note: size, style, alignment require UI — only label/url can use API
-  if (newLabel !== undefined || url !== undefined) {
+  if (newLabel !== undefined || url !== undefined || size !== undefined || style !== undefined || alignment !== undefined || variant !== undefined) {
     logger.info({ searchText }, 'editButtonBlock[0/6]: trying Content Save API fast path');
-    const apiResult = await tryButtonBlockApi(page, searchText, { newLabel, url });
+    const apiResult = await tryButtonBlockApi(page, searchText, { newLabel, url, size, style, alignment, variant });
     if (apiResult) {
       return apiResult;
     }
