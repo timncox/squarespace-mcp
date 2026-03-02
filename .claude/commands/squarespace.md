@@ -33,6 +33,26 @@ Common tasks and which `ContentSaveClient` method to use:
 | Add code block | `addCodeBlock()` | psId, colId, sectionIndex, code, language? |
 | Add divider | `addDividerBlock()` | psId, colId, sectionIndex, layout? |
 | Add video | `addVideoBlock()` | psId, colId, sectionIndex, videoUrl, options? |
+| Get navigation | `getNavigation()` | (no params) |
+| Reorder navigation | `updateNavigation()` | fieldName ('mainNav'/'_hidden'), items[] |
+| Read settings | `getSettings()` | (no params) |
+| Write settings | `updateSettings()` | fields (partial SiteSettings) |
+| Read code injection | `getCodeInjection()` | (no params) |
+| Write code injection | `saveCodeInjection()` | header?, footer? |
+| Read advanced settings | `getAdvancedSettings()` | (no params) |
+| Write advanced settings | `saveAdvancedSettings()` | data (form-encoded) |
+| Read fonts | `getWebsiteFonts()` | (no params) |
+| Write fonts | `updateWebsiteFonts()` | data (full WebsiteFontsData) |
+| Update single font | `updateFont()` | fontName, updates (Partial<FontValue>) |
+| Read colors | `getWebsiteColors()` | (no params) |
+| Write colors | `updateWebsiteColors()` | data (full WebsiteColorsData) |
+| Update palette color | `updatePaletteColor()` | colorId, hsl (HSLValues) |
+| Read tweaks | `getTemplateTweakSettings()` | (no params) |
+| Write tweaks | `setTemplateTweakSettings()` | updates (Record<string, string>) |
+| Create blog post | `createBlogPost()` | collectionId, title, options? |
+| Update blog post | `updateBlogPost()` | collectionId, itemId, updates |
+| Find blog post | `findBlogPostByTitle()` | collectionId, searchTitle |
+| Template section (fast) | `copyTemplateSectionFromCatalog()` | subdomain, category, index (~300ms) |
 
 ## Session Health
 
@@ -88,8 +108,8 @@ simple edit → API executor → two-pass → template → blank_api → batch �
 
 | File | Purpose |
 |------|---------|
-| `src/services/content-save.ts` | Core API client (~4500 lines) |
-| `src/services/content-save-types.ts` | Type definitions |
+| `src/services/content-save.ts` | Core API client (88+ methods) |
+| `src/services/content-save-types.ts` | Type definitions (~1100 lines) |
 | `src/services/api-executor.ts` | Multi-operation API executor |
 | `src/services/plan-classifier.ts` | Plan → API/browser routing |
 | `src/services/simple-edit-classifier.ts` | Simple edit classifier (Haiku LLM) |
@@ -108,3 +128,6 @@ simple edit → API executor → two-pass → template → blank_api → batch �
 3. **Footer uses `saveHeaderFooter()`**: NOT `savePageSections()`.
 4. **Menu `raw` field**: Must regenerate via `serializeMenu()` after modifying `menus`.
 5. **API sections wiped by editor**: Only use API section addition when no browser editor is open.
+6. **Tweaks are form-encoded**: `POST /api/template/SetTemplateTweakSettings` with `tweakJson=<url-encoded>`, NOT JSON body.
+7. **Colors use HSL**: API stores `{ hue, saturation, lightness }`, not hex values.
+8. **Navigation reorder needs templateId**: `updateNavigation()` requires fetching `templateId` from `GET /api/template/GetTemplate` first.

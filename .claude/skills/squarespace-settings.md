@@ -268,9 +268,43 @@ interface NavigationResult {
 
 Endpoint: `GET /api/navigation`
 
+### updateNavigation()
+
+```typescript
+async updateNavigation(
+  fieldName: string,
+  items: UpdateNavigationItem[],
+): Promise<UpdateNavigationResult>
+```
+
+Reorders pages in the navigation. `fieldName` is `"mainNav"` for main navigation or `"_hidden"` for not-linked pages. The `items` array must contain full page metadata for every page in the section being reordered.
+
+```typescript
+interface UpdateNavigationItem {
+  title: string;
+  urlId: string;
+  typeName: string;
+  collectionId: string;
+  enabled: boolean;
+  passwordProtected: boolean;
+  collectionType: number;
+  isFolder: boolean;
+  ordering: number;
+  updatedOn: number;
+  pagePermissionType: number;
+  isDraft: boolean;
+  items: UpdateNavigationItem[];  // children (folders)
+  id: string;
+}
+```
+
+Endpoint: `POST /api/widget/UpdateNavigation` (requires `templateId` from `GET /api/template/GetTemplate`).
+
+**Typical workflow**: `getNavigation()` → rearrange items → `updateNavigation('mainNav', reorderedItems)`
+
 ---
 
-## Site Settings (Read / Experimental Write)
+## Site Settings
 
 ### getSettings()
 
@@ -310,18 +344,15 @@ interface SettingsResult {
 
 Endpoint: `GET /api/settings`
 
-### updateSettings() — Experimental
+### updateSettings()
 
 ```typescript
 async updateSettings(fields: Partial<SiteSettings>): Promise<SettingsResult>
 ```
 
-Read-modify-write on `PUT /api/settings`. Merges provided fields into the current
-settings and PUTs the full object back.
+Read-modify-write on `PUT /api/settings` (confirmed working, returns 200). Merges provided fields into the current settings and PUTs the full object back.
 
-**WARNING**: `PUT /api/settings` may return 400 for certain field combinations.
-This method is experimental — test on a staging site first. Works reliably for
-simple fields like `siteTitle`, `siteDescription`, `siteTagLine`, `commentsEnabled`.
+Works reliably for: `siteTitle`, `siteDescription`, `siteTagLine`, `commentsEnabled`, `isCookieBannerEnabled`, `seoHidden`, `homepageTitleFormat`, `collectionTitleFormat`. Some deeply nested fields or read-only system fields may cause 400 errors — test unfamiliar fields on a staging site first.
 
 ---
 
@@ -364,6 +395,30 @@ Pass only the fields you want to update — omitted fields are left unchanged.
 
 ---
 
+## Advanced Settings (URL Redirects / Mappings)
+
+### getAdvancedSettings()
+
+```typescript
+async getAdvancedSettings(): Promise<AdvancedSettingsResult>
+```
+
+Returns URL redirects/mappings and other advanced configuration.
+
+Endpoint: `GET /api/config/GetAdvancedSettings`
+
+### saveAdvancedSettings()
+
+```typescript
+async saveAdvancedSettings(data: Record<string, string>): Promise<AdvancedSettingsSaveResult>
+```
+
+Saves URL redirects and other advanced settings. Body is **form-encoded** (`application/x-www-form-urlencoded`), e.g., `mappings=...` — NOT JSON (JSON returns 415).
+
+Endpoint: `POST /api/config/SaveAdvancedSettings`
+
+---
+
 ## CLI Commands
 
 | Command | Usage |
@@ -372,15 +427,20 @@ Pass only the fields you want to update — omitted fields are left unchanged.
 | `update-metadata` | `tsx scripts/sq.ts update-metadata --site <id> --page <slug> [--title <str>] [--description <str>] [--seo-title <str>] [--seo-description <str>]` |
 | `list-pages` | `tsx scripts/sq.ts list-pages --site <id>` |
 | `navigation` | `tsx scripts/sq.ts navigation --site <id>` |
+| `reorder-nav` | `tsx scripts/sq.ts reorder-nav --site <id> --page-ids <id1,id2,id3>` |
 | `settings` | `tsx scripts/sq.ts settings --site <id>` |
 | `footer` | `tsx scripts/sq.ts footer --site <id> [--search <text> --text <newText>]` |
 | `code-injection` | `tsx scripts/sq.ts code-injection --site <id> [--header <html>] [--footer <html>]` |
+| `get-advanced-settings` | `tsx scripts/sq.ts get-advanced-settings --site <id>` |
+| `set-advanced-settings` | `tsx scripts/sq.ts set-advanced-settings --site <id> --file <path>` |
 | `snapshot` | `tsx scripts/sq.ts snapshot --site <id> --page <slug>` |
 
 **Notes:**
 - `site-identity` with no update flags reads current identity; with flags updates those fields
 - `footer` with no flags reads footer sections JSON; with `--search`+`--text` patches a text block
 - `code-injection` with no flags reads current injection; with `--header`/`--footer` saves new scripts
+- `reorder-nav` reorders main navigation pages by providing collection IDs in the desired order
+- `get-advanced-settings` / `set-advanced-settings` manage URL redirects and mappings
 
 ---
 
@@ -493,7 +553,7 @@ await client.saveCodeInjection(
 - **Footer is NOT page sections** — footer sections are embedded in the `/api/site-header-footer` config. Always use `saveHeaderFooter()`, never `savePageSections()`, for footer edits.
 - **Homepage slug normalization** — `getPageMetadata()` normalizes "homepage", "home-page", "landing", "index", "main" to "home" automatically.
 - **Page visibility** — set `enabled: false` via `updatePageMetadata()` to hide a page from navigation without deleting it.
-- **Navigation is read-only** — `getNavigation()` returns the page tree but there's no `updateNavigation()` API yet.
-- **updateSettings() is experimental** — `PUT /api/settings` may return 400 for certain fields. Test carefully.
+- **Navigation supports read AND write** — `getNavigation()` reads the page tree, `updateNavigation()` reorders pages via `POST /api/widget/UpdateNavigation`. The `reorder-nav` CLI command provides a simpler interface.
+- **updateSettings() works for common fields** — `PUT /api/settings` returns 200 for fields like `siteTitle`, `siteDescription`, `siteTagLine`, `commentsEnabled`. Some nested or system fields may return 400.
 - **Code injection uses a different save endpoint** — reads from `/api/settings` but saves via `POST /api/config/SaveInjectionSettings`.
 - **Session required** — all methods need authenticated session cookies (see squarespace-setup skill).

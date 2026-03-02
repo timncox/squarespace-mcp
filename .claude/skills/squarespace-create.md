@@ -33,6 +33,29 @@ All methods live on `ContentSaveClient` in `src/services/content-save.ts`.
 | `getSectionCatalog()` | Lists template sections | Returns `{ catalog, sections, categories }` |
 | `verifySectionAdded(psId, expectedCount)` | Confirms section persisted | Returns `{ verified, actualCount, sections }` |
 
+### Template Sections via Catalog (High-Level Helper)
+
+`copyTemplateSectionFromCatalog()` in `src/services/section-catalog.ts` is the preferred way to add template sections. It handles the full flow: catalog lookup + client creation + copy API call.
+
+```typescript
+import { copyTemplateSectionFromCatalog } from '../services/section-catalog.js';
+
+// ~300ms vs 5-25s UI automation
+const result = await copyTemplateSectionFromCatalog(subdomain, 'Contact', 1);
+// result: { success: true, sectionId: 'abc123...' } | null
+```
+
+**Flow**: `getOrFetchCatalog(subdomain)` (SQLite-cached, 7-day TTL) → `lookupCatalogEntry(catalog, categoryName, templateIndex)` → `client.copyTemplateSection(websiteId, collectionId, sectionId)`.
+
+**Category names** (from catalog): Intro, About, Team, Contact, Services/Offerings, Products, FAQs, Images. Category lookup is case-insensitive and supports partial matches (e.g., "Services" matches "SERVICES/OFFERINGS").
+
+**Used in all 3 execution paths:**
+1. Browser agent fast path (`tryCopyTemplateSectionApi` in `handler-utils.ts`)
+2. Conversation execution (`tryCopyTemplateViaApi` in `execution.ts`)
+3. API-only pipeline (`executeAddSectionTemplate` in `api-executor.ts`)
+
+**Template Section Registry** (`src/services/template-registry.ts`): Maps `{category, templateName}` → `sectionId` per site with SQLite cache (Phase 17 migration, 7-day TTL). Used by `validatePlanTemplateIndexes()` to cross-check plan template indexes against cached discovery data before execution.
+
 ### Blocks (all 15 types)
 
 Every `add*Block` method follows the same pattern: `(pageSectionsId, collectionId, sectionIndex, ...blockSpecificParams, layout?)`.

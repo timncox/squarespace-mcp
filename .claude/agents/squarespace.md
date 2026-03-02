@@ -130,8 +130,40 @@ full-width, two-column, three-column, hero-wide, sidebar-content, content-sideba
 - `patchFooterTextBlock(subdomain, search, newText)` — patch footer text
 - `updateFooterTextBlock(subdomain, search, newHtml)` — replace footer text
 - `saveHeaderFooter(subdomain, config)` — save header/footer (NOT savePageSections!)
-- `saveCustomCSS(subdomain, css)` — save custom CSS
-- `getCustomCSS(subdomain)` — read current CSS
+- `saveCustomCSS(css)` — save custom CSS via `POST /api/template/SaveTemplateCustomCss`
+- `getCustomCSS()` — read current CSS
+
+### Navigation & Settings
+- `getNavigation()` — read page structure (mainNavigation + notLinked)
+- `updateNavigation(fieldName, items)` — reorder pages via `POST /api/widget/UpdateNavigation`
+- `getSettings()` — read full settings (~63 fields)
+- `updateSettings(fields)` — write settings via `PUT /api/settings` (read-modify-write)
+- `getSiteIdentity()` / `updateSiteIdentity(updates)` — business name/address/phone/email
+- `getCodeInjection()` — read header/footer scripts from settings
+- `saveCodeInjection(header?, footer?)` — save via `POST /api/config/SaveInjectionSettings`
+- `getAdvancedSettings()` — read URL redirects/mappings
+- `saveAdvancedSettings(data)` — save via `POST /api/config/SaveAdvancedSettings` (form-encoded)
+
+### Design Write (Fonts, Colors, Tweaks)
+- `getWebsiteFonts()` / `updateWebsiteFonts(data)` — `GET`/`PUT /api/website-fonts` (PUT → 204)
+- `updateFont(fontName, updates)` — convenience: read-modify-write single font by name
+- `getWebsiteColors()` / `updateWebsiteColors(data)` — `GET`/`PUT /api/website-colors` (PUT → 200)
+- `updatePaletteColor(colorId, hsl)` — convenience: read-modify-write single palette color
+- `getTemplateTweakSettings()` / `setTemplateTweakSettings(updates)` — ~200+ template tweaks
+  - GET: `/api/template/GetTemplateTweakSettings?version=3`
+  - POST: `/api/template/SetTemplateTweakSettings` (URL-encoded form: `tweakJson=<json>`)
+
+### Blog Operations
+- `createBlogPost(colId, title, options?)` — `POST /api/content/blogs/{colId}/text-posts`
+- `updateBlogPost(colId, itemId, updates)` — `PUT /api/content/blogs/{colId}/text-posts/{itemId}`
+- `findBlogPostByTitle(colId, search)` — case-insensitive partial title search
+- `getCollectionItems(colId, options?)` — list posts with pagination and status filter
+
+### Template Catalog
+- `copyTemplateSectionFromCatalog(subdomain, category, index)` — shared helper in `section-catalog.ts`
+  - Flow: `getOrFetchCatalog()` → `lookupCatalogEntry()` → `copyTemplateSection()`
+  - ~300ms vs 5-25s UI automation
+  - Categories: Intro, About, Team, Contact, Services/Offerings, Products, FAQs, Images
 
 ### Static Methods
 - `ContentSaveClient.checkSessionHealth()` — pre-flight session check
@@ -158,7 +190,20 @@ Cache with `cachePageIds(subdomain, slug, psId, colId)`.
 | GET | `/api/site-header-footer` | Validated |
 | PUT | `/api/site-header-footer` | Validated |
 | GET | `/api/website/GetCustomCSS/` | Validated |
-| PUT | `/api/website/SaveCustomCSS/` | Validated |
+| POST | `/api/template/SaveTemplateCustomCss` | Validated |
+| GET | `/api/navigation` | Validated |
+| POST | `/api/widget/UpdateNavigation` | Validated |
+| GET | `/api/settings` | Validated |
+| PUT | `/api/settings` | Validated |
+| POST | `/api/config/SaveInjectionSettings` | Validated |
+| GET | `/api/config/GetAdvancedSettings` | Validated |
+| POST | `/api/config/SaveAdvancedSettings` | Validated (form-encoded) |
+| GET | `/api/website-fonts` | Validated |
+| PUT | `/api/website-fonts` | Validated (→ 204) |
+| GET | `/api/website-colors` | Validated |
+| PUT | `/api/website-colors` | Validated (→ 200) |
+| GET | `/api/template/GetTemplateTweakSettings?version=3` | Validated |
+| POST | `/api/template/SetTemplateTweakSettings` | Validated (form-encoded) |
 | POST | `/api/content/add/fluidEngineSection` | Speculative |
 | POST | `/api/content/copy/section` | Speculative |
 | GET | `/api/section-catalog/sections?engine=FLUID` | Speculative |
@@ -168,6 +213,8 @@ Cache with `cachePageIds(subdomain, slug, psId, colId)`.
 | DELETE | `/api/collections/{collectionId}` | Speculative |
 | PUT | `/api/collections/{collectionId}` | Speculative |
 | POST | `/api/media/upload` | Validated |
+| POST | `/api/content/blogs/{colId}/text-posts` | Validated |
+| PUT | `/api/content/blogs/{colId}/text-posts/{itemId}` | Validated |
 
 ## Execution Priority Chain
 
@@ -201,8 +248,8 @@ simple edit → API executor → two-pass → template → blank_api → batch �
 
 | File | Purpose |
 |------|---------|
-| `src/services/content-save.ts` | Core API client (~4300 lines) |
-| `src/services/content-save-types.ts` | Type definitions (~500 lines) |
+| `src/services/content-save.ts` | Core API client (88+ methods) |
+| `src/services/content-save-types.ts` | Type definitions (~1100 lines) |
 | `src/services/api-executor.ts` | Multi-operation API executor |
 | `src/services/plan-classifier.ts` | Plan → API/browser routing |
 | `src/services/simple-edit-classifier.ts` | Simple edit fast path classifier |

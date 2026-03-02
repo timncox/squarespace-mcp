@@ -7,6 +7,22 @@ description: >
 
 If the user has not specified a site and page, ask for both before proceeding. Do not guess.
 
+## Companion Commands
+
+Before taking a snapshot, you can list all pages on a site:
+
+```bash
+tsx scripts/sq.ts list-pages --site <id>
+```
+
+This calls `listCollections()` and shows all pages, blogs, galleries, stores with their slugs and types. Useful for finding the correct `--page` slug.
+
+To see the navigation structure (page ordering, folders, hidden pages):
+
+```bash
+tsx scripts/sq.ts navigation --site <id>
+```
+
 ## Run the snapshot
 
 ```bash

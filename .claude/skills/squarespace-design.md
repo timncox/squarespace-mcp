@@ -3,7 +3,8 @@ name: squarespace-design
 description: >
   Use when changing layout, styling, or visual design of a Squarespace site.
   Covers section styling (theme, height, dividers), section ordering,
-  block layout (desktop + mobile), custom CSS, and gallery settings.
+  block layout (desktop + mobile), custom CSS, gallery settings,
+  and site-wide design (fonts, colors, template tweaks).
 ---
 
 # Squarespace Design & Layout
@@ -392,6 +393,221 @@ await client.editSectionStyle(psId, colId, 'About Us', {
 
 ---
 
+---
+
+## Site-Wide Design — Fonts
+
+### getWebsiteFonts()
+
+```typescript
+async getWebsiteFonts(): Promise<WebsiteFontsResult>
+```
+
+Endpoint: `GET /api/website-fonts`
+
+```typescript
+interface WebsiteFontsData {
+  name: string;              // font pack name, e.g., "libre-baskerville"
+  baseFontSize?: number;     // e.g., 16
+  masterFonts: MasterFont[];
+  masterSizes: MasterSize[];
+  fontMappings: FontMapping[];
+}
+
+interface MasterFont {
+  name: string;         // e.g., "heading-font", "body-font", "meta-font"
+  fontValue: FontValue;
+}
+
+interface FontValue {
+  fontFamily: string;
+  fontStyle?: string;        // "normal" | "italic"
+  fontWeight?: number;       // 100-900
+  textTransform?: string;    // "none" | "uppercase" | "lowercase" | "capitalize"
+  letterSpacing?: UnitValue; // e.g., { value: -0.02, unit: "em" }
+  lineHeight?: UnitValue;    // e.g., { value: 1.2, unit: "em" }
+}
+
+interface UnitValue { value: number; unit: string; }
+```
+
+### updateWebsiteFonts()
+
+```typescript
+async updateWebsiteFonts(data: WebsiteFontsData): Promise<WebsiteFontsUpdateResult>
+```
+
+Endpoint: `PUT /api/website-fonts` (returns 204). Full read-modify-write — must send the entire `WebsiteFontsData` object back.
+
+### updateFont() — Convenience
+
+```typescript
+async updateFont(fontName: string, updates: Partial<FontValue>): Promise<FontUpdateResult>
+```
+
+Read-modify-write for a single font by name. `fontName` matches `MasterFont.name` (e.g., `"heading-font"`, `"body-font"`, `"meta-font"`). Merges `updates` into the matching font's `fontValue`.
+
+Returns: `{ success, fontName?, updatedFields?, error? }`
+
+---
+
+## Site-Wide Design — Colors
+
+### getWebsiteColors()
+
+```typescript
+async getWebsiteColors(): Promise<WebsiteColorsResult>
+```
+
+Endpoint: `GET /api/website-colors`
+
+```typescript
+interface WebsiteColorsData {
+  palette: PaletteColor[];
+  colorThemes: ColorTheme[];
+  defaultTheme?: string;
+}
+
+interface PaletteColor {
+  id: string;                // e.g., "white", "black", "accent", "lightAccent", "darkAccent"
+  value: PaletteColorValue;
+}
+
+interface PaletteColorValue {
+  values: HSLValues;
+  userFormat?: string;       // "hex" | "rgb" | "hsl"
+}
+
+interface HSLValues {
+  hue: number;
+  saturation: number;
+  lightness: number;
+}
+```
+
+### updateWebsiteColors()
+
+```typescript
+async updateWebsiteColors(data: WebsiteColorsData): Promise<WebsiteColorsUpdateResult>
+```
+
+Endpoint: `PUT /api/website-colors` (returns 200). Full read-modify-write — must send the entire `WebsiteColorsData` object (palette + colorThemes + defaultTheme).
+
+### updatePaletteColor() — Convenience
+
+```typescript
+async updatePaletteColor(colorId: string, hsl: HSLValues): Promise<PaletteColorUpdateResult>
+```
+
+Read-modify-write for a single palette color by ID. Common IDs: `"white"`, `"black"`, `"accent"`, `"lightAccent"`, `"darkAccent"`.
+
+Returns: `{ success, colorId?, oldValues?, newValues?, error? }`
+
+---
+
+## Site-Wide Design — Template Tweaks
+
+~200+ settings controlling blog layout, fonts, colors, spacing, and more. These are template-specific — different templates expose different tweak keys.
+
+### getTemplateTweakSettings()
+
+```typescript
+async getTemplateTweakSettings(): Promise<TemplateTweakSettingsResult>
+```
+
+Endpoint: `GET /api/template/GetTemplateTweakSettings?version=3`
+
+Returns `Record<string, string>` — key-value pairs of all tweak settings.
+
+### setTemplateTweakSettings()
+
+```typescript
+async setTemplateTweakSettings(updates: Record<string, string>): Promise<TemplateTweakSettingsUpdateResult>
+```
+
+Read-modify-write: fetches current tweaks, merges `updates`, POSTs the full merged object.
+
+Endpoint: `POST /api/template/SetTemplateTweakSettings`. Body is **URL-encoded form data**: `tweakJson=<url-encoded-json>` (NOT JSON body — JSON returns 415).
+
+---
+
+## Design Write CLI Commands
+
+| Command | Usage |
+|---------|-------|
+| `get-fonts` | `tsx scripts/sq.ts get-fonts --site <id>` |
+| `set-font` | `tsx scripts/sq.ts set-font --site <id> --font <name> --family <str>` |
+| `get-colors` | `tsx scripts/sq.ts get-colors --site <id>` |
+| `set-color` | `tsx scripts/sq.ts set-color --site <id> --id <color-id> --value <hex\|hsl>` |
+| `get-tweaks` | `tsx scripts/sq.ts get-tweaks --site <id>` |
+| `set-tweaks` | `tsx scripts/sq.ts set-tweaks --site <id> --set <k=v,...> \| --file <path>` |
+
+Font names: `heading-font`, `body-font`, `meta-font`. Color IDs: `white`, `black`, `accent`, `lightAccent`, `darkAccent`. Color values accept hex (`#ff6600`) or HSL (`32,55,58`).
+
+---
+
+## Design Write Examples
+
+### Example 7: Change the heading font
+
+```typescript
+const client = createContentSaveClient('my-site', cookiePath);
+
+await client.updateFont('heading-font', {
+  fontFamily: 'Playfair Display',
+  fontWeight: 700,
+});
+```
+
+Or via CLI:
+
+```bash
+tsx scripts/sq.ts set-font --site acme --font heading-font --family "Playfair Display"
+```
+
+### Example 8: Change the accent color
+
+```typescript
+const client = createContentSaveClient('my-site', cookiePath);
+
+// Set accent color to a warm orange (HSL)
+await client.updatePaletteColor('accent', {
+  hue: 32,
+  saturation: 55,
+  lightness: 58,
+});
+```
+
+Or via CLI:
+
+```bash
+tsx scripts/sq.ts set-color --site acme --id accent --value "#e8944a"
+```
+
+### Example 9: Update template tweaks
+
+```typescript
+const client = createContentSaveClient('my-site', cookiePath);
+
+// Read current tweaks
+const { data: tweaks } = await client.getTemplateTweakSettings();
+console.log(Object.keys(tweaks!).length, 'tweak keys');
+
+// Update specific tweaks
+await client.setTemplateTweakSettings({
+  'blogPostSpacing': '72px',
+  'showBlogPostDate': 'true',
+});
+```
+
+Or via CLI:
+
+```bash
+tsx scripts/sq.ts set-tweaks --site acme --set "blogPostSpacing=72px,showBlogPostDate=true"
+```
+
+---
+
 ## Important Notes
 
 - **Grid coordinates**: Desktop is 24 columns, mobile is 8 columns. `start` is inclusive, `end` is exclusive.
@@ -401,3 +617,6 @@ await client.editSectionStyle(psId, colId, 'About Us', {
 - **Mobile auto-reflows**: Only desktop coordinates need explicit management. Mobile reflows automatically but can be overridden with `setMobileLayout()` and related methods.
 - **Custom CSS is site-wide only** — no per-page CSS API exists.
 - **Backfill required**: When modifying blocks via API PUT, always backfill `verticalAlignment` and `zIndex` on existing blocks (Squarespace validates ALL blocks, not just modified ones).
+- **Font/color write pattern**: Standard PUT on the read URL. `PUT /api/website-fonts` returns 204, `PUT /api/website-colors` returns 200. Both require the full data object (read-modify-write).
+- **Tweaks are URL-encoded form POST**: `POST /api/template/SetTemplateTweakSettings` with body `tweakJson=<url-encoded-json>`. Sending JSON body returns 415.
+- **Colors use HSL, not hex**: The API stores colors as `{ hue, saturation, lightness }`. The `set-color` CLI accepts hex and converts automatically.
