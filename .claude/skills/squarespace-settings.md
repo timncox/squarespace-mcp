@@ -2,7 +2,7 @@
 name: squarespace-settings
 description: >
   Use when changing site-level settings like business identity, contact info,
-  page metadata, header/footer configuration, or forms.
+  page metadata, header/footer configuration, navigation, code injection, or forms.
 ---
 
 # Squarespace Site Settings
@@ -12,7 +12,8 @@ description: >
 Site-level settings span multiple API endpoints. All methods are on `ContentSaveClient`
 from `src/services/content-save.ts`. Types are in `src/services/content-save-types.ts`.
 
-Identity and CSS methods don't need `pageSectionsId`/`collectionId` — they operate site-wide.
+Identity, navigation, settings, code injection, and footer methods don't need
+`pageSectionsId`/`collectionId` — they operate site-wide.
 
 ---
 
@@ -228,21 +229,158 @@ Endpoint: `GET /api/rolodex/1/forms`
 
 ---
 
-## CLI Commands
+## Navigation
 
-### Existing
+### getNavigation()
 
-```bash
-tsx scripts/sq.ts snapshot    --site <id> --page <slug>   # View page sections JSON
+```typescript
+async getNavigation(): Promise<NavigationResult>
 ```
 
-### Coming Soon
+Returns the site's page structure (main navigation + not-linked pages).
+
+```typescript
+interface NavigationItem {
+  id: string;
+  title: string;
+  urlSlug: string;
+  collectionId?: string;
+  collectionType?: number;  // 10=page, 1=blog
+  enabled?: boolean;
+  isDraft?: boolean;
+  isFolder?: boolean;
+  ordering?: number;
+  type?: string;
+  children?: NavigationItem[];
+}
+
+interface NavigationData {
+  mainNavigation: NavigationItem[];
+  notLinked: NavigationItem[];
+}
+
+interface NavigationResult {
+  success: boolean;
+  data?: NavigationData;
+  error?: string;
+}
+```
+
+Endpoint: `GET /api/navigation`
+
+---
+
+## Site Settings (Read / Experimental Write)
+
+### getSettings()
+
+```typescript
+async getSettings(): Promise<SettingsResult>
+```
+
+Returns the full site settings object (~63 fields).
+
+```typescript
+interface SiteSettings {
+  [key: string]: unknown;
+  siteTitle?: string;
+  siteDescription?: string;
+  siteTagLine?: string;
+  businessName?: string;
+  contactEmail?: string;
+  contactPhoneNumber?: string;
+  internalContactPhoneNumber?: string;
+  internalContactEmail?: string;
+  businessHours?: Record<string, unknown>;
+  commentsEnabled?: boolean;
+  isCookieBannerEnabled?: boolean;
+  seoHidden?: boolean;
+  homepageTitleFormat?: string;
+  collectionTitleFormat?: string;
+  announcementBarSettings?: Record<string, unknown>;
+}
+
+interface SettingsResult {
+  success: boolean;
+  data?: SiteSettings;
+  updatedFields?: string[];  // present on update responses
+  error?: string;
+}
+```
+
+Endpoint: `GET /api/settings`
+
+### updateSettings() — Experimental
+
+```typescript
+async updateSettings(fields: Partial<SiteSettings>): Promise<SettingsResult>
+```
+
+Read-modify-write on `PUT /api/settings`. Merges provided fields into the current
+settings and PUTs the full object back.
+
+**WARNING**: `PUT /api/settings` may return 400 for certain field combinations.
+This method is experimental — test on a staging site first. Works reliably for
+simple fields like `siteTitle`, `siteDescription`, `siteTagLine`, `commentsEnabled`.
+
+---
+
+## Code Injection
+
+### getCodeInjection()
+
+```typescript
+async getCodeInjection(): Promise<{
+  success: boolean;
+  data?: CodeInjectionData;
+  error?: string;
+}>
+```
+
+Reads from `GET /api/settings` and extracts the `codeInjection` field.
+Falls back to `injectHeader`/`injectFooter` top-level fields if `codeInjection` is absent.
+
+```typescript
+interface CodeInjectionData {
+  header: string;
+  footer: string;
+}
+```
+
+### saveCodeInjection()
+
+```typescript
+async saveCodeInjection(
+  header?: string,
+  footer?: string,
+): Promise<{ success: boolean; error?: string }>
+```
+
+Endpoint: `POST /api/config/SaveInjectionSettings?crumb=...`
+
+Body: `{ injectHeader: string, injectFooter: string }`
+
+Pass only the fields you want to update — omitted fields are left unchanged.
+
+---
+
+## CLI Commands
 
 | Command | Usage |
 |---------|-------|
-| `site-identity` | `tsx scripts/sq.ts site-identity --site <id> [--get] [--set-phone <str>] [--set-email <str>]` |
-| `update-metadata` | `tsx scripts/sq.ts update-metadata --site <id> --page <slug> [--title <str>] [--seo-title <str>]` |
-| `list-pages` | `tsx scripts/sq.ts list-pages --site <id> [--type page\|blog\|all]` |
+| `site-identity` | `tsx scripts/sq.ts site-identity --site <id> [--name <str>] [--phone <str>] [--email <str>] [--address <str>]` |
+| `update-metadata` | `tsx scripts/sq.ts update-metadata --site <id> --page <slug> [--title <str>] [--description <str>] [--seo-title <str>] [--seo-description <str>]` |
+| `list-pages` | `tsx scripts/sq.ts list-pages --site <id>` |
+| `navigation` | `tsx scripts/sq.ts navigation --site <id>` |
+| `settings` | `tsx scripts/sq.ts settings --site <id>` |
+| `footer` | `tsx scripts/sq.ts footer --site <id> [--search <text> --text <newText>]` |
+| `code-injection` | `tsx scripts/sq.ts code-injection --site <id> [--header <html>] [--footer <html>]` |
+| `snapshot` | `tsx scripts/sq.ts snapshot --site <id> --page <slug>` |
+
+**Notes:**
+- `site-identity` with no update flags reads current identity; with flags updates those fields
+- `footer` with no flags reads footer sections JSON; with `--search`+`--text` patches a text block
+- `code-injection` with no flags reads current injection; with `--header`/`--footer` saves new scripts
 
 ---
 
@@ -306,6 +444,46 @@ if (footer.success && footer.sections) {
 }
 ```
 
+### Example 5: Get site navigation structure
+
+```typescript
+const client = createContentSaveClient('my-site', cookiePath);
+const nav = await client.getNavigation();
+
+if (nav.success && nav.data) {
+  console.log('Main navigation:');
+  for (const item of nav.data.mainNavigation) {
+    console.log(`  ${item.title} (/${item.urlSlug}) ${item.enabled ? '' : '[hidden]'}`);
+    if (item.children) {
+      for (const child of item.children) {
+        console.log(`    └─ ${child.title} (/${child.urlSlug})`);
+      }
+    }
+  }
+  console.log('Not linked:');
+  for (const item of nav.data.notLinked) {
+    console.log(`  ${item.title} (/${item.urlSlug})`);
+  }
+}
+```
+
+### Example 6: Read and update code injection
+
+```typescript
+const client = createContentSaveClient('my-site', cookiePath);
+
+// Read current injection
+const current = await client.getCodeInjection();
+console.log(`Header (${current.data?.header.length} chars):`, current.data?.header);
+console.log(`Footer (${current.data?.footer.length} chars):`, current.data?.footer);
+
+// Add a tracking script to the header
+await client.saveCodeInjection(
+  '<script>/* analytics */</script>',
+  undefined,  // leave footer unchanged
+);
+```
+
 ---
 
 ## Important Notes
@@ -315,4 +493,7 @@ if (footer.success && footer.sections) {
 - **Footer is NOT page sections** — footer sections are embedded in the `/api/site-header-footer` config. Always use `saveHeaderFooter()`, never `savePageSections()`, for footer edits.
 - **Homepage slug normalization** — `getPageMetadata()` normalizes "homepage", "home-page", "landing", "index", "main" to "home" automatically.
 - **Page visibility** — set `enabled: false` via `updatePageMetadata()` to hide a page from navigation without deleting it.
+- **Navigation is read-only** — `getNavigation()` returns the page tree but there's no `updateNavigation()` API yet.
+- **updateSettings() is experimental** — `PUT /api/settings` may return 400 for certain fields. Test carefully.
+- **Code injection uses a different save endpoint** — reads from `/api/settings` but saves via `POST /api/config/SaveInjectionSettings`.
 - **Session required** — all methods need authenticated session cookies (see squarespace-setup skill).

@@ -231,17 +231,56 @@ const body = '<h2>My Post</h2><p>Content here with <strong>bold</strong> text.</
 
 ## CLI Commands
 
-### Existing
+All blog commands are in `scripts/sq.ts`. Run via `tsx scripts/sq.ts <command> <flags>`.
 
-The `sq.ts` CLI does not yet have blog-specific commands. Use the API directly.
+### create-post
 
-### Coming Soon
+Create a new blog post (draft by default).
 
-| Command | Usage |
-|---------|-------|
-| `create-post` | `tsx scripts/sq.ts create-post --site <id> --blog <slug> --title <str> [--body <html>] [--draft]` |
-| `update-post` | `tsx scripts/sq.ts update-post --site <id> --blog <slug> --post <title> --body <html>` |
-| `list-posts` | `tsx scripts/sq.ts list-posts --site <id> --blog <slug> [--filter published\|draft\|all]` |
+```bash
+tsx scripts/sq.ts create-post --site <id> --blog <slug> --title <str> [--body <str>] [--tags <csv>] [--draft]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--site` | Yes | Site identifier |
+| `--blog` | Yes | Blog collection URL slug |
+| `--title` | Yes | Post title |
+| `--body` | No | HTML body content |
+| `--tags` | No | Comma-separated tags |
+| `--draft` | No | Set to `true` for draft (default behavior) |
+
+### update-post
+
+Update an existing blog post found by title search.
+
+```bash
+tsx scripts/sq.ts update-post --site <id> --blog <slug> --search <str> [--title <str>] [--body <str>] [--tags <csv>] [--draft]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--site` | Yes | Site identifier |
+| `--blog` | Yes | Blog collection URL slug |
+| `--search` | Yes | Title text to find the post (case-insensitive partial match) |
+| `--title` | No | New title |
+| `--body` | No | New HTML body content |
+| `--tags` | No | Comma-separated tags |
+| `--draft` | No | `true` = draft, `false` = published |
+
+### list-posts
+
+List posts in a blog collection.
+
+```bash
+tsx scripts/sq.ts list-posts --site <id> --blog <slug> [--limit <n>]
+```
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| `--site` | Yes | Site identifier |
+| `--blog` | Yes | Blog collection URL slug |
+| `--limit` | No | Max number of posts to return |
 
 ---
 

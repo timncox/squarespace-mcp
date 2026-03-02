@@ -61,6 +61,20 @@ Every `add*Block` method follows the same pattern: `(pageSectionsId, collectionI
 |--------|-------------|------------|
 | `uploadImageToSite(imageUrl)` | Upload image by URL to site assets | Returns `{ assetId, contentItemId }` |
 
+### Gallery Collections (native gallery blocks)
+
+These methods manage **native Squarespace gallery collections** — distinct from the image-block-grid approach used by `addImageBlockBatch`. Gallery collections are backed by `/api/content-collections/` and `/api/galleries/` endpoints.
+
+| Method | What it does | Key params |
+|--------|-------------|------------|
+| `getGalleryItems(galleryCollectionId)` | Fetch up to 250 items from a gallery | Returns `{ items: GalleryItem[], hasMore }` |
+| `getGalleryItemCount(galleryCollectionId)` | Get item count for a gallery | Returns `{ count }` |
+| `addGalleryImage(galleryCollectionId, assetId, metadata?)` | Add an uploaded image to a gallery | `metadata.title`, `metadata.description`; returns `{ itemId }` |
+
+**Workflow**: Upload image via `uploadImageToSite(url)` → get `assetId` → `addGalleryImage(collectionId, assetId, { title, description })`.
+
+**Gallery collections vs image-block grids**: Gallery collections are Squarespace-native collections with their own `collectionId`, supporting pagination, ordering, and metadata per item. Image-block grids (`addImageBlockBatch`) place multiple type-1337 image blocks in a CSS grid layout within a section — simpler but no native gallery features (lightbox, slideshow, etc.).
+
 ### Helpers
 
 | Method | What it does |
@@ -291,23 +305,45 @@ Squarespace validates ALL blocks in a section on PUT, not just the modified one.
 | `add-button` | `tsx scripts/sq.ts add-button --site <id> --page <slug> --section <idx> --label "Click" --url "https://..."` |
 | `add-image` | `tsx scripts/sq.ts add-image --site <id> --page <slug> --section <idx> --asset-url "https://..." [--alt "text"]` |
 
+### More block types
+
+| Command | Usage |
+|---------|-------|
+| `add-quote` | `tsx scripts/sq.ts add-quote --site <id> --page <slug> --section <idx> --text <str> [--attribution <str>]` |
+| `add-code` | `tsx scripts/sq.ts add-code --site <id> --page <slug> --section <idx> --code <str> [--language <str>]` |
+| `add-video` | `tsx scripts/sq.ts add-video --site <id> --page <slug> --section <idx> --url <str> [--title <str>]` |
+| `add-divider` | `tsx scripts/sq.ts add-divider --site <id> --page <slug> --section <idx>` |
+
+### Page management
+
+| Command | Usage |
+|---------|-------|
+| `create-page` | `tsx scripts/sq.ts create-page --site <id> --title <str> [--slug <str>]` |
+| `delete-page` | `tsx scripts/sq.ts delete-page --site <id> --page <slug>` |
+
+### Section/block operations
+
+| Command | Usage |
+|---------|-------|
+| `duplicate-section` | `tsx scripts/sq.ts duplicate-section --site <id> --page <slug> --search <str\|idx>` |
+| `gallery` | `tsx scripts/sq.ts gallery --site <id> --page <slug> --section <idx> --images <csv-urls> [--cols <n>]` |
+
+### Media
+
+| Command | Usage |
+|---------|-------|
+| `upload-image` | `tsx scripts/sq.ts upload-image --site <id> --url <image-url>` |
+
 ### Not yet in sq.ts (use API directly)
 
-| Command | API method | Status |
-|---------|-----------|--------|
-| `add-video` | `addVideoBlock()` | Planned |
-| `add-quote` | `addQuoteBlock()` | Planned |
-| `add-code` | `addCodeBlock()` | Planned |
-| `add-divider` | `addDividerBlock()` | Planned |
-| `add-newsletter` | `addNewsletterBlock()` | Planned |
-| `add-accordion` | `addAccordionBlock()` | Planned |
-| `add-marquee` | `addMarqueeBlock()` | Planned |
-| `add-form` | `addFormBlock()` | Planned |
-| `add-social` | `addSocialLinksBlock()` | Planned |
-| `add-embed` | `addEmbedBlock()` | Planned |
-| `create-page` | `createPageViaApi()` | Planned |
-| `delete-page` | `deletePageViaApi()` | Planned |
-| `upload-image` | `uploadImageToSite()` | Planned |
+| Block type | API method |
+|------------|-----------|
+| Newsletter | `addNewsletterBlock()` |
+| Accordion | `addAccordionBlock()` |
+| Marquee | `addMarqueeBlock()` |
+| Form | `addFormBlock()` |
+| Social Links | `addSocialLinksBlock()` |
+| Embed | `addEmbedBlock()` |
 
 ## Examples
 

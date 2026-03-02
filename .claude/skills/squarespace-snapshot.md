@@ -67,3 +67,15 @@ Any other type number: display as `[Unknown type <N>]`.
 - If the command fails with an auth error or "Could not resolve pageSectionsId", tell the user to run the `squarespace-setup` skill first.
 - If the page slug is not found, suggest checking `config/sites.json` for valid page slugs for that site.
 - If JSON output is malformed, print the raw output and explain what went wrong.
+
+## Link validation
+
+After taking a snapshot, you can audit all links on the page using the `validate-links` CLI command:
+
+```bash
+tsx scripts/sq.ts validate-links --site <id> --page <slug>
+```
+
+This calls `extractAndValidateLinks()` on the page's sections. It extracts all links from text blocks (HTML `<a>` tags), button blocks (`url` field), and image blocks (`linkTo` field), then checks each one for validity (HTTP status, redirects, broken links). The output is a JSON summary with all extracted links and their validation status.
+
+Use this as a post-snapshot audit to catch broken links, missing URLs, or redirect chains before reporting page status to the user.

@@ -297,22 +297,21 @@ Returns: `{ success, blockId?, updatedFields?, error? }`
 
 ## CLI Commands
 
-### Existing
+All via `tsx scripts/sq.ts <command>`:
 
-```bash
-tsx scripts/sq.ts move-section   --site <id> --page <slug> --search <str> --direction up|down
-tsx scripts/sq.ts section-style  --site <id> --page <slug> --search <str> [--theme <str>] [--height <str>]
-```
-
-### Coming Soon
-
-| Command | Usage |
+| Command | Flags |
 |---------|-------|
+| `move-section` | `--site <id> --page <slug> --search <str> --direction up\|down` |
+| `section-style` | `--site <id> --page <slug> --search <str> [--theme <str>] [--height <str>]` |
 | `move-block` | `--site <id> --page <slug> --search <str> --direction up\|down\|left\|right [--steps <n>]` |
 | `resize-block` | `--site <id> --page <slug> --search <str> [--width smaller\|larger\|full] [--height shorter\|taller]` |
-| `custom-css` | `--site <id> [--get] [--set <file>]` |
-| `duplicate-section` | `--site <id> --page <slug> --search <str>` |
-| `reorder-sections` | `--site <id> --page <slug> --order 2,0,1` |
+| `custom-css` | `--site <id> [--css <str> \| --file <path>]` (read if no flags, write if --css or --file) |
+| `duplicate-section` | `--site <id> --page <slug> --search <str\|idx>` |
+| `swap-blocks` | `--site <id> --page <slug> --block1 <str> --block2 <str>` |
+| `duplicate-block` | `--site <id> --page <slug> --search <str>` |
+| `gallery` | `--site <id> --page <slug> --section <idx> --images <csv-urls> [--cols <n>]` |
+
+**API-only** (no CLI command): `reorderSections()` — use the TypeScript API directly.
 
 ---
 

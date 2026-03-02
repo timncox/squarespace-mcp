@@ -33,7 +33,7 @@ Do NOT use this skill for adding new sections/blocks (use `squarespace-create`) 
 | Form | `updateFormBlock` | — | — |
 | Social Links | `updateSocialLinksBlock` | — | — |
 | Embed | `updateEmbedBlock` | — | — |
-| Footer text | `updateFooterTextBlock` | `patchFooterTextBlock` | — |
+| Footer text | `updateFooterTextBlock` | `patchFooterTextBlock` | `footer` |
 
 ---
 
@@ -338,6 +338,9 @@ All commands use `tsx scripts/sq.ts <subcommand>`. Common flags: `--site <id>`, 
 | `update-button` | `--search <text> [--label] [--url]` | Update button |
 | `update-image` | `--search <text> [--alt] [--title]` | Update image metadata |
 | `update-menu` | `--search <text> --menus <json>` | Replace menu content |
+| `footer` | `[--search <text> --text <text>]` | Get footer sections, or patch footer text |
+| `swap-blocks` | `--block1 <text> --block2 <text>` | Swap two blocks' positions |
+| `duplicate-block` | `--search <text>` | Duplicate a block |
 
 Optional overrides: `--psid <id>`, `--colid <id>` (bypass page ID resolution for private sites).
 
@@ -402,11 +405,14 @@ tsx scripts/sq.ts patch-text --site cafe --page menu --search "$12.99" --new "$1
 
 ### Fix a phone number in the footer
 
-Footer blocks aren't on regular pages — use the API directly. Create a quick script or use the ContentSaveClient:
+Footer blocks aren't on regular pages — use the `footer` CLI command:
 
-```typescript
-const client = createContentSaveClient(subdomain, cookiePath);
-const result = await client.patchFooterTextBlock('555-1234', '555-5678');
+```bash
+# View current footer content
+tsx scripts/sq.ts footer --site acme
+
+# Patch a phone number (surgical)
+tsx scripts/sq.ts footer --site acme --search "555-1234" --text "555-5678"
 ```
 
 ---

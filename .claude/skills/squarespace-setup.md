@@ -99,6 +99,14 @@ json.dump(cache, open(path, 'w'), indent=2)
 
 Sessions work reliably well past the 24h warning — 77-hour and 90-hour sessions have been confirmed working. The `checkSessionHealth()` static method warns at 24h, but do not preemptively re-login. Check with `sq.ts snapshot` first — only re-run the login flow when API calls actually start returning 401 errors.
 
+To check session health without making an API call, use the `session-health` CLI command:
+
+```bash
+tsx scripts/sq.ts session-health --site <id>
+```
+
+This checks session file existence, age (hours since last refresh), staleness (>24h flag), and crumb token presence. Useful for diagnosing auth issues before attempting API operations.
+
 ## Page ID cache management
 
 `getPageIds()` caches resolved `pageSectionsId` and `collectionId` values in `~/.squarespace/page-id-cache.json`. For public/published sites, IDs are resolved automatically from the site's public JSON. For private or trial sites, automatic resolution may fail — pass `--psid` and `--colid` flags manually:

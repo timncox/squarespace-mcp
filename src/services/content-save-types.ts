@@ -896,3 +896,125 @@ export interface SiteIdentityResult {
   error?: string;
 }
 
+// ── Navigation Update Types ─────────────────────────────────────────────────
+
+/** Item in the UpdateNavigation request body */
+export interface UpdateNavigationItem {
+  title: string;
+  urlId: string;
+  typeName: string;
+  collectionId: string;
+  enabled: boolean;
+  passwordProtected: boolean;
+  collectionType: number;
+  isFolder: boolean;
+  ordering: number;
+  updatedOn: number;
+  pagePermissionType: number;
+  isDraft: boolean;
+  items: UpdateNavigationItem[];
+  id: string;
+  acceptTypes?: string[];
+  metaExcludeTypes?: string[];
+  isNavigation?: boolean;
+  emptyRegionMessage?: string;
+  canAdd?: boolean;
+  isCollapsible?: boolean;
+  supportsEmptyRegion?: boolean;
+}
+
+/** Request body for POST /api/widget/UpdateNavigation */
+export interface UpdateNavigationRequest {
+  fieldName: string;
+  templateId: string;
+  navigation: {
+    items: UpdateNavigationItem[];
+  };
+}
+
+/** Result of updateNavigation() */
+export interface UpdateNavigationResult {
+  success: boolean;
+  error?: string;
+}
+
+// ── Design Settings Types ───────────────────────────────────────────────────
+
+/** HSL color in the website color palette */
+export interface HSLColor {
+  id: string;
+  hue: number;
+  saturation: number;
+  lightness: number;
+  userFormat?: string;
+}
+
+/** Color theme mapping variable names to palette colors */
+export interface ColorTheme {
+  id: string;
+  name?: string;
+  values: Record<string, { paletteColorId: string; alpha?: number }>;
+}
+
+/** Response from GET /api/website-colors */
+export interface WebsiteColorsData {
+  palette: HSLColor[];
+  colorThemes: ColorTheme[];
+  defaultTheme?: string;
+}
+
+/** Master font definition in a font pack */
+export interface MasterFont {
+  name: string;
+  fontFamily: string;
+  fontStyle?: string;
+  fontWeight?: number;
+  textTransform?: string;
+  letterSpacing?: number | string;
+  lineHeight?: number | string;
+}
+
+/** Font size definition in a font pack */
+export interface MasterSize {
+  name: string;
+  value: number | string;
+  unit?: string;
+}
+
+/** Font mapping rule */
+export interface FontMapping {
+  name: string;
+  font: string;
+  size: string;
+}
+
+/** Response from GET /api/website-fonts */
+export interface WebsiteFontsData {
+  name: string;
+  baseFontSize?: number;
+  masterFonts: MasterFont[];
+  masterSizes: MasterSize[];
+  fontMappings: FontMapping[];
+}
+
+/** Result of getWebsiteFonts() */
+export interface WebsiteFontsResult {
+  success: boolean;
+  data?: WebsiteFontsData;
+  error?: string;
+}
+
+/** Result of getWebsiteColors() */
+export interface WebsiteColorsResult {
+  success: boolean;
+  data?: WebsiteColorsData;
+  error?: string;
+}
+
+/** Result of getAdvancedSettings() */
+export interface AdvancedSettingsResult {
+  success: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+}
+
