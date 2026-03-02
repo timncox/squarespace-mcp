@@ -116,6 +116,17 @@ export type {
   WebsiteColorsData,
   WebsiteColorsResult,
   AdvancedSettingsResult,
+  UnitValue,
+  FontValue,
+  HSLValues,
+  PaletteColorValue,
+  PaletteColor,
+  ColorThemeMapping,
+  WebsiteFontsUpdateResult,
+  WebsiteColorsUpdateResult,
+  FontUpdateResult,
+  PaletteColorUpdateResult,
+  AdvancedSettingsSaveResult,
 } from './content-save-types.js';
 
 import type {
@@ -207,6 +218,17 @@ import type {
   WebsiteColorsData,
   WebsiteColorsResult,
   AdvancedSettingsResult,
+  UnitValue,
+  FontValue,
+  HSLValues,
+  PaletteColorValue,
+  PaletteColor,
+  ColorThemeMapping,
+  WebsiteFontsUpdateResult,
+  WebsiteColorsUpdateResult,
+  FontUpdateResult,
+  PaletteColorUpdateResult,
+  AdvancedSettingsSaveResult,
 } from './content-save-types.js';
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -8368,6 +8390,176 @@ export class ContentSaveClient {
     } catch (err) {
       return { success: false, error: errMsg(err) };
     }
+  }
+
+  /**
+   * Update website fonts via PUT /api/website-fonts.
+   * Sends the full WebsiteFontsData object. Returns 204 on success.
+   */
+  async updateWebsiteFonts(data: WebsiteFontsData): Promise<WebsiteFontsUpdateResult> {
+    this.ensureCookies();
+
+    const url = this.buildApiUrl('/api/website-fonts', true);
+
+    try {
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: { ...this.buildHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `PUT /api/website-fonts failed: ${response.status} ${body}` };
+      }
+
+      logger.info({ siteSubdomain: this.siteSubdomain, fontPack: data.name }, 'Website fonts updated');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update website colors via PUT /api/website-colors.
+   * Sends the full WebsiteColorsData object. Returns 200 with updated data on success.
+   */
+  async updateWebsiteColors(data: WebsiteColorsData): Promise<WebsiteColorsUpdateResult> {
+    this.ensureCookies();
+
+    const url = this.buildApiUrl('/api/website-colors', true);
+
+    try {
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: { ...this.buildHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `PUT /api/website-colors failed: ${response.status} ${body}` };
+      }
+
+      const responseData = await response.json().catch(() => null) as WebsiteColorsData | null;
+      logger.info(
+        { siteSubdomain: this.siteSubdomain, paletteCount: data.palette?.length },
+        'Website colors updated',
+      );
+      return { success: true, data: responseData ?? undefined };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Save advanced settings via POST /api/config/SaveAdvancedSettings.
+   * Body must be application/x-www-form-urlencoded (JSON body → 415).
+   * Typically: `mappings=<url-encoded-json-string>` from GetAdvancedSettings.
+   */
+  async saveAdvancedSettings(data: Record<string, string>): Promise<AdvancedSettingsSaveResult> {
+    this.ensureCookies();
+
+    const url = this.buildApiUrl('/api/config/SaveAdvancedSettings', true);
+
+    try {
+      const formBody = new URLSearchParams(data).toString();
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formBody,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `POST /api/config/SaveAdvancedSettings failed: ${response.status} ${body}` };
+      }
+
+      logger.info({ siteSubdomain: this.siteSubdomain }, 'Advanced settings saved');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Convenience: update a single font by name using read-modify-write.
+   * Finds the font in masterFonts by name, merges the updates, and PUTs back.
+   *
+   * @param fontName  e.g., "heading-font", "body-font", "meta-font"
+   * @param updates   Partial FontValue fields to merge (fontFamily, fontWeight, etc.)
+   */
+  async updateFont(fontName: string, updates: Partial<FontValue>): Promise<FontUpdateResult> {
+    const getResult = await this.getWebsiteFonts();
+    if (!getResult.success || !getResult.data) {
+      return { success: false, error: getResult.error ?? 'Failed to fetch current fonts' };
+    }
+
+    const data = getResult.data;
+    const font = data.masterFonts.find(f => f.name === fontName);
+    if (!font) {
+      const available = data.masterFonts.map(f => f.name).join(', ');
+      return { success: false, error: `Font "${fontName}" not found. Available: ${available}` };
+    }
+
+    const updatedFields: string[] = [];
+    for (const [key, val] of Object.entries(updates)) {
+      if (val !== undefined) {
+        (font.fontValue as Record<string, unknown>)[key] = val;
+        updatedFields.push(key);
+      }
+    }
+
+    if (updatedFields.length === 0) {
+      return { success: false, error: 'No fields to update' };
+    }
+
+    const putResult = await this.updateWebsiteFonts(data);
+    if (!putResult.success) {
+      return { success: false, error: putResult.error };
+    }
+
+    logger.info({ fontName, updatedFields }, 'Font updated via convenience helper');
+    return { success: true, fontName, updatedFields };
+  }
+
+  /**
+   * Convenience: update a single palette color by ID using read-modify-write.
+   * Finds the color in palette by id, updates its HSL values, and PUTs back.
+   *
+   * @param colorId  e.g., "accent", "lightAccent", "darkAccent", "white", "black"
+   * @param hsl      New HSL values { hue, saturation, lightness }
+   */
+  async updatePaletteColor(colorId: string, hsl: HSLValues): Promise<PaletteColorUpdateResult> {
+    const getResult = await this.getWebsiteColors();
+    if (!getResult.success || !getResult.data) {
+      return { success: false, error: getResult.error ?? 'Failed to fetch current colors' };
+    }
+
+    const data = getResult.data;
+    const color = data.palette.find(c => c.id === colorId);
+    if (!color) {
+      const available = data.palette.map(c => c.id).join(', ');
+      return { success: false, error: `Color "${colorId}" not found. Available: ${available}` };
+    }
+
+    const oldValues = { ...color.value.values };
+    color.value.values = { ...hsl };
+
+    const putResult = await this.updateWebsiteColors(data);
+    if (!putResult.success) {
+      return { success: false, error: putResult.error };
+    }
+
+    logger.info({ colorId, oldValues, newValues: hsl }, 'Palette color updated via convenience helper');
+    return { success: true, colorId, oldValues, newValues: hsl };
   }
 }
 

@@ -15,6 +15,7 @@
  *   npx tsx scripts/discover-design-settings.ts --action font        # Font discovery only
  *   npx tsx scripts/discover-design-settings.ts --action color       # Color discovery only
  *   npx tsx scripts/discover-design-settings.ts --headless           # Run headless
+ *   npx tsx scripts/discover-design-settings.ts --manual            # Manual mode: you click, script captures
  */
 import dotenv from 'dotenv';
 dotenv.config({ override: true });
@@ -22,6 +23,7 @@ dotenv.config({ override: true });
 import { Page } from 'playwright';
 import { join } from 'path';
 import { writeFile } from 'fs/promises';
+import { createInterface } from 'readline';
 import { getBrowserManager } from '../src/automation/browser-manager.js';
 import { ensureLoggedIn } from '../src/automation/squarespace-auth.js';
 import { resolveSite, navigateToSite } from '../src/automation/site-navigator.js';
@@ -649,14 +651,25 @@ function printReport(reports: ActionReport[], catalog: EndpointEntry[], siteId: 
 
 // ─── Main ─────────────────────────────────────────────────────────────────
 
+function waitForEnter(prompt: string): Promise<void> {
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(prompt, () => {
+      rl.close();
+      resolve();
+    });
+  });
+}
+
 async function main(): Promise<void> {
   const flags = parseFlags(process.argv.slice(2));
   const siteId = flags.site ?? 'tim-cox';
   const headless = flags.headless === 'true';
+  const manual = flags.manual === 'true';
   const actionFilter = flags.action ? flags.action.split(',') : null;
 
   // Validate --action flags
-  if (actionFilter) {
+  if (actionFilter && !manual) {
     const invalid = actionFilter.filter((a) => !ACTION_NAMES.includes(a as ActionName));
     if (invalid.length > 0) {
       console.error(`Unknown action(s): ${invalid.join(', ')}`);
@@ -665,16 +678,21 @@ async function main(): Promise<void> {
     }
   }
 
+  if (manual && headless) {
+    console.error('Cannot use --manual with --headless');
+    process.exit(1);
+  }
+
   console.log(`\n  Squarespace Design Settings Discovery`);
-  console.log(`  Site: ${siteId} | Headless: ${headless}`);
-  if (actionFilter) {
+  console.log(`  Site: ${siteId} | Mode: ${manual ? 'MANUAL' : 'automated'} | Headless: ${headless}`);
+  if (!manual && actionFilter) {
     console.log(`  Actions: ${actionFilter.join(', ')}`);
-  } else {
+  } else if (!manual) {
     console.log('  Actions: both (font + color)');
   }
   console.log('');
 
-  const browserManager = getBrowserManager({ headless });
+  const browserManager = getBrowserManager({ headless: manual ? false : headless });
 
   try {
     // ── Setup ────────────────────────────────────────────────────────
@@ -695,40 +713,119 @@ async function main(): Promise<void> {
       includePatterns: [/.*/],
     });
 
-    const actions = buildDiscoveryActions();
     const reports: ActionReport[] = [];
-    const ctx: ActionContext = {
-      siteSubdomain: client.site.adminUrl.match(/https:\/\/([^.]+)/)?.[1] ?? siteId,
-    };
 
-    // ── Discovery Loop ──────────────────────────────────────────────
-    for (const action of actions) {
-      if (actionFilter && !actionFilter.includes(action.name)) continue;
+    if (manual) {
+      // ── Manual Mode ─────────────────────────────────────────────
+      const ctx: ActionContext = {
+        siteSubdomain: client.site.adminUrl.match(/https:\/\/([^.]+)/)?.[1] ?? siteId,
+      };
 
-      console.log(`  [RUN]  ${action.label}`);
+      // Navigate to Site Styles
+      const stylesUrl = `https://${ctx.siteSubdomain}.squarespace.com/config/design/site-styles`;
+      console.log(`  Navigating to: ${stylesUrl}`);
+      await page.goto(stylesUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.waitForTimeout(3000);
+
+      console.log('\n' + '='.repeat(60));
+      console.log('  MANUAL MODE — Network capture is active');
+      console.log('='.repeat(60));
+      console.log('');
+      console.log('  The browser is open at Site Styles. You can now:');
+      console.log('');
+      console.log('  1. Click "Fonts" → change a heading/body font');
+      console.log('  2. Click "Colors" → change a theme color');
+      console.log('  3. Try Cmd+S or click Save/Done after each change');
+      console.log('  4. Undo changes with Cmd+Z when done');
+      console.log('');
+      console.log('  All network traffic is being captured.');
+      console.log('  Write endpoints (POST/PUT/PATCH) will be highlighted.');
+      console.log('');
+
+      // Start capture and wait
       capture.clear();
       await capture.start();
       const startMs = Date.now();
 
-      try {
-        await action.execute(page, ctx);
-        capture.stop();
+      // Live-log write requests as they happen
+      const writeLogInterval = setInterval(() => {
         const requests = capture.getCapturedRequests();
-        const durationMs = Date.now() - startMs;
-        reports.push({ name: action.name, label: action.label, requests, durationMs });
-        console.log(`         Captured ${requests.length} request(s) (${(durationMs / 1000).toFixed(1)}s)`);
-      } catch (err) {
-        capture.stop();
-        const error = errMsg(err);
-        const durationMs = Date.now() - startMs;
-        reports.push({
-          name: action.name,
-          label: action.label,
-          requests: capture.getCapturedRequests(),
-          error,
-          durationMs,
-        });
-        console.log(`         ERROR: ${error}`);
+        const writes = requests.filter(
+          (r) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method) && r.path.includes('/api/'),
+        );
+        if (writes.length > 0) {
+          const lastWrite = writes[writes.length - 1];
+          const statusStr = lastWrite.responseStatus !== null ? `[${lastWrite.responseStatus}]` : '[pending]';
+          process.stdout.write(`\r  Last write: ${lastWrite.method} ${lastWrite.path} ${statusStr}   `);
+        }
+      }, 1000);
+
+      await waitForEnter('\n  Press ENTER when done capturing...\n\n');
+      clearInterval(writeLogInterval);
+      console.log('');
+
+      capture.stop();
+      const requests = capture.getCapturedRequests();
+      const durationMs = Date.now() - startMs;
+
+      reports.push({
+        name: 'manual',
+        label: 'Manual interaction — font + color changes',
+        requests,
+        durationMs,
+      });
+
+      console.log(`  Captured ${requests.length} request(s) in ${(durationMs / 1000).toFixed(1)}s`);
+
+      // Immediately show write operations
+      const writeOps = requests.filter(
+        (r) => ['POST', 'PUT', 'PATCH', 'DELETE'].includes(r.method),
+      );
+      if (writeOps.length > 0) {
+        console.log(`\n  Write operations captured (${writeOps.length}):`);
+        for (const req of writeOps) {
+          const statusStr = req.responseStatus !== null ? `[${req.responseStatus}]` : '';
+          const bodySize = req.requestBody ? JSON.stringify(req.requestBody).length : 0;
+          console.log(`    ${req.method.padEnd(7)} ${req.path} ${statusStr} (${bodySize} bytes)`);
+        }
+      } else {
+        console.log('\n  No write operations captured. Did you save your changes?');
+      }
+    } else {
+      // ── Automated Mode ──────────────────────────────────────────
+      const actions = buildDiscoveryActions();
+      const ctx: ActionContext = {
+        siteSubdomain: client.site.adminUrl.match(/https:\/\/([^.]+)/)?.[1] ?? siteId,
+      };
+
+      for (const action of actions) {
+        if (actionFilter && !actionFilter.includes(action.name)) continue;
+
+        console.log(`  [RUN]  ${action.label}`);
+        capture.clear();
+        await capture.start();
+        const startMs = Date.now();
+
+        try {
+          await action.execute(page, ctx);
+          capture.stop();
+          const requests = capture.getCapturedRequests();
+          const durationMs = Date.now() - startMs;
+          reports.push({ name: action.name, label: action.label, requests, durationMs });
+          console.log(`         Captured ${requests.length} request(s) (${(durationMs / 1000).toFixed(1)}s)`);
+        } catch (err) {
+          capture.stop();
+          const error = errMsg(err);
+          const durationMs = Date.now() - startMs;
+          reports.push({
+            name: action.name,
+            label: action.label,
+            requests: capture.getCapturedRequests(),
+            error,
+            durationMs,
+          });
+          console.log(`         ERROR: ${error}`);
+        }
       }
     }
 
@@ -742,6 +839,7 @@ async function main(): Promise<void> {
     const output = {
       capturedAt: new Date().toISOString(),
       siteId,
+      mode: manual ? 'manual' : 'automated',
       crumbToken: capture.getCrumbToken(),
       summary: {
         totalActions: reports.length,
@@ -755,7 +853,7 @@ async function main(): Promise<void> {
         templateSaveFound: catalog.some((e) => /\/api\/template\/Save/i.test(e.path)),
         configSaveFound: catalog.some((e) => /\/api\/config\/Save/i.test(e.path)),
         designRelatedEndpoints: catalog
-          .filter((e) => /\/api\/(template|config|design|style)/i.test(e.path))
+          .filter((e) => /\/api\/(template|config|design|style|font|color|tweak)/i.test(e.path))
           .map((e) => `${e.method} ${e.path}`),
       },
       endpointCatalog: catalog,

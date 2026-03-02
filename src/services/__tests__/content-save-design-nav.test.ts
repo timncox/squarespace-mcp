@@ -185,15 +185,15 @@ describe('ContentSaveClient.getWebsiteFonts()', () => {
       name: 'Montserrat + Merriweather',
       baseFontSize: 16,
       masterFonts: [
-        { name: 'heading', font: 'Montserrat', weight: '700', style: 'normal' },
-        { name: 'body', font: 'Merriweather', weight: '400', style: 'normal' },
+        { name: 'heading-font', fontValue: { fontFamily: 'Montserrat', fontWeight: 700, fontStyle: 'normal', textTransform: 'none', letterSpacing: { value: 0, unit: 'em' }, lineHeight: { value: 1.2, unit: 'em' } } },
+        { name: 'body-font', fontValue: { fontFamily: 'Merriweather', fontWeight: 400, fontStyle: 'normal', textTransform: 'none', letterSpacing: { value: 0, unit: 'em' }, lineHeight: { value: 1.5, unit: 'em' } } },
       ],
       masterSizes: [
-        { name: 'heading', size: '2.5rem' },
-        { name: 'body', size: '1rem' },
+        { name: 'heading-1-size', value: { value: 2.5, unit: 'rem' } },
+        { name: 'normal-text-size', value: { value: 1, unit: 'rem' } },
       ],
       fontMappings: [
-        { alias: 'h1', font: 'Montserrat', size: '2.5rem' },
+        { name: 'site-title-font', fontMapping: 'heading-font', sizeMapping: 'heading-1-size' },
       ],
     };
 
@@ -207,7 +207,7 @@ describe('ContentSaveClient.getWebsiteFonts()', () => {
     expect(result.data!.name).toBe('Montserrat + Merriweather');
     expect(result.data!.baseFontSize).toBe(16);
     expect(result.data!.masterFonts).toHaveLength(2);
-    expect(result.data!.masterFonts[0].font).toBe('Montserrat');
+    expect(result.data!.masterFonts[0].fontValue.fontFamily).toBe('Montserrat');
   });
 
   it('returns error on non-200 response', async () => {
@@ -247,23 +247,21 @@ describe('ContentSaveClient.getWebsiteColors()', () => {
   it('returns color data on success', async () => {
     const colorData = {
       palette: [
-        { hue: 0, saturation: 0, lightness: 100 },
-        { hue: 210, saturation: 50, lightness: 40 },
+        { id: 'white', value: { values: { hue: 0, saturation: 0, lightness: 100 }, userFormat: 'hex' } },
+        { id: 'accent', value: { values: { hue: 210, saturation: 50, lightness: 40 }, userFormat: 'rgb' } },
       ],
       colorThemes: [
         {
-          name: 'white',
-          values: {
-            background: { paletteColorId: 'pal-0', alpha: 1 },
-            text: { paletteColorId: 'pal-1', alpha: 1 },
-          },
+          themeName: 'white',
+          mappings: [
+            { variableName: 'backgroundColor', paletteColorMapping: { colorName: 'white', alphaModifier: 1 } },
+          ],
         },
         {
-          name: 'dark',
-          values: {
-            background: { paletteColorId: 'pal-1', alpha: 1 },
-            text: { paletteColorId: 'pal-0', alpha: 1 },
-          },
+          themeName: 'dark',
+          mappings: [
+            { variableName: 'backgroundColor', paletteColorMapping: { colorName: 'accent', alphaModifier: 1 } },
+          ],
         },
       ],
       defaultTheme: 'white',
@@ -278,7 +276,7 @@ describe('ContentSaveClient.getWebsiteColors()', () => {
     expect(result.data).toBeDefined();
     expect(result.data!.palette).toHaveLength(2);
     expect(result.data!.colorThemes).toHaveLength(2);
-    expect(result.data!.colorThemes[0].name).toBe('white');
+    expect(result.data!.colorThemes[0].themeName).toBe('white');
     expect(result.data!.defaultTheme).toBe('white');
   });
 

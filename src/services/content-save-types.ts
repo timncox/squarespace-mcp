@@ -940,61 +940,91 @@ export interface UpdateNavigationResult {
 
 // ── Design Settings Types ───────────────────────────────────────────────────
 
-/** HSL color in the website color palette */
-export interface HSLColor {
-  id: string;
-  hue: number;
-  saturation: number;
-  lightness: number;
-  userFormat?: string;
+/** A value with a unit (e.g., { value: 1.2, unit: "em" }) */
+export interface UnitValue {
+  value: number;
+  unit: string;
 }
 
-/** Color theme mapping variable names to palette colors */
-export interface ColorTheme {
-  id: string;
-  name?: string;
-  values: Record<string, { paletteColorId: string; alpha?: number }>;
-}
-
-/** Response from GET /api/website-colors */
-export interface WebsiteColorsData {
-  palette: HSLColor[];
-  colorThemes: ColorTheme[];
-  defaultTheme?: string;
-}
-
-/** Master font definition in a font pack */
-export interface MasterFont {
-  name: string;
+/** Font style properties (used inside MasterFont.fontValue and FontMapping.customFontValue) */
+export interface FontValue {
   fontFamily: string;
-  fontStyle?: string;
-  fontWeight?: number;
-  textTransform?: string;
-  letterSpacing?: number | string;
-  lineHeight?: number | string;
+  fontStyle?: string;   // "normal" | "italic"
+  fontWeight?: number;  // 100-900
+  textTransform?: string; // "none" | "uppercase" | "lowercase" | "capitalize"
+  letterSpacing?: UnitValue;  // e.g., { value: -0.02, unit: "em" }
+  lineHeight?: UnitValue;     // e.g., { value: 1.2, unit: "em" }
 }
 
-/** Font size definition in a font pack */
+/** Master font definition in a font pack (real API shape from GET /api/website-fonts) */
+export interface MasterFont {
+  name: string;         // e.g., "heading-font", "body-font", "meta-font"
+  fontValue: FontValue; // nested font properties
+}
+
+/** Font size definition in a font pack (real API shape) */
 export interface MasterSize {
-  name: string;
-  value: number | string;
-  unit?: string;
+  name: string;       // e.g., "heading-1-size", "normal-text-size"
+  value: UnitValue;   // e.g., { value: 4, unit: "rem" }
 }
 
-/** Font mapping rule */
+/** Font mapping rule (real API shape) */
 export interface FontMapping {
-  name: string;
-  font: string;
-  size: string;
+  name: string;              // e.g., "site-title-font", "primary-button-font"
+  fontMapping: string;       // references a MasterFont name, e.g., "heading-font"
+  sizeMapping: string;       // references a MasterSize name, e.g., "heading-1-size"
+  customFontValue?: FontValue; // optional per-mapping font override
+  customSizeValue?: UnitValue; // optional per-mapping size override
 }
 
 /** Response from GET /api/website-fonts */
 export interface WebsiteFontsData {
-  name: string;
-  baseFontSize?: number;
+  name: string;              // font pack name, e.g., "libre-baskerville"
+  baseFontSize?: number;     // e.g., 16
   masterFonts: MasterFont[];
   masterSizes: MasterSize[];
   fontMappings: FontMapping[];
+}
+
+/** HSL color values */
+export interface HSLValues {
+  hue: number;
+  saturation: number;
+  lightness: number;
+}
+
+/** Color value in the palette (real API shape: nested value.values) */
+export interface PaletteColorValue {
+  values: HSLValues;
+  userFormat?: string;  // "hex" | "rgb" | "hsl"
+}
+
+/** A single palette color entry from GET /api/website-colors */
+export interface PaletteColor {
+  id: string;                // e.g., "white", "black", "accent", "lightAccent", "darkAccent"
+  value: PaletteColorValue;
+}
+
+/** A single color mapping within a color theme */
+export interface ColorThemeMapping {
+  variableName: string;                    // CSS variable, e.g., "paragraphSmallColor"
+  paletteColorMapping: {
+    colorName: string;                     // references a PaletteColor id, e.g., "black"
+    alphaModifier: number;                 // 0-1, typically 1
+  };
+}
+
+/** Color theme (real API shape from GET /api/website-colors) */
+export interface ColorTheme {
+  themeName: string;                       // e.g., "white", "dark", "light", "black"
+  mappings: ColorThemeMapping[];
+}
+
+/** Response from GET /api/website-colors */
+export interface WebsiteColorsData {
+  palette: PaletteColor[];
+  colorThemes: ColorTheme[];
+  defaultTheme?: string;
 }
 
 /** Result of getWebsiteFonts() */
@@ -1015,6 +1045,42 @@ export interface WebsiteColorsResult {
 export interface AdvancedSettingsResult {
   success: boolean;
   data?: Record<string, unknown>;
+  error?: string;
+}
+
+/** Result of updateWebsiteFonts() */
+export interface WebsiteFontsUpdateResult {
+  success: boolean;
+  error?: string;
+}
+
+/** Result of updateWebsiteColors() */
+export interface WebsiteColorsUpdateResult {
+  success: boolean;
+  data?: WebsiteColorsData;
+  error?: string;
+}
+
+/** Result of updateFont() convenience helper */
+export interface FontUpdateResult {
+  success: boolean;
+  fontName?: string;
+  updatedFields?: string[];
+  error?: string;
+}
+
+/** Result of updatePaletteColor() convenience helper */
+export interface PaletteColorUpdateResult {
+  success: boolean;
+  colorId?: string;
+  oldValues?: HSLValues;
+  newValues?: HSLValues;
+  error?: string;
+}
+
+/** Result of saveAdvancedSettings() */
+export interface AdvancedSettingsSaveResult {
+  success: boolean;
   error?: string;
 }
 

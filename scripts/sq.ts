@@ -58,6 +58,39 @@ function promptInTerminal(question: string): Promise<string> {
   });
 }
 
+// ── Color conversion ─────────────────────────────────────────────────────────
+
+function hexToHsl(hex: string): { hue: number; saturation: number; lightness: number } {
+  const clean = hex.replace(/^#/, '');
+  if (!/^[0-9a-fA-F]{6}$/.test(clean)) throw new Error(`Invalid hex color: ${hex}`);
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return { hue: 0, saturation: 0, lightness: Math.round(l * 10000) / 100 };
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h = 0;
+  if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+  else if (max === g) h = ((b - r) / d + 2) / 6;
+  else h = ((r - g) / d + 4) / 6;
+  return {
+    hue: Math.round(h * 36000) / 100,
+    saturation: Math.round(s * 10000) / 100,
+    lightness: Math.round(l * 10000) / 100,
+  };
+}
+
+function parseColorArg(input: string): { hue: number; saturation: number; lightness: number } {
+  if (input.startsWith('#')) return hexToHsl(input);
+  const parts = input.split(',').map((s) => parseFloat(s.trim()));
+  if (parts.length === 3 && parts.every((n) => !isNaN(n))) {
+    return { hue: parts[0], saturation: parts[1], lightness: parts[2] };
+  }
+  throw new Error(`Invalid color format: ${input} (use #hex or H,S,L)`);
+}
+
 // ── Site resolution ───────────────────────────────────────────────────────────
 
 interface SiteEntry {
@@ -930,6 +963,78 @@ async function cmdGetAdvancedSettings(flags: Record<string, string>): Promise<vo
   console.log(JSON.stringify(result, null, 2));
 }
 
+async function cmdSetFont(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const fontName = flags.font;
+  const fontFamily = flags.family;
+  if (!siteId) throw new Error('--site is required');
+  if (!fontName) throw new Error('--font is required (heading-font, body-font, or meta-font)');
+  if (!fontFamily) throw new Error('--family is required (e.g. "Playfair Display")');
+
+  const validNames = ['heading-font', 'body-font', 'meta-font'];
+  if (!validNames.includes(fontName)) {
+    throw new Error(`--font must be one of: ${validNames.join(', ')}`);
+  }
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.updateFont(fontName, { fontFamily });
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdSetColor(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const colorId = flags.id;
+  const colorValue = flags.value;
+  if (!siteId) throw new Error('--site is required');
+  if (!colorId) throw new Error('--id is required (e.g. white, black, safeLightAccent)');
+  if (!colorValue) throw new Error('--value is required (hex #ff6600 or HSL 32,55,58)');
+
+  const hsl = parseColorArg(colorValue);
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.updatePaletteColor(colorId, hsl);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdSetAdvancedSettings(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const filePath = flags.file;
+  if (!siteId) throw new Error('--site is required');
+  if (!filePath) throw new Error('--file is required (path to JSON file with settings)');
+  if (!existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
+
+  const data = JSON.parse(readFileSync(filePath, 'utf-8'));
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.saveAdvancedSettings(data);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdGetTweaks(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  // No public method for tweaks yet — call the API directly via private helpers
+  const c = client as any;
+  c.ensureCookies();
+  const url = c.buildApiUrl('/api/template/GetTemplateTweakSettings?version=3');
+  const response = await fetch(url, {
+    headers: c.buildHeaders(),
+    signal: AbortSignal.timeout(15000),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`${response.status} ${response.statusText}: ${body}`);
+  }
+
+  const data = await response.json();
+  console.log(JSON.stringify(data, null, 2));
+}
+
 async function cmdReorderNav(flags: Record<string, string>): Promise<void> {
   const siteId = flags.site;
   const pageIdsStr = flags['page-ids'];
@@ -1265,8 +1370,12 @@ Subcommands:
   code-injection   --site <id> [--header <str>] [--footer <str>] [--get]   (read if --get or no flags, write if --header/--footer)
   reorder-nav      --site <id> --page-ids <id1,id2,id3>       (reorder main navigation pages)
   get-fonts        --site <id>                                  (get website font configuration)
+  set-font         --site <id> --font <name> --family <str>     (set font: heading-font, body-font, meta-font)
   get-colors       --site <id>                                  (get website color palette and themes)
+  set-color        --site <id> --id <color-id> --value <hex|hsl>  (set palette color: #ff6600 or 32,55,58)
   get-advanced-settings --site <id>                             (get advanced settings: URL mappings, 404, etc.)
+  set-advanced-settings --site <id> --file <path>               (save advanced settings from JSON file)
+  get-tweaks       --site <id>                                  (get tweak definitions and values)
 
   Utilities:
   session-health   --site <id>
@@ -1316,8 +1425,12 @@ async function main(): Promise<void> {
     case 'code-injection':  return cmdCodeInjection(flags);
     case 'reorder-nav':     return cmdReorderNav(flags);
     case 'get-fonts':       return cmdGetFonts(flags);
+    case 'set-font':        return cmdSetFont(flags);
     case 'get-colors':      return cmdGetColors(flags);
+    case 'set-color':       return cmdSetColor(flags);
     case 'get-advanced-settings': return cmdGetAdvancedSettings(flags);
+    case 'set-advanced-settings': return cmdSetAdvancedSettings(flags);
+    case 'get-tweaks':      return cmdGetTweaks(flags);
     case 'add-quote':       return cmdAddQuote(flags);
     case 'add-code':        return cmdAddCode(flags);
     case 'add-video':       return cmdAddVideo(flags);
