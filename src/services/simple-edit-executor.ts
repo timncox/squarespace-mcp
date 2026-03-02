@@ -40,7 +40,7 @@ function normalizeSlug(slug: string): string {
 
 // ── Edit type does NOT need page IDs ─────────────────────────────────────────
 
-const NO_PAGE_ID_TYPES: ReadonlySet<SimpleEditType> = new Set(['footer_edit', 'css_change', 'page_seo', 'site_identity']);
+const NO_PAGE_ID_TYPES: ReadonlySet<SimpleEditType> = new Set(['footer_edit', 'css_change', 'page_seo', 'site_identity', 'business_hours_update']);
 
 // ── Dispatch helpers ─────────────────────────────────────────────────────────
 
@@ -385,6 +385,29 @@ async function execSiteIdentity(
   return `Updated site identity: ${result.updatedFields?.join(', ')}`;
 }
 
+async function execBusinessHoursUpdate(
+  client: ContentSaveClient,
+  params: SimpleEditClassification['params'],
+): Promise<string> {
+  if (!params.businessHours || Object.keys(params.businessHours).length === 0) {
+    throw new Error('businessHours required for business_hours_update');
+  }
+
+  const settingsResult = await client.getSettings();
+  if (!settingsResult.success || !settingsResult.data) {
+    throw new Error(settingsResult.error ?? 'getSettings failed');
+  }
+
+  const currentHours = (settingsResult.data.businessHours ?? {}) as Record<string, unknown>;
+  const merged = { ...currentHours, ...params.businessHours };
+
+  const updateResult = await client.updateSettings({ businessHours: merged } as any);
+  if (!updateResult.success) throw new Error(updateResult.error ?? 'updateSettings failed');
+
+  const days = Object.keys(params.businessHours).join(', ');
+  return `Updated business hours for: ${days}`;
+}
+
 // ── Main entry point ─────────────────────────────────────────────────────────
 
 export async function executeSimpleEdit(
@@ -487,6 +510,9 @@ export async function executeSimpleEdit(
         break;
       case 'site_identity':
         summary = await execSiteIdentity(client, classification.params);
+        break;
+      case 'business_hours_update':
+        summary = await execBusinessHoursUpdate(client, classification.params);
         break;
       default:
         throw new Error(`Unknown edit type: ${editType}`);

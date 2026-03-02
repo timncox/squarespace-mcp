@@ -32,7 +32,8 @@ export type SimpleEditType =
   | 'page_seo'
   | 'blog_post_create'
   | 'blog_post_update'
-  | 'site_identity';
+  | 'site_identity'
+  | 'business_hours_update';
 
 export interface SimpleEditClassification {
   isSimpleEdit: boolean;
@@ -73,6 +74,8 @@ export interface SimpleEditClassification {
     businessAddress?: string;
     businessPhone?: string;
     businessEmail?: string;
+    // Business hours params
+    businessHours?: Record<string, string>;
   };
   reason: string;
 }
@@ -151,6 +154,18 @@ function tryPreLlmClassification(task: Task): SimpleEditClassification | null {
         postDraft: isDraft,
       },
       reason: 'Blog post creation with explicit title detected',
+    };
+  }
+
+  // 5. Business hours update — require action verb to avoid matching "below the opening hours"
+  const desc = task.description ?? '';
+  if (/\b(?:update|change|set|modify|edit|adjust)\b.{0,30}\b(?:business|opening|trading)\s+hours\b/i.test(desc)) {
+    return {
+      isSimpleEdit: true,
+      editType: 'business_hours_update',
+      confidence: 'medium',  // medium because hours text needs LLM extraction
+      params: {},
+      reason: 'Description mentions updating business/opening/trading hours',
     };
   }
 
@@ -266,6 +281,10 @@ const CLASSIFIER_SYSTEM_PROMPT = `You are a task classifier for a Squarespace we
 17. **site_identity** — Update site business information (business name, address, phone number, or email address)
     Examples: "Change the business name to Acme Corp", "Update the phone number to 555-1234", "Set the business address to 123 Main St"
     Params: businessName (if updating name), businessAddress (if updating address), businessPhone (if updating phone), businessEmail (if updating email)
+
+18. **business_hours_update** — Update business/opening/trading hours
+    Examples: "Set Monday hours to 9am-5pm", "Close on Sundays", "Update business hours to 9am-5pm weekdays"
+    Params: businessHours (Record<string, string> — day → hours text, e.g. { "monday": "9am - 5pm", "tuesday": "Closed" })
 
 ## Blog Post Param Extraction
 - postTitle: title of the blog post (for create) or new title (for update)
