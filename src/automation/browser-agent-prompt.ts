@@ -232,8 +232,31 @@ Use merge mode when the task says to use merge mode, or when you have partial up
 
 #### Form Blocks
 - Contains form fields (name, email, message, etc.)
-- **Double-click** to open the form editor
-- Add/remove/edit individual form fields in the editor panel`,
+- **Double-click** to open the form editor panel — it has **3 tabs: Content, Design, Storage**
+
+**Content tab** (default):
+- Form Name — the internal name for the form
+- Button Text — the submit button label (e.g., "Submit")
+- Edit Form Fields — click to add/remove/reorder fields (First Name, Email, Message, etc.)
+- Post-Submit — configure the confirmation message or redirect after submission
+
+**Design tab**:
+- Layout and styling options for the form appearance
+
+**Storage tab** (where email settings live):
+- Manage Submissions — opens submission management
+- Export Form Submissions — download CSV
+- **EMAIL NOTIFICATION** — shows the current recipient email with a \`>\` arrow
+  1. **Click the email row** (the one showing the email address with \`>\`) to open the Email sub-panel
+  2. The sub-panel shows "CONNECTED TO" with the current email and an **X button** to remove it
+  3. **To change the email**: click directly on the email text → **Meta+a** (select all) → type the new email address
+  4. The field is editable — it looks like a static chip but you CAN click and type over it
+  5. Click **BACK** (top-left of sub-panel) to return to the Storage tab
+  6. Changes auto-save — no explicit save button needed
+- Additional Storage — third-party integrations (Zapier, Google Sheets, etc.)
+- Google reCAPTCHA — toggle spam protection
+
+**IMPORTANT:** The email field in the "CONNECTED TO" section is NOT a standard input. It looks like a static label. But you CAN click on it, select all (Meta+a), and type a new address to replace it. Do NOT try to use the X button to remove and re-add — just overwrite the text directly.`,
   },
   {
     id: 'navigation',
@@ -596,6 +619,7 @@ export interface SystemPromptBlock {
 export function buildSystemPrompt(
   siteContext?: { pages: PageConfig[]; siteName: string },
   learnings?: Learning[],
+  userMemories?: Array<{ content: string; siteId?: string }>,
 ): SystemPromptBlock[] {
   let siteInfo = '';
   if (siteContext) {
@@ -1012,6 +1036,18 @@ For simpler edits where the content is directly visible (no tabs/accordions):
     blocks.push({
       type: 'text',
       text: dynamicParts.join('\n'),
+    });
+  }
+
+  // ── Block 2: User memories (site rules only, max 5) ────────────────────
+  if (userMemories && userMemories.length > 0) {
+    const memoryLines = userMemories
+      .slice(0, 5)
+      .map((m) => `- ${m.content}`)
+      .join('\n');
+    blocks.push({
+      type: 'text',
+      text: `## User Preferences\nTim has asked to remember these rules. Follow them:\n${memoryLines}`,
     });
   }
 

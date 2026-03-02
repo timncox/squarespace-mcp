@@ -256,7 +256,23 @@ export async function runContentStrategistAgent(
       logger.info({ count: learnings.length, siteId: primaryTask?.siteId }, 'Content strategist: injecting learned patterns');
     }
 
-    const prompt = buildStrategyPrompt(tasks, research, siteAnalysis, revisionFeedback, previousPlan, learnings, discoveredTemplates, pageStructures, navigationData);
+    // Fetch user memories (stated preferences)
+    let userMemories: Array<{ content: string; category: string; siteId?: string }> = [];
+    try {
+      const { getRelevantMemories } = await import('../db/memories.js');
+      userMemories = getRelevantMemories(primaryTask?.siteId).map((m) => ({
+        content: m.content,
+        category: m.category,
+        siteId: m.siteId,
+      }));
+      if (userMemories.length > 0) {
+        logger.info({ count: userMemories.length, siteId: primaryTask?.siteId }, 'Content strategist: injecting user memories');
+      }
+    } catch {
+      // memories module not available yet — skip gracefully
+    }
+
+    const prompt = buildStrategyPrompt(tasks, research, siteAnalysis, revisionFeedback, previousPlan, learnings, discoveredTemplates, pageStructures, navigationData, userMemories);
 
     const response = await getAnthropicClient().messages.create({
       model: MODEL_SONNET,
@@ -309,6 +325,7 @@ function buildStrategyPrompt(
   discoveredTemplates?: TemplateDiscoveryResult,
   pageStructures?: Record<string, PageStructure>,
   navigationData?: NavigationData,
+  userMemories?: Array<{ content: string; category: string; siteId?: string }>,
 ): string {
   const parts: string[] = [];
 
@@ -555,6 +572,17 @@ The content you write will be typed VERBATIM into the Squarespace website editor
       const confidence = l.confidence >= 0.8 ? 'high' : l.confidence >= 0.5 ? 'medium' : 'low';
       const scope = l.siteId ? `[${l.siteId}]` : '[universal]';
       parts.push(`- ${scope} (${confidence}) ${l.promptTip}`);
+    }
+    parts.push('');
+  }
+
+  // User memories (stated preferences from Tim)
+  if (userMemories && userMemories.length > 0) {
+    parts.push('## User Preferences (from Tim)\n');
+    parts.push('Tim has specifically asked to remember these preferences. Follow them:\n');
+    for (const m of userMemories) {
+      const scope = m.siteId ? `[${m.siteId}]` : '[global]';
+      parts.push(`- ${scope} ${m.content}`);
     }
     parts.push('');
   }

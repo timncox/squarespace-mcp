@@ -199,6 +199,36 @@ export async function handleIncomingMessage(msg: IncomingWhatsAppMessage): Promi
     conversation = undefined;
   }
 
+  // ─── Memory commands (work regardless of conversation state) ────────────
+  const { isForgetTrigger, isListMemoriesTrigger, matchMemoryForForget } = await import('./memory-classifier.js');
+  const { listMemories, forgetMemory: forgetMem } = await import('../db/memories.js');
+
+  if (isListMemoriesTrigger(msg.body)) {
+    const memories = listMemories();
+    if (memories.length === 0) {
+      await sendToTim("I don't have any saved memories yet. Tell me something to remember!");
+    } else {
+      const list = memories.map((m, i) =>
+        `${i + 1}. *${m.content}* — ${m.category}${m.siteId ? ` (${m.siteId})` : ' (global)'}`
+      ).join('\n');
+      await sendToTim(`Here's what I remember:\n\n${list}`);
+    }
+    return;
+  }
+
+  if (isForgetTrigger(msg.body)) {
+    const memories = listMemories();
+    const matchId = await matchMemoryForForget(msg.body, memories);
+    if (matchId) {
+      const mem = memories.find((m) => m.id === matchId);
+      forgetMem(matchId);
+      await sendToTim(`Forgotten: *${mem?.content ?? 'memory'}*`);
+    } else {
+      await sendToTim("I couldn't find a matching memory to forget. Use 'what do you remember?' to see all memories.");
+    }
+    return;
+  }
+
   if (!conversation) {
     // Try to buffer image messages for multi-image grouping
     if (!isDashboard && msg.type === 'image' && bufferImageMessage(msg)) {

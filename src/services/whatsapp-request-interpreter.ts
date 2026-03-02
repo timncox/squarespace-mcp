@@ -5,6 +5,7 @@ import type { SitesConfig } from '../models/site-config.js';
 import type { DiscoveredSite } from '../automation/site-discovery.js';
 import { getAnthropicClient } from '../utils/anthropic-client.js';
 import { MODEL_SONNET } from '../config/models.js';
+import { getRelevantMemories } from '../db/memories.js';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -20,8 +21,15 @@ export interface InterpretedTask {
   clarificationQuestion?: string;
 }
 
+export interface InterpretedMemory {
+  content: string;
+  /** Raw text that triggered memory detection — used for LLM classification */
+  rawText: string;
+}
+
 export interface InterpretedRequest {
   tasks: InterpretedTask[];
+  memories: InterpretedMemory[];
   reasoning: string;
 }
 
@@ -47,7 +55,12 @@ export async function interpretWhatsAppRequest(
   referenceImageBase64?: string,
 ): Promise<InterpretedRequest> {
   const sitesConfig = loadSitesConfig();
-  const systemPrompt = buildInterpreterPrompt(sitesConfig, discoveredSites);
+  const userMemories = getRelevantMemories().map((m) => ({
+    content: m.content,
+    category: m.category,
+    siteId: m.siteId,
+  }));
+  const systemPrompt = buildInterpreterPrompt(sitesConfig, discoveredSites, userMemories);
 
   logger.info({ messageText: messageText.substring(0, 100), hasImage: !!referenceImageBase64 }, 'Interpreting WhatsApp request');
 
@@ -91,7 +104,11 @@ export async function interpretWhatsAppRequest(
 
 // ─── Prompt Building ───────────────────────────────────────────────────────
 
-function buildInterpreterPrompt(sitesConfig: SitesConfig, discoveredSites?: DiscoveredSite[]): string {
+function buildInterpreterPrompt(
+  sitesConfig: SitesConfig,
+  discoveredSites?: DiscoveredSite[],
+  userMemories?: Array<{ content: string; category: string; siteId?: string }>,
+): string {
   // Build the list of available sites from dashboard discovery (primary)
   // and static config (supplemental metadata like page names)
   let availableSitesList: string;
@@ -197,6 +214,12 @@ These are the CORRECT navigation paths in the Squarespace editor. NEVER guess �
    - "upload these images to a gallery" → gallery task using the attached images
    - "add a portfolio page" → gallery/portfolio page creation task
    If images are attached, mention in the description that uploaded images should be used. If no images are attached but the request implies images are needed, the description should note that images will need to be provided.
+12. **Memory detection**: If Tim's message contains a preference, rule, or shortcut he wants remembered (phrases like "remember that...", "keep in mind...", "always...", "never..." in the context of a preference), include it in the "memories" array. A message can have BOTH tasks AND memories. If the message is ONLY a memory statement with no editing tasks, return an empty tasks array and populate the memories array.
+${userMemories && userMemories.length > 0 ? `
+## User Preferences (remembered from previous conversations)
+${userMemories.map((m) => `- ${m.siteId ? `[${m.siteId}] ` : ''}${m.content}`).join('\n')}
+
+Use these preferences to resolve ambiguity. For example, if a preference says "when I say menu, I mean the food menu on the dining page", use that context when interpreting requests.` : ''}
 
 ## Response Format
 Respond with JSON only:
@@ -214,7 +237,8 @@ Respond with JSON only:
       "needsClarification": false,
       "clarificationQuestion": null
     }
-  ]
+  ],
+  "memories": []
 }
 \`\`\`
 
@@ -232,6 +256,21 @@ If clarification is needed:
       "groupId": null,
       "needsClarification": true,
       "clarificationQuestion": "Which restaurant's specials should I update? I have access to: Smyth Tavern (Copy)"
+    }
+  ],
+  "memories": []
+}
+\`\`\`
+
+If Tim states a preference to remember:
+\`\`\`json
+{
+  "reasoning": "Tim wants me to remember a preference about Smyth Tavern's theme. No editing tasks.",
+  "tasks": [],
+  "memories": [
+    {
+      "content": "Smyth Tavern uses dark section themes",
+      "rawText": "remember that Smyth Tavern uses dark themes"
     }
   ]
 }
@@ -266,8 +305,16 @@ function parseInterpreterResponse(responseText: string): InterpretedRequest {
       clarificationQuestion: (t.clarificationQuestion as string) || undefined,
     }));
 
+    const memories: InterpretedMemory[] = Array.isArray(parsed.memories)
+      ? parsed.memories.map((m: Record<string, unknown>) => ({
+          content: (m.content as string) || '',
+          rawText: (m.rawText as string) || (m.content as string) || '',
+        }))
+      : [];
+
     return {
       tasks,
+      memories,
       reasoning: (parsed.reasoning as string) || '',
     };
   } catch (err) {
@@ -277,6 +324,7 @@ function parseInterpreterResponse(responseText: string): InterpretedRequest {
     );
     return {
       tasks: [],
+      memories: [],
       reasoning: `Failed to parse response: ${err}`,
     };
   }

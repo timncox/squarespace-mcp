@@ -262,6 +262,32 @@ function migrate(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_template_sections_site ON template_sections(site_id);
   `);
 
+  // Phase 18 migrations — User memory (cross-conversation preferences)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_memories (
+      id TEXT PRIMARY KEY,
+      content TEXT NOT NULL,
+      category TEXT NOT NULL,
+      site_id TEXT,
+      tags TEXT,
+      source TEXT NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_user_memories_site ON user_memories(site_id);
+    CREATE INDEX IF NOT EXISTS idx_user_memories_category ON user_memories(category);
+    CREATE INDEX IF NOT EXISTS idx_user_memories_active ON user_memories(active);
+  `);
+
+  // Unique index for deduplication (content + site_id)
+  try {
+    db.exec('CREATE UNIQUE INDEX idx_user_memories_content_site ON user_memories(content, site_id)');
+  } catch {
+    // Index already exists
+  }
+
   logger.debug('Database migrations applied');
 }
 

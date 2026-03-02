@@ -188,6 +188,42 @@ export async function handleDirectRequest(msg: IncomingWhatsAppMessage & { image
       referenceImageBase64,
     );
 
+    // ─── Process memories ────────────────────────────────────────────────
+    if (interpreted.memories && interpreted.memories.length > 0) {
+      const { classifyMemory } = await import('../memory-classifier.js');
+      const { saveMemory } = await import('../../db/memories.js');
+      const source = msg.from === 'dashboard' ? 'dashboard' : 'whatsapp';
+
+      const savedMemories: string[] = [];
+      for (const mem of interpreted.memories) {
+        try {
+          const classified = await classifyMemory(mem.rawText);
+          const saved = saveMemory({
+            content: classified.content,
+            category: classified.category,
+            siteId: classified.siteId,
+            tags: classified.tags,
+            source,
+          });
+          const scope = saved.siteId ? ` for ${saved.siteId}` : '';
+          savedMemories.push(`Remembered: *${saved.content}* (${saved.category}${scope})`);
+        } catch (err) {
+          logger.error({ error: errMsg(err) }, 'Failed to classify/save memory');
+        }
+      }
+
+      // If there are memories but NO tasks, respond immediately and return
+      if (interpreted.tasks.length === 0 && savedMemories.length > 0) {
+        await sendToTim(savedMemories.join('\n'));
+        return;
+      }
+
+      // If there are both memories AND tasks, send memory confirmation alongside task flow
+      if (savedMemories.length > 0) {
+        await sendToTim(savedMemories.join('\n'));
+      }
+    }
+
     // No tasks extracted (conversational message like "hi", "thanks", etc.)
     if (interpreted.tasks.length === 0) {
       await sendToTim('Hey! Send me an editing request and I\'ll take care of it. For example: "Update the menus page on Smyth — remove the lunch special"');

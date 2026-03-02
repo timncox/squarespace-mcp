@@ -8,6 +8,7 @@ import { buildSystemPrompt, buildStepMessage, type StepMessage, type SystemPromp
 import { detectStuckPattern, getRescueHint, escalateToDocLookup, type RecentAction } from './browser-agent-rescue.js';
 import { executeAgentAction, parseAgentAction, type AgentAction, type ActionResult } from './browser-agent-actions.js';
 import { getRelevantLearnings } from '../db/learnings.js';
+import { getRelevantMemories } from '../db/memories.js';
 import type { PageConfig } from '../models/site-config.js';
 import { getAnthropicClient } from '../utils/anthropic-client.js';
 import { MODEL_SONNET, MODEL_HAIKU } from '../config/models.js';
@@ -117,7 +118,17 @@ export async function executeBrowserTask(
   if (learnings.length > 0) {
     logger.info({ count: learnings.length, siteId: options?.siteId }, 'Injecting learned patterns into agent prompt');
   }
-  const systemPrompt = buildSystemPrompt(siteContext, learnings);
+
+  // Fetch user memories (site rules only — keeps prompt lean)
+  const userMemories = getRelevantMemories(options?.siteId, ['site_rule']).map((m) => ({
+    content: m.content,
+    siteId: m.siteId ?? undefined,
+  }));
+  if (userMemories.length > 0) {
+    logger.info({ count: userMemories.length, siteId: options?.siteId }, 'Injecting user memories into agent prompt');
+  }
+
+  const systemPrompt = buildSystemPrompt(siteContext, learnings, userMemories);
   const steps: AgentStep[] = [];
   const enrichedSteps: EnrichedStep[] = [];
   const conversationHistory: Array<StepMessage | { role: 'assistant'; content: string }> = [];

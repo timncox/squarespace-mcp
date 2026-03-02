@@ -76,6 +76,7 @@ function layout(title: string, activeTab: string, body: string): string {
     { id: 'clients', label: 'Clients', href: '/dashboard/clients' },
     { id: 'agents', label: 'Agents', href: '/dashboard/agents' },
     { id: 'learnings', label: 'Learnings', href: '/dashboard/learnings' },
+    { id: 'memories', label: 'Memories', href: '/dashboard/memories' },
     { id: 'chat', label: 'Chat', href: '/dashboard/chat' },
   ];
 
@@ -850,6 +851,69 @@ function renderLearningsPage(learnings: Learning[]): string {
     </div>`;
 }
 
+// ─── Memories Page Renderer ──────────────────────────────────────────────────
+
+function renderMemoriesPage(memories: import('../db/memories.js').UserMemory[]): string {
+  const categoryBadge = (cat: string) => {
+    const colors: Record<string, string> = {
+      client_preference: '#a78bfa',
+      site_rule: '#f97316',
+      workflow_shortcut: '#22d3ee',
+      general: '#94a3b8',
+    };
+    const color = colors[cat] || '#94a3b8';
+    return `<span style="background:${color}20;color:${color};padding:2px 8px;border-radius:4px;font-size:0.75rem">${escapeHtml(cat)}</span>`;
+  };
+
+  const addForm = `
+    <div class="card" style="margin-bottom:1rem">
+      <form method="POST" action="/dashboard/memories" style="display:flex;gap:0.5rem;align-items:center">
+        <input name="content" placeholder="Tell me something to remember..."
+               style="flex:1;padding:0.5rem;border-radius:0.5rem;border:1px solid #334155;background:#1e293b;color:#e2e8f0" required>
+        <button type="submit" style="padding:0.5rem 1rem;border-radius:0.5rem;border:none;background:#3b82f6;color:white;cursor:pointer">Remember</button>
+      </form>
+    </div>`;
+
+  if (memories.length === 0) {
+    return addForm + '<div class="empty-state"><p>No memories yet. Tell me something to remember!</p></div>';
+  }
+
+  const rows = memories
+    .map(
+      (m) => `
+      <tr>
+        <td>${escapeHtml(m.content)}</td>
+        <td>${categoryBadge(m.category)}</td>
+        <td class="mono small">${escapeHtml(m.siteId || 'Global')}</td>
+        <td class="small muted">${m.tags ? escapeHtml(m.tags.join(', ')) : ''}</td>
+        <td class="small muted">${escapeHtml(m.source)}</td>
+        <td class="small muted">${new Date(m.createdAt).toLocaleDateString()}</td>
+        <td>
+          <form method="POST" action="/dashboard/memories/${m.id}/forget" style="display:inline">
+            <button type="submit" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:0.8rem">Forget</button>
+          </form>
+        </td>
+      </tr>`,
+    )
+    .join('');
+
+  const stats = `
+    <div class="stats-row">
+      <div class="stat"><div class="value">${memories.length}</div><div class="label">Active</div></div>
+      <div class="stat"><div class="value">${memories.filter((m) => !m.siteId).length}</div><div class="label">Global</div></div>
+      <div class="stat"><div class="value">${memories.filter((m) => m.siteId).length}</div><div class="label">Site-Specific</div></div>
+    </div>`;
+
+  return `${addForm}${stats}
+    <div class="card">
+      <h2>Saved Memories</h2>
+      <table>
+        <thead><tr><th>Memory</th><th>Category</th><th>Site</th><th>Tags</th><th>Source</th><th>Created</th><th></th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
 // ─── Agents Page Renderer ────────────────────────────────────────────────────
 
 function renderAgentsPage(): string {
@@ -1610,6 +1674,47 @@ export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
     const learnings = getAllActiveLearnings();
     const html = layout('Learnings', 'learnings', renderLearningsPage(learnings));
     return reply.type('text/html').send(html);
+  });
+
+  // ─── Memories Tab ───────────────────────────────────────────────────────────
+
+  app.get('/dashboard/memories', async (_request: FastifyRequest, reply: FastifyReply) => {
+    const { listMemories } = await import('../db/memories.js');
+    const memories = listMemories();
+    const html = layout('Memories', 'memories', renderMemoriesPage(memories));
+    return reply.type('text/html').send(html);
+  });
+
+  app.post('/dashboard/memories', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { content } = request.body as { content: string };
+    if (!content || content.trim().length < 3) {
+      return reply.redirect('/dashboard/memories');
+    }
+
+    try {
+      const { classifyMemory } = await import('../services/memory-classifier.js');
+      const { saveMemory } = await import('../db/memories.js');
+
+      const classified = await classifyMemory(content.trim());
+      saveMemory({
+        content: classified.content,
+        category: classified.category,
+        siteId: classified.siteId,
+        tags: classified.tags,
+        source: 'dashboard',
+      });
+    } catch (err) {
+      logger.error({ error: (err as Error).message }, 'Failed to save memory from dashboard');
+    }
+
+    return reply.redirect('/dashboard/memories');
+  });
+
+  app.post('/dashboard/memories/:id/forget', async (request: FastifyRequest, reply: FastifyReply) => {
+    const { id } = request.params as { id: string };
+    const { forgetMemory } = await import('../db/memories.js');
+    forgetMemory(id);
+    return reply.redirect('/dashboard/memories');
   });
 
   // ─── Agents Page ─────────────────────────────────────────────────────────────
