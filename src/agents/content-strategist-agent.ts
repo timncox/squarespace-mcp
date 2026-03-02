@@ -1129,6 +1129,7 @@ export function parseContentSpec(raw: Record<string, unknown> | undefined): Cont
     buttonSize: (raw.buttonSize as ContentOperation['content']['buttonSize']) ?? undefined,
     buttonStyle: (raw.buttonStyle as ContentOperation['content']['buttonStyle']) ?? undefined,
     buttonAlignment: (raw.buttonAlignment as ContentOperation['content']['buttonAlignment']) ?? undefined,
+    buttonVariant: (raw.buttonVariant as ContentOperation['content']['buttonVariant']) ?? undefined,
     templateCategory: (raw.templateCategory as string) ?? undefined,
     templateName: (raw.templateName as string) ?? undefined,
     contentStrategy: (raw.contentStrategy as ContentOperation['content']['contentStrategy']) ?? undefined,

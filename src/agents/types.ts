@@ -68,8 +68,15 @@ export interface ContentSpec {
   heading?: string;
   /** For text content: the exact body copy */
   bodyText?: string;
-  /** For buttons: label and destination URL */
-  button?: { label: string; url: string };
+  /** For buttons: label, destination URL, and optional design properties */
+  button?: {
+    label: string;
+    url: string;
+    size?: 'small' | 'medium' | 'large';
+    style?: 'primary' | 'secondary' | 'tertiary';
+    alignment?: 'left' | 'center' | 'right';
+    variant?: 'solid' | 'outline';
+  };
   /** For images: description/search query (for stock photo search) */
   imageQuery?: string;
   /** Absolute file path to an image to upload (for addImageBlock) */
@@ -108,6 +115,8 @@ export interface ContentSpec {
   buttonStyle?: 'primary' | 'secondary' | 'tertiary';
   /** Button design: alignment */
   buttonAlignment?: 'left' | 'center' | 'right';
+  /** Button design: variant (solid or outline) */
+  buttonVariant?: 'solid' | 'outline';
   /** Section template category tab (e.g., "About", "Services", "Contact", "Team") */
   templateCategory?: string;
   /** Section template name to search for within the category (e.g., "Bio with Image", "Team Grid") */
@@ -139,7 +148,7 @@ export interface ContentSpec {
   /** Structured replacements for template sections (texts, buttons, images, block removals) */
   replacements?: {
     texts?: Array<{ searchText: string; newText: string }>;
-    buttons?: Array<{ searchText: string; newLabel?: string; url?: string }>;
+    buttons?: Array<{ searchText: string; newLabel?: string; url?: string; size?: string; style?: string; alignment?: string; variant?: string }>;
     images?: Array<{ searchText: string; imagePath: string; altText?: string }>;
     removeBlocks?: string[];
   };
@@ -219,6 +228,11 @@ export interface ApiButtonBlock {
   type: 'button';
   label: string;
   url: string;
+  size?: 'small' | 'medium' | 'large';
+  style?: 'primary' | 'secondary' | 'tertiary';
+  alignment?: 'left' | 'center' | 'right';
+  variant?: 'solid' | 'outline';
+  newWindow?: boolean;
   layout?: {
     columns?: number;
     rowHeight?: number;

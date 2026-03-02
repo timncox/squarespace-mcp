@@ -822,7 +822,7 @@ export async function tryMenuBlockApi(
 export async function tryButtonBlockApi(
   page: Page,
   searchText: string,
-  updates: { newLabel?: string; url?: string },
+  updates: { newLabel?: string; url?: string; size?: string; style?: string; alignment?: string; variant?: string },
 ): Promise<ActionResult | null> {
   const ctx = await extractApiContext(page, 'tryButtonBlockApi');
   if (!ctx) return null;

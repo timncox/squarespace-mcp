@@ -278,6 +278,9 @@ const BLOCK_TYPE_SOCIAL_LINKS = 54;
 // Embed block type — confirmed via live site discovery (Feb 28 2026, grey-yellow-hbxc test-page)
 const BLOCK_TYPE_EMBED = 22;
 
+// Button block definitionName for type 1337 (new format)
+const BUTTON_DEFINITION_NAME = 'website.components.button';
+
 interface SessionCookie {
   name: string;
   value: string;
@@ -1031,8 +1034,18 @@ export class ContentSaveClient {
           }
         }
 
+        // Type 1337 buttons: check definitionName before falling into image/code/form checks
+        if (bv.type === BLOCK_TYPE_IMAGE && bv.definitionName === BUTTON_DEFINITION_NAME) {
+          const btnText = bv.value?.buttonText ?? '';
+          const btnLink = bv.value?.buttonLink ?? '';
+          if ((btnText && String(btnText).toLowerCase().includes(needle)) ||
+              (btnLink && String(btnLink).toLowerCase().includes(needle))) {
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
         // Type 1337: Code HTML blocks, Form blocks, or Image blocks (same outer type, different value structure)
-        if (bv.type === BLOCK_TYPE_IMAGE) {
+        if (bv.type === BLOCK_TYPE_IMAGE && bv.definitionName !== BUTTON_DEFINITION_NAME) {
           if (bv.value?.wysiwyg?.engine === CODE_BLOCK_ENGINE) {
             // Code HTML block: match on html content
             const html = bv.value?.html ?? '';
@@ -2883,6 +2896,70 @@ export class ContentSaveClient {
   }
 
   /**
+   * Check if a block value represents a button block (either type 46 or type 1337 with button definitionName).
+   */
+  static isButtonBlock(blockValue: { type: number; definitionName?: string }): boolean {
+    if (blockValue.type === BLOCK_TYPE_BUTTON) return true;
+    if (blockValue.type === BLOCK_TYPE_IMAGE && blockValue.definitionName === BUTTON_DEFINITION_NAME) return true;
+    return false;
+  }
+
+  /**
+   * Get normalized button fields from either type 46 or type 1337 button blocks.
+   * Returns null if block is not a button.
+   */
+  static getButtonFields(
+    blockValue: { type: number; definitionName?: string; value?: Record<string, unknown> },
+  ): { text: string; url: string; size?: string; style?: string; alignment?: string; variant?: string; newWindow?: boolean } | null {
+    if (!ContentSaveClient.isButtonBlock(blockValue)) return null;
+    const v = blockValue.value ?? {};
+
+    if (blockValue.type === BLOCK_TYPE_BUTTON) {
+      return { text: v.label as string ?? '', url: v.url as string ?? '' };
+    }
+
+    // Type 1337 new button
+    const result: { text: string; url: string; size?: string; style?: string; alignment?: string; variant?: string; newWindow?: boolean } = {
+      text: v.buttonText as string ?? '',
+      url: v.buttonLink as string ?? '',
+    };
+    if (v.buttonSize) result.size = v.buttonSize as string;
+    if (v.buttonStyle) result.style = v.buttonStyle as string;
+    if (v.buttonAlignment) result.alignment = v.buttonAlignment as string;
+    if (v.buttonVariant) result.variant = v.buttonVariant as string;
+    if (v.newWindow !== undefined) result.newWindow = v.newWindow as boolean;
+    return result;
+  }
+
+  /**
+   * Set button fields on either type 46 or type 1337 button blocks.
+   * Only updates fields that are explicitly provided (not undefined).
+   */
+  static setButtonFields(
+    blockValue: { type: number; definitionName?: string; value?: Record<string, unknown> },
+    updates: { text?: string; url?: string; size?: string; style?: string; alignment?: string; variant?: string; newWindow?: boolean },
+  ): void {
+    if (!blockValue.value) blockValue.value = {};
+    const v = blockValue.value;
+
+    if (blockValue.type === BLOCK_TYPE_BUTTON) {
+      // Type 46 legacy
+      if (updates.text !== undefined) v.label = updates.text;
+      if (updates.url !== undefined) v.url = updates.url;
+      return;
+    }
+
+    // Type 1337 new button
+    if (updates.text !== undefined) v.buttonText = updates.text;
+    if (updates.url !== undefined) v.buttonLink = updates.url;
+    if (updates.size !== undefined) v.buttonSize = updates.size;
+    if (updates.style !== undefined) v.buttonStyle = updates.style;
+    if (updates.alignment !== undefined) v.buttonAlignment = updates.alignment;
+    if (updates.variant !== undefined) v.buttonVariant = updates.variant;
+    if (updates.newWindow !== undefined) v.newWindow = updates.newWindow;
+  }
+
+  /**
    * Build rich HTML from structured content elements.
    * Produces Squarespace-compatible HTML for text block source/html fields.
    *
@@ -3163,6 +3240,13 @@ export class ContentSaveClient {
       startY?: number;
       endY?: number;
     },
+    design?: {
+      size?: string;
+      style?: string;
+      alignment?: string;
+      variant?: string;
+      newWindow?: boolean;
+    },
   ): Promise<ButtonBlockAddResult> {
     try {
       // Step 1: GET current sections
@@ -3249,8 +3333,29 @@ export class ContentSaveClient {
         content: {
           value: {
             id: blockId,
-            type: BLOCK_TYPE_BUTTON,
-            value: { label, url },
+            type: BLOCK_TYPE_IMAGE, // 1337
+            value: {
+              buttonText: label,
+              buttonLink: url,
+              newWindow: design?.newWindow ?? false,
+              buttonAlignment: design?.alignment ?? 'center',
+              buttonSize: design?.size ?? 'medium',
+              ...(design?.style ? { buttonStyle: design.style } : {}),
+              ...(design?.variant ? { buttonVariant: design.variant } : {}),
+              containerStyles: { stretchedToFill: true },
+              transforms: {
+                rotation: { value: 0, unit: 'deg' },
+                scale: { x: { value: 100, unit: '%' }, y: { value: 100, unit: '%' } },
+                opacity: { value: 100, unit: '%' },
+                offset: { x: { value: 0, unit: 'px' }, y: { value: 0, unit: 'px' } },
+                origin: { x: { value: 50, unit: '%' }, y: { value: 50, unit: '%' } },
+                skew: { x: { value: 0, unit: 'deg' }, y: { value: 0, unit: 'deg' } },
+              },
+              animations: [],
+              breakpointOverrides: {},
+            },
+            containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+            definitionName: BUTTON_DEFINITION_NAME,
           },
         },
       };
@@ -3276,22 +3381,31 @@ export class ContentSaveClient {
   }
 
   /**
-   * Update a button block's label and/or URL.
-   * Uses findBlock() which matches on `value.label`.
-   *
-   * @param pageSectionsId  The page sections ID
-   * @param collectionId    The collection ID
-   * @param searchText      Text to find the button by (matches label)
-   * @param updates         Fields to update: newLabel and/or url
+   * Update a button block's label, URL, and/or design fields.
+   * Supports both type 46 (legacy) and type 1337 (new) button blocks.
+   * Uses findBlock() which matches on label/buttonText.
    */
   async updateButtonBlock(
     pageSectionsId: string,
     collectionId: string,
     searchText: string,
-    updates: { newLabel?: string; url?: string },
+    updates: {
+      newLabel?: string;
+      url?: string;
+      size?: string;
+      style?: string;
+      alignment?: string;
+      variant?: string;
+      newWindow?: boolean;
+    },
   ): Promise<ButtonBlockUpdateResult> {
-    if (!updates.newLabel && !updates.url) {
-      return { success: false, error: 'Must provide at least newLabel or url to update' };
+    const hasAnyUpdate = updates.newLabel !== undefined || updates.url !== undefined ||
+      updates.size !== undefined || updates.style !== undefined ||
+      updates.alignment !== undefined || updates.variant !== undefined ||
+      updates.newWindow !== undefined;
+
+    if (!hasAnyUpdate) {
+      return { success: false, error: 'Must provide at least one field to update' };
     }
 
     try {
@@ -3307,30 +3421,29 @@ export class ContentSaveClient {
       const { gridContent } = match;
       const blockValue = gridContent.content.value;
 
-      // Step 3: Verify block type is button (46)
-      if (blockValue.type !== BLOCK_TYPE_BUTTON) {
+      // Step 3: Verify block is a button (either type 46 or type 1337 button)
+      if (!ContentSaveClient.isButtonBlock(blockValue)) {
         return {
           success: false,
-          error: `Block "${searchText}" is type ${blockValue.type}, not a button block (expected ${BLOCK_TYPE_BUTTON})`,
+          error: `Block "${searchText}" is type ${blockValue.type}, not a button block`,
         };
       }
 
       const blockId = blockValue.id;
-      const oldLabel = blockValue.value?.label as string | undefined;
-      const oldUrl = blockValue.value?.url as string | undefined;
+      const oldFields = ContentSaveClient.getButtonFields(blockValue)!;
+      const oldLabel = oldFields.text;
+      const oldUrl = oldFields.url;
 
-      // Ensure value sub-object exists
-      if (!blockValue.value) {
-        blockValue.value = {};
-      }
-
-      // Step 4: Update provided fields
-      if (updates.newLabel !== undefined) {
-        blockValue.value.label = updates.newLabel;
-      }
-      if (updates.url !== undefined) {
-        blockValue.value.url = updates.url;
-      }
+      // Step 4: Update provided fields using normalized setter
+      ContentSaveClient.setButtonFields(blockValue, {
+        text: updates.newLabel,
+        url: updates.url,
+        size: updates.size,
+        style: updates.style,
+        alignment: updates.alignment,
+        variant: updates.variant,
+        newWindow: updates.newWindow,
+      });
 
       logger.info(
         { blockId, searchText, oldLabel, newLabel: updates.newLabel, oldUrl, newUrl: updates.url },

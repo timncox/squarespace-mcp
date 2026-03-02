@@ -57,6 +57,46 @@ function makeButtonBlock(blockId: string, label: string, url: string): GridConte
   };
 }
 
+/** Type 1337 (new format) button block — matches real Squarespace output */
+function makeNewButtonBlock(
+  blockId: string,
+  buttonText: string,
+  buttonLink: string,
+  options?: { size?: string; style?: string; alignment?: string; variant?: string; newWindow?: boolean },
+): GridContent {
+  return {
+    layout: { ...STUB_LAYOUT },
+    content: {
+      value: {
+        id: blockId,
+        type: 1337,
+        value: {
+          buttonText,
+          buttonLink,
+          newWindow: options?.newWindow ?? false,
+          buttonAlignment: options?.alignment ?? 'center',
+          buttonSize: options?.size ?? 'medium',
+          ...(options?.style ? { buttonStyle: options.style } : {}),
+          ...(options?.variant ? { buttonVariant: options.variant } : {}),
+          containerStyles: { stretchedToFill: true },
+          transforms: {
+            rotation: { value: 0, unit: 'deg' },
+            scale: { x: { value: 100, unit: '%' }, y: { value: 100, unit: '%' } },
+            opacity: { value: 100, unit: '%' },
+            offset: { x: { value: 0, unit: 'px' }, y: { value: 0, unit: 'px' } },
+            origin: { x: { value: 50, unit: '%' }, y: { value: 50, unit: '%' } },
+            skew: { x: { value: 0, unit: 'deg' }, y: { value: 0, unit: 'deg' } },
+          },
+          animations: [],
+          breakpointOverrides: {},
+        },
+        containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+        definitionName: 'website.components.button',
+      },
+    },
+  };
+}
+
 function makeBlockWithLayout(
   blockId: string,
   html: string,
@@ -147,9 +187,9 @@ describe('ContentSaveClient — addButtonBlock', () => {
     const putBody = JSON.parse(putOptions.body as string);
     const gridContents = putBody.sections[0].fluidEngineContext.gridContents;
     expect(gridContents).toHaveLength(1);
-    expect(gridContents[0].content.value.type).toBe(46);
-    expect(gridContents[0].content.value.value.label).toBe('Reserve Now');
-    expect(gridContents[0].content.value.value.url).toBe('https://example.com/reserve');
+    expect(gridContents[0].content.value.type).toBe(1337);
+    expect(gridContents[0].content.value.value.buttonText).toBe('Reserve Now');
+    expect(gridContents[0].content.value.value.buttonLink).toBe('https://example.com/reserve');
 
     fetchSpy.mockRestore();
   });
@@ -364,7 +404,7 @@ describe('ContentSaveClient — addButtonBlock', () => {
     fetchSpy.mockRestore();
   });
 
-  it('creates correct GridContent structure (type=46, label, url, mobile+desktop layout)', async () => {
+  it('creates correct GridContent structure (type=1337, buttonText, buttonLink, mobile+desktop layout)', async () => {
     const sections = makeSections();
     const data = makePageSectionsData(sections);
 
@@ -381,12 +421,12 @@ describe('ContentSaveClient — addButtonBlock', () => {
     const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
 
     // Block type
-    expect(newBlock.content.value.type).toBe(46);
+    expect(newBlock.content.value.type).toBe(1337);
     expect(newBlock.content.value.id).toHaveLength(20);
 
     // Content
-    expect(newBlock.content.value.value.label).toBe('Book Now');
-    expect(newBlock.content.value.value.url).toBe('https://example.com/book');
+    expect(newBlock.content.value.value.buttonText).toBe('Book Now');
+    expect(newBlock.content.value.value.buttonLink).toBe('https://example.com/book');
 
     // Desktop layout
     expect(newBlock.layout.desktop.visible).toBe(true);
@@ -415,6 +455,66 @@ describe('ContentSaveClient — addButtonBlock', () => {
     const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
     // First block: gap=0, so starts at y=0
     expect(newBlock.layout.desktop.start.y).toBe(0);
+
+    fetchSpy.mockRestore();
+  });
+
+  it('creates type 1337 button block (new format) with definitionName', async () => {
+    const sections = makeSections();
+    const data = makePageSectionsData(sections);
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    await client.addButtonBlock('psid-1', 'cid-1', 0, 'Book Now', 'https://example.com/book');
+
+    const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    const putBody = JSON.parse(putOptions.body as string);
+    const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+
+    // Type 1337 with button definitionName
+    expect(newBlock.content.value.type).toBe(1337);
+    expect(newBlock.content.value.definitionName).toBe('website.components.button');
+
+    // New field names
+    expect(newBlock.content.value.value.buttonText).toBe('Book Now');
+    expect(newBlock.content.value.value.buttonLink).toBe('https://example.com/book');
+
+    // Design defaults
+    expect(newBlock.content.value.value.buttonSize).toBe('medium');
+    expect(newBlock.content.value.value.buttonAlignment).toBe('center');
+    expect(newBlock.content.value.value.newWindow).toBe(false);
+
+    // Required structures
+    expect(newBlock.content.value.value.containerStyles).toBeDefined();
+    expect(newBlock.content.value.value.transforms).toBeDefined();
+    expect(newBlock.content.value.containerStyles).toBeDefined();
+
+    fetchSpy.mockRestore();
+  });
+
+  it('creates type 1337 button with custom design fields', async () => {
+    const sections = makeSections();
+    const data = makePageSectionsData(sections);
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    await client.addButtonBlock('psid-1', 'cid-1', 0, 'CTA', 'https://example.com', undefined, {
+      size: 'large', style: 'secondary', alignment: 'right', variant: 'outline', newWindow: true,
+    });
+
+    const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    const putBody = JSON.parse(putOptions.body as string);
+    const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+
+    expect(newBlock.content.value.value.buttonSize).toBe('large');
+    expect(newBlock.content.value.value.buttonStyle).toBe('secondary');
+    expect(newBlock.content.value.value.buttonAlignment).toBe('right');
+    expect(newBlock.content.value.value.buttonVariant).toBe('outline');
+    expect(newBlock.content.value.value.newWindow).toBe(true);
 
     fetchSpy.mockRestore();
   });
@@ -597,5 +697,241 @@ describe('ContentSaveClient — updateButtonBlock', () => {
     expect(result.error).toBeDefined();
 
     fetchSpy.mockRestore();
+  });
+
+  it('updates type 1337 button text and link', async () => {
+    const sections = makeSections(makeNewButtonBlock('btn-new', 'Old Text', 'https://old.com'));
+    const data = makePageSectionsData(sections);
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const result = await client.updateButtonBlock(
+      'psid-1', 'cid-1', 'Old Text', { newLabel: 'New Text', url: 'https://new.com' },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.blockId).toBe('btn-new');
+    expect(result.oldLabel).toBe('Old Text');
+    expect(result.newLabel).toBe('New Text');
+    expect(result.oldUrl).toBe('https://old.com');
+    expect(result.newUrl).toBe('https://new.com');
+
+    // Verify PUT body uses type 1337 field names
+    const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    const putBody = JSON.parse(putOptions.body as string);
+    const block = putBody.sections[0].fluidEngineContext.gridContents[0];
+    expect(block.content.value.value.buttonText).toBe('New Text');
+    expect(block.content.value.value.buttonLink).toBe('https://new.com');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('updates type 1337 button design fields (size, style, alignment, variant)', async () => {
+    const sections = makeSections(makeNewButtonBlock('btn-new', 'CTA', 'https://example.com', { size: 'medium' }));
+    const data = makePageSectionsData(sections);
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const result = await client.updateButtonBlock(
+      'psid-1', 'cid-1', 'CTA',
+      { size: 'large', style: 'secondary', alignment: 'left', variant: 'outline' },
+    );
+
+    expect(result.success).toBe(true);
+
+    const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    const putBody = JSON.parse(putOptions.body as string);
+    const block = putBody.sections[0].fluidEngineContext.gridContents[0];
+    expect(block.content.value.value.buttonSize).toBe('large');
+    expect(block.content.value.value.buttonStyle).toBe('secondary');
+    expect(block.content.value.value.buttonAlignment).toBe('left');
+    expect(block.content.value.value.buttonVariant).toBe('outline');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('accepts design-only updates (no label/url) for type 1337', async () => {
+    const sections = makeSections(makeNewButtonBlock('btn-new', 'Keep Text', 'https://keep.com'));
+    const data = makePageSectionsData(sections);
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const result = await client.updateButtonBlock(
+      'psid-1', 'cid-1', 'Keep Text', { size: 'small' },
+    );
+
+    expect(result.success).toBe(true);
+    // Label/URL unchanged
+    expect(result.newLabel).toBe('Keep Text');
+    expect(result.newUrl).toBe('https://keep.com');
+
+    fetchSpy.mockRestore();
+  });
+});
+
+// ── Button type detection helpers ──────────────────────────────────────────
+
+describe('ContentSaveClient — button type helpers', () => {
+  it('isButtonBlock returns true for type 46', () => {
+    const block = makeButtonBlock('btn-1', 'Click', 'https://example.com');
+    expect(ContentSaveClient.isButtonBlock(block.content.value)).toBe(true);
+  });
+
+  it('isButtonBlock returns true for type 1337 with button definitionName', () => {
+    const block = makeNewButtonBlock('btn-2', 'Click', 'https://example.com');
+    expect(ContentSaveClient.isButtonBlock(block.content.value)).toBe(true);
+  });
+
+  it('isButtonBlock returns false for type 1337 image block', () => {
+    const imageBlock: GridContent = {
+      layout: { ...STUB_LAYOUT },
+      content: {
+        value: {
+          id: 'img-1',
+          type: 1337,
+          value: { title: 'Photo', assetUrl: 'https://images.squarespace-cdn.com/test.jpg' },
+        },
+      },
+    };
+    expect(ContentSaveClient.isButtonBlock(imageBlock.content.value)).toBe(false);
+  });
+
+  it('isButtonBlock returns false for text block', () => {
+    const block = makeTextBlock('t1', '<p>Text</p>');
+    expect(ContentSaveClient.isButtonBlock(block.content.value)).toBe(false);
+  });
+
+  it('getButtonFields normalizes type 46 fields', () => {
+    const block = makeButtonBlock('btn-1', 'Book Now', 'https://example.com/book');
+    const fields = ContentSaveClient.getButtonFields(block.content.value);
+    expect(fields).toEqual({
+      text: 'Book Now',
+      url: 'https://example.com/book',
+    });
+  });
+
+  it('getButtonFields normalizes type 1337 fields', () => {
+    const block = makeNewButtonBlock('btn-2', 'Reserve', 'https://example.com/reserve', {
+      size: 'large', style: 'secondary', alignment: 'left', variant: 'outline', newWindow: true,
+    });
+    const fields = ContentSaveClient.getButtonFields(block.content.value);
+    expect(fields).toEqual({
+      text: 'Reserve',
+      url: 'https://example.com/reserve',
+      size: 'large',
+      style: 'secondary',
+      alignment: 'left',
+      variant: 'outline',
+      newWindow: true,
+    });
+  });
+
+  it('getButtonFields returns null for non-button', () => {
+    const block = makeTextBlock('t1', '<p>Text</p>');
+    expect(ContentSaveClient.getButtonFields(block.content.value)).toBeNull();
+  });
+
+  it('setButtonFields updates type 46 label and url', () => {
+    const block = makeButtonBlock('btn-1', 'Old', 'https://old.com');
+    const bv = block.content.value;
+    ContentSaveClient.setButtonFields(bv, { text: 'New', url: 'https://new.com' });
+    expect(bv.value.label).toBe('New');
+    expect(bv.value.url).toBe('https://new.com');
+  });
+
+  it('setButtonFields updates type 1337 buttonText, buttonLink, and design fields', () => {
+    const block = makeNewButtonBlock('btn-2', 'Old', 'https://old.com');
+    const bv = block.content.value;
+    ContentSaveClient.setButtonFields(bv, {
+      text: 'New', url: 'https://new.com',
+      size: 'small', style: 'tertiary', alignment: 'right', variant: 'outline',
+    });
+    expect(bv.value.buttonText).toBe('New');
+    expect(bv.value.buttonLink).toBe('https://new.com');
+    expect(bv.value.buttonSize).toBe('small');
+    expect(bv.value.buttonStyle).toBe('tertiary');
+    expect(bv.value.buttonAlignment).toBe('right');
+    expect(bv.value.buttonVariant).toBe('outline');
+  });
+
+  it('setButtonFields skips undefined fields', () => {
+    const block = makeNewButtonBlock('btn-2', 'Keep', 'https://keep.com', { size: 'large' });
+    const bv = block.content.value;
+    ContentSaveClient.setButtonFields(bv, { text: 'Changed' });
+    expect(bv.value.buttonText).toBe('Changed');
+    expect(bv.value.buttonLink).toBe('https://keep.com'); // unchanged
+    expect(bv.value.buttonSize).toBe('large'); // unchanged
+  });
+});
+
+// ── findBlock with button types ───────────────────────────────────────────
+
+describe('ContentSaveClient — findBlock button type support', () => {
+  let client: ContentSaveClient;
+
+  beforeEach(() => {
+    client = new ContentSaveClient('test-site');
+    client.loadSessionCookies('/fake/session.json');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('finds type 46 button by label', () => {
+    const sections = makeSections(makeButtonBlock('btn-1', 'Contact Us', 'https://example.com'));
+    const result = client.findBlock(sections, 'Contact Us');
+    expect(result).not.toBeNull();
+    expect(result!.gridContent.content.value.id).toBe('btn-1');
+  });
+
+  it('finds type 1337 button by buttonText', () => {
+    const sections = makeSections(makeNewButtonBlock('btn-2', 'Learn More', 'https://example.com'));
+    const result = client.findBlock(sections, 'Learn More');
+    expect(result).not.toBeNull();
+    expect(result!.gridContent.content.value.id).toBe('btn-2');
+  });
+
+  it('finds type 1337 button by buttonLink', () => {
+    const sections = makeSections(makeNewButtonBlock('btn-2', 'Click', 'https://example.com/special'));
+    const result = client.findBlock(sections, 'example.com/special');
+    expect(result).not.toBeNull();
+    expect(result!.gridContent.content.value.id).toBe('btn-2');
+  });
+
+  it('finds type 1337 button among mixed blocks', () => {
+    const sections = makeSections(
+      makeTextBlock('t1', '<p>Header text</p>'),
+      makeNewButtonBlock('btn-new', 'Reserve Now', 'https://example.com/reserve'),
+      makeButtonBlock('btn-old', 'Old Button', 'https://old.com'),
+    );
+    const result = client.findBlock(sections, 'Reserve Now');
+    expect(result).not.toBeNull();
+    expect(result!.gridContent.content.value.id).toBe('btn-new');
+  });
+
+  it('does not match type 1337 image block when searching for button text', () => {
+    const imageBlock: GridContent = {
+      layout: { ...STUB_LAYOUT },
+      content: {
+        value: {
+          id: 'img-1',
+          type: 1337,
+          value: { title: 'Reserve Now', assetUrl: 'https://images.squarespace-cdn.com/test.jpg' },
+        },
+      },
+    };
+    const sections = makeSections(
+      imageBlock,
+      makeNewButtonBlock('btn-1', 'Reserve Now', 'https://example.com'),
+    );
+    const result = client.findBlock(sections, 'Reserve Now');
+    expect(result).not.toBeNull();
   });
 });
