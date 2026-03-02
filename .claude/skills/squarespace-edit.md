@@ -1,131 +1,429 @@
 ---
 name: squarespace-edit
 description: >
-  Use when user asks to add, edit, remove, or update content on a Squarespace site.
-  Executes changes via sq.ts API commands — no browser agent, no pipeline.
+  Use when modifying existing content on a Squarespace site — text, images, buttons,
+  menus, quotes, code, video, and more. Also covers removing and duplicating blocks.
 ---
 
-## Step 1: Identify site and page
+## When to Use
 
-Look up the site in `config/sites.json`:
+- User wants to change existing text, headings, paragraphs
+- User wants to update buttons (label, URL), images (alt text, title), or menus
+- User wants to edit quote, code, video, newsletter, accordion, marquee, embed, form, or social link blocks
+- User wants to update footer content
+- User wants to remove or duplicate blocks
+- User wants to resize, move, or swap blocks within a section
+
+Do NOT use this skill for adding new sections/blocks (use `squarespace-create`) or for page-level operations like creating/deleting pages.
+
+## Quick Reference
+
+| Block Type | Update Method | Patch Method | CLI Command |
+|-----------|--------------|-------------|-------------|
+| Text | `updateTextBlock` (destructive) | `patchTextBlock` (surgical) | `update-text` / `patch-text` |
+| Button | `updateButtonBlock` | — | `update-button` |
+| Image | `updateImageBlock` (metadata only) | — | `update-image` |
+| Menu | `updateMenuBlock` | — | `update-menu` |
+| Video | `updateVideoBlock` | — | — |
+| Quote | `updateQuoteBlock` | — | — |
+| Code | `updateCodeBlock` | — | — |
+| Newsletter | `updateNewsletterBlock` | — | — |
+| Accordion | `updateAccordionBlock` | — | — |
+| Marquee | `updateMarqueeBlock` | — | — |
+| Form | `updateFormBlock` | — | — |
+| Social Links | `updateSocialLinksBlock` | — | — |
+| Embed | `updateEmbedBlock` | — | — |
+| Footer text | `updateFooterTextBlock` | `patchFooterTextBlock` | — |
+
+---
+
+## CRITICAL: Patch vs Update
+
+This is the #1 source of bugs. Understand the difference before editing any text.
+
+### `updateTextBlock(psId, colId, searchText, newHtml)` — DESTRUCTIVE
+
+Replaces the **entire block's HTML** with `newHtml`. If a block has a heading + 3 paragraphs and you call `updateTextBlock`, all of it is replaced.
+
+- Use when: you want to completely rewrite a block
+- `searchText`: finds which block to target (case-insensitive match against stripped text)
+- `newHtml`: the full replacement HTML (e.g., `<h2>New Title</h2><p>New body.</p>`)
+
+### `patchTextBlock(psId, colId, searchText, newText)` — SURGICAL
+
+Replaces only the **matched substring** within the block, preserving everything else.
+
+- Use when: changing a phone number, fixing a typo, updating a name — any small change
+- `searchText`: the exact text to find AND replace (case-insensitive)
+- `newText`: what to replace it with
+- The rest of the block content is preserved untouched
+
+### `updateTextBlockHtml(psId, colId, searchText, rawHtml)` — RAW HTML
+
+Like `updateTextBlock` but writes `rawHtml` directly without any wrapping. Use when you need precise HTML control (e.g., preserving existing `<p>` tags with specific attributes).
+
+### `patchHtmlSegment(html, searchText, newText)` — INTERNAL
+
+Low-level helper used by `patchTextBlock`. Splits HTML into block-level segments (`<p>`, `<h1>`–`<h6>`, `<div>`, `<li>`) and replaces within the matching segment only. Not called directly — use `patchTextBlock` instead.
+
+### Rule of thumb
+
+> **Always prefer `patchTextBlock` for small changes.** Only use `updateTextBlock` when replacing the entire block content.
+
+---
+
+## Finding Blocks
+
+All update methods use `searchText` to locate the target block. The underlying `findBlock()` method searches across block types:
+
+| Block Type | What it searches |
+|-----------|-----------------|
+| Text (type 2) | Stripped HTML content (tags removed) |
+| Image (type 1337) | `title`, `description`, `subtitle` fields |
+| Code (type 1337) | Raw HTML content |
+| Button (type 46) | `label` field |
+| Menu (type 18) | `raw` text + tab/section/item titles |
+| Quote (type 31) | HTML content + source |
+| Video (type 50) | Title, description |
+| Form (type 1337) | `formId` field |
+| All types | Block ID prefix fallback |
+
+Search is **case-insensitive** and uses **substring matching** — you don't need the full text, just enough to uniquely identify the block.
+
+### Specialized finders
+
+- **`findMenuBlock(sections, searchText)`** — wraps `findBlock()` with type 18 filter, returns `menuValue` with `{ menus, raw, menuStyle, currencySymbol }`
+- **`findGalleryBlock(sections, searchText?)`** — finds type 8 gallery blocks by `collectionId` or block ID prefix
+
+---
+
+## All Edit Methods by Block Type
+
+### Text Blocks
+
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateTextBlock` | `(psId, colId, searchText, newHtml)` | Replace entire block HTML (destructive) |
+| `patchTextBlock` | `(psId, colId, searchText, newText)` | Replace matched substring only (surgical) |
+| `updateTextBlockHtml` | `(psId, colId, searchText, rawHtml)` | Replace with raw HTML (no wrapping) |
 
 ```bash
-cat config/sites.json
+# Full replacement
+tsx scripts/sq.ts update-text --site <id> --page <slug> --search "old heading" --html "<h2>New Heading</h2>"
+
+# Surgical patch
+tsx scripts/sq.ts patch-text --site <id> --page <slug> --search "555-1234" --new "555-5678"
 ```
 
-If the user did not specify which site or which page to edit, ask before proceeding. Do not guess or default to any site.
+### Button Blocks (type 46)
 
-The `--site` flag accepts a client ID, alias, or raw subdomain from `config/sites.json`. The `--page` flag takes a page slug (e.g., `home`, `about`, `contact`).
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateButtonBlock` | `(psId, colId, searchText, { newLabel?, url? })` | Update label and/or URL |
 
-## Step 2: Snapshot current state
-
-Always snapshot before making changes to understand what exists:
+- `searchText` matches the button's current `label`
+- Must provide at least `newLabel` or `url`
 
 ```bash
-tsx scripts/sq.ts snapshot --site <id> --page <slug>
+tsx scripts/sq.ts update-button --site <id> --page <slug> --search "Book Now" --label "Reserve" --url "https://new-url.com"
 ```
 
-Note the current section count and section indexes (0-based). You will need these to target the correct sections and to calculate where newly-added sections will land.
+### Image Blocks (type 1337)
 
-If snapshot fails with an auth error or "Could not resolve pageSectionsId", stop and tell the user to run the `squarespace-setup` skill first.
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateImageBlock` | `(psId, colId, searchText, { title?, description?, subtitle?, altText?, linkTo? })` | Update image metadata |
 
-## Step 3: Plan operations
-
-Choose commands based on what the user wants to do.
-
-### Adding new content
-
-Add a blank section first, then add blocks to it:
+- Updates metadata only — does NOT change the actual image file
+- To replace the image asset, use browser agent `replaceImage` action
+- `searchText` matches `title`, `description`, or `subtitle`
 
 ```bash
-tsx scripts/sq.ts add-section --site <id> --page <slug>
+tsx scripts/sq.ts update-image --site <id> --page <slug> --search "Team Photo" --alt "Our team at the 2026 retreat" --title "Team Retreat"
 ```
 
-The new section's index is `(previous section count)` — it is always appended last. Then add blocks to it:
+### Menu Blocks (type 18)
+
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `getMenuBlock` | `(psId, searchText)` | Read current menus/style/currency (read-only) |
+| `updateMenuBlock` | `(psId, colId, searchText, newMenus, options?)` | Replace menu JSON, regenerate `raw` |
+
+Menu JSON structure:
+```
+MenuTab[] → each tab has { title, sections: MenuSection[] }
+MenuSection[] → each section has { title, items: MenuItem[] }
+MenuItem[] → each item has { title, description, price }
+```
+
+Options: `{ preserveRaw: true }` skips raw text regeneration.
+
+**Menu merge strategies** (in `src/services/menu-merger.ts`):
+- `mergeMenuStructured(current, updates)` — deterministic title matching (case-insensitive exact match). Appends unmatched entries. Best for adding/updating items.
+- `mergeMenuFromText(currentMenus, updateText)` — parses text format, then structured merge.
+- `mergeMenuContent(current, updates)` — LLM-based merge. Fallback for fuzzy matching.
 
 ```bash
-tsx scripts/sq.ts add-text --site <id> --page <slug> --section <idx> --html "<h2>Title</h2><p>Body.</p>"
-tsx scripts/sq.ts add-button --site <id> --page <slug> --section <idx> --label "Book Now" --url "https://example.com"
-tsx scripts/sq.ts add-image --site <id> --page <slug> --section <idx> --asset-url "https://..." --alt "Description"
+tsx scripts/sq.ts update-menu --site <id> --page <slug> --search "Lunch Menu" --menus '[{"title":"Lunch","sections":[...]}]'
 ```
 
-`add-section` must run and succeed before any `add-text`/`add-button`/`add-image` targeting that section.
+### Video Blocks (type 50)
 
-### Modifying existing text
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateVideoBlock` | `(psId, colId, searchText, { url?, title?, description? })` | Update video URL or metadata |
 
-Full replacement (replaces entire block content):
+### Quote Blocks (type 31)
 
-```bash
-tsx scripts/sq.ts update-text --site <id> --page <slug> --search "existing text" --html "<p>New content.</p>"
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateQuoteBlock` | `(psId, colId, searchText, { quoteText?, attribution? })` | Update quote text and/or attribution |
+
+### Code Blocks (type 1337, engine='code')
+
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateCodeBlock` | `(psId, colId, searchText, { code?, language? })` | Replace code content |
+
+### Newsletter Blocks
+
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateNewsletterBlock` | `(psId, colId, searchText, { description?, alignment?, captchaEnabled?, submitButtonText?, title? })` | Update newsletter form settings |
+
+### Accordion Blocks
+
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateAccordionBlock` | `(psId, colId, searchText, { items?, isExpandedFirstItem?, shouldAllowMultipleOpenItems? })` | Update FAQ items and behavior |
+
+- `items`: `Array<{ title: string; description: string }>`
+
+### Marquee Blocks
+
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateMarqueeBlock` | `(psId, colId, searchText, { items?, animationDirection?, animationSpeed?, textStyle?, pausedOnHover? })` | Update scrolling text content and animation |
+
+- `items`: `Array<{ text: string; linkTo?: string }>`
+- `animationDirection`: `'left'` or `'right'`
+
+### Form Blocks
+
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateFormBlock` | `(psId, colId, searchText, { buttonVariant?, buttonAlignment?, useLightbox? })` | Update form display settings |
+
+- `buttonVariant`: `'primary'`, `'secondary'`, `'tertiary'`
+- `buttonAlignment`: `'left'`, `'center'`, `'right'`
+- `searchText` matches by `formId`
+
+### Social Links Blocks
+
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateSocialLinksBlock` | `(psId, colId, searchText, { iconAlignment?, iconSize?, iconStyle?, iconColor? })` | Update social link display |
+
+- `iconSize`: `'small'`, `'medium'`, `'large'`
+- `iconStyle`: `'icon-only'`, `'icon-text'`
+- `iconColor`: `'black'`, `'white'`
+- `searchText` matches by block ID prefix
+
+### Embed Blocks (type 22)
+
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateEmbedBlock` | `(psId, colId, searchText, html)` | Replace embed HTML content |
+
+- Falls back to first type 22 block if search doesn't match
+
+---
+
+## Footer Editing
+
+Footer sections use a **separate API endpoint** (`site-header-footer`), not the standard page sections API. Two dedicated methods:
+
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `updateFooterTextBlock` | `(searchText, newText)` | Full replacement of footer text block (destructive) |
+| `patchFooterTextBlock` | `(searchText, newText)` | Surgical substring replace in footer text block |
+
+Note: these take only 2 params (no `psId`/`colId`) — the footer IDs are resolved internally.
+
+The same patch-vs-update rule applies: prefer `patchFooterTextBlock` for small changes.
+
+---
+
+## Block Lifecycle
+
+### Remove a block
+
+```
+removeBlock(psId, colId, searchText, options?)
 ```
 
-Substring replacement (surgical patch, leaves rest of block intact):
-
-```bash
-tsx scripts/sq.ts patch-text --site <id> --page <slug> --search "old phrase" --new "new phrase"
-```
-
-**Important**: `--search` for `patch-text` identifies what gets replaced, not just which block to find. The matched substring is replaced in-place. Example: if the block says "Hello world!" and you `patch-text --search "world" --new "there"`, the result is "Hello there!" — the rest of the block text is preserved.
-
-Prefer `patch-text` for small changes. Use `update-text` when replacing the entire block.
-
-### Removing content
+Splices the block from its section's `gridContents` array. `searchText` uses `findBlock()` — matches across all block types.
 
 ```bash
 tsx scripts/sq.ts remove-block --site <id> --page <slug> --search "text in block to remove"
 ```
 
-`--search` matches case-insensitively against block text content.
+### Duplicate a block
 
-### Reordering sections
-
-```bash
-tsx scripts/sq.ts move-section --site <id> --page <slug> --search "text in section" --direction up|down
+```
+duplicateBlock(psId, colId, searchText)
 ```
 
-`--search` identifies the section by matching text within it. Run multiple times to move a section more than one position.
+Creates a copy of the block with a new ID, placed after the original in the same section.
 
-### Styling a section
+### Duplicate a section
 
-```bash
-tsx scripts/sq.ts section-style --site <id> --page <slug> --search "text in section" [--theme dark|light|white|black] [--height small|medium|large|full]
+```
+duplicateSection(psId, colId, sectionSearch)
 ```
 
-`--search` identifies the section by matching text content within it.
+`sectionSearch` can be a section index (number) or text within the section (string). Creates a full copy with new IDs for the section and all its blocks.
 
-## Step 4: Execute operations
+---
 
-Run commands one at a time via Bash. After each command, check the output for `"success": true` before continuing.
+## Move / Resize / Swap Blocks
 
-If a command returns `"success": false`, read the error message and decide:
-- Auth error → stop, tell user to run `squarespace-setup`
-- Block not found → check that `--search` text matches actual block content (use snapshot to confirm)
-- Section index out of range → re-snapshot to get current section count
-- Other error → report the full error to the user before proceeding
+| Method | Signature | What it does |
+|--------|-----------|-------------|
+| `moveBlock` | `(psId, colId, searchText, direction, gridSteps?)` | Shift block on desktop grid |
+| `resizeBlock` | `(psId, colId, searchText, width?, height?)` | Resize block |
+| `swapBlocks` | `(psId, colId, searchText1, searchText2)` | Exchange two blocks' positions |
+| `moveSection` | `(psId, colId, searchText, direction)` | Reorder sections (`'up'`/`'down'`) |
 
-Do not blindly continue after a failure. Each operation depends on the state left by previous ones.
+- `moveBlock` direction: `'up'`, `'down'`, `'left'`, `'right'`
+- `resizeBlock` width: `'smaller'`, `'larger'`, `'full'`; height: `'shorter'`, `'taller'`
 
-## Step 5: Verify
+```bash
+tsx scripts/sq.ts move-section --site <id> --page <slug> --search "About Us" --direction up
+```
 
-After all operations, run another snapshot:
+---
+
+## Section Styling
+
+```
+editSectionStyle(psId, colId, sectionSearch, styles)
+```
+
+`SectionStyleOptions`:
+- `sectionTheme`: `'white'`, `'light'`, `'dark'`, `'black'`, `''` (default)
+- `sectionHeight`: `'small'`, `'medium'`, `'large'`, `'full'`
+- `contentWidth`: `'inset'`, `'wide'`, `'full'`
+- `verticalAlignment`: `'top'`, `'middle'`, `'bottom'`
+
+`sectionSearch` can be a section index (number) or text within the section (string).
+
+```bash
+tsx scripts/sq.ts section-style --site <id> --page <slug> --search "Hero Section" --theme dark --height large
+```
+
+---
+
+## CLI Commands
+
+All commands use `tsx scripts/sq.ts <subcommand>`. Common flags: `--site <id>`, `--page <slug>`.
+
+| Command | Required flags | Description |
+|---------|---------------|-------------|
+| `update-text` | `--search <text> --html <html>` | Full replace of text block |
+| `patch-text` | `--search <text> --new <text>` | Surgical substring replace |
+| `remove-block` | `--search <text>` | Remove a block |
+| `move-section` | `--search <text> --direction up\|down` | Reorder sections |
+| `section-style` | `--search <text> [--theme] [--height]` | Style a section |
+| `update-button` | `--search <text> [--label] [--url]` | Update button |
+| `update-image` | `--search <text> [--alt] [--title]` | Update image metadata |
+| `update-menu` | `--search <text> --menus <json>` | Replace menu content |
+
+Optional overrides: `--psid <id>`, `--colid <id>` (bypass page ID resolution for private sites).
+
+---
+
+## Workflow
+
+### Step 1: Identify site and page
+
+Look up the site in `config/sites.json`. The `--site` flag accepts a client ID, alias, or raw subdomain. If the user didn't specify which site or page, ask before proceeding.
+
+### Step 2: Snapshot current state
 
 ```bash
 tsx scripts/sq.ts snapshot --site <id> --page <slug>
 ```
 
-Confirm:
-- Section count changed as expected (if sections were added/removed)
-- Block content matches what was requested
-- No unexpected content was lost
+Review the snapshot to understand current content. Note section indexes (0-based) and block text for `--search` targeting.
 
-Report the before/after comparison to the user.
+If snapshot fails with an auth error, tell the user to run the `squarespace-setup` skill first.
 
-## Key rules
+### Step 3: Execute edits
 
-- API calls take ~200ms each. Always prefer this over the browser agent.
-- Section indexes are 0-based and reflect state AFTER all preceding operations in the same session. Re-snapshot if unsure.
-- HTML for `--html` must be valid HTML. Examples: `<h2>Heading</h2><p>Paragraph.</p>`, `<ul><li>Item</li></ul>`.
-- `--search` for `update-text`, `patch-text`, `remove-block`, and `section-style` is case-insensitive and matches against stripped text content (no HTML tags).
-- For private or trial sites where snapshot fails, instruct the user to run `squarespace-setup` and obtain `--psid` and `--colid` values from the editor URL, then append them to each command. For sites with pre-seeded page ID cache, no flags are needed.
-- Special characters in `--search` or `--html`: use `$'...'` bash quoting for unicode (e.g., `$'Let\u2019s'` for curly apostrophe). Squarespace content often contains curly quotes and em dashes.
-- If the user asks to "add a section with a heading and body", that is two operations: `add-section` + `add-text`. Plan the full sequence before executing.
+Run commands one at a time. After each, check output for `"success": true`.
+
+**If a command fails:**
+- Auth error → stop, tell user to run `squarespace-setup`
+- Block not found → verify `--search` text matches actual content (check snapshot)
+- Section index out of range → re-snapshot for current section count
+- Other error → report the full error before proceeding
+
+### Step 4: Verify
+
+Run another snapshot and confirm changes landed correctly. Report before/after comparison to the user.
+
+---
+
+## Examples
+
+### Change a heading
+
+```bash
+# Snapshot to see current content
+tsx scripts/sq.ts snapshot --site acme --page about
+
+# Patch just the heading text (surgical)
+tsx scripts/sq.ts patch-text --site acme --page about --search "About Our Company" --new "About Acme Corp"
+
+# Verify
+tsx scripts/sq.ts snapshot --site acme --page about
+```
+
+### Update a menu price
+
+```bash
+# Read current menu
+tsx scripts/sq.ts snapshot --site cafe --page menu
+
+# Patch the price (surgical — preserves all other menu content)
+tsx scripts/sq.ts patch-text --site cafe --page menu --search "$12.99" --new "$14.99"
+```
+
+### Fix a phone number in the footer
+
+Footer blocks aren't on regular pages — use the API directly. Create a quick script or use the ContentSaveClient:
+
+```typescript
+const client = createContentSaveClient(subdomain, cookiePath);
+const result = await client.patchFooterTextBlock('555-1234', '555-5678');
+```
+
+---
+
+## Error Handling
+
+- All methods return `{ success: boolean, error?: string }`
+- `"No text block found containing..."` → `--search` text doesn't match any block. Re-snapshot and check exact content.
+- `"Block is type X, not..."` → wrong block type matched. Use more specific search text.
+- Auth/crumb errors → session expired. Run `squarespace-setup` to refresh.
+- 400 from API → usually a malformed PUT. Check that HTML is valid and complete.
+
+## Key Rules
+
+- API calls take ~200ms. Always prefer API over browser agent.
+- `--search` is case-insensitive and matches against stripped text (no HTML tags).
+- HTML for `--html` must be valid: `<h2>Heading</h2><p>Paragraph.</p>`, `<ul><li>Item</li></ul>`.
+- Special characters: use `$'...'` bash quoting for unicode (e.g., `$'Let\u2019s'` for curly apostrophe).
+- Footer editing requires dedicated footer methods — standard page methods won't find footer blocks.
+- `updateImageBlock` changes metadata only (alt text, title, description). To swap the actual image file, use the browser agent's `replaceImage` action.

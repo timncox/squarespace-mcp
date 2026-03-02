@@ -3,18 +3,7 @@
  * sq.ts — Squarespace direct API CLI
  * Usage: tsx scripts/sq.ts <subcommand> [flags]
  *
- * Subcommands:
- *   login          --site <id>
- *   snapshot       --site <id> --page <slug>
- *   add-section    --site <id> --page <slug>
- *   add-text       --site <id> --page <slug> --section <idx> --html <str>
- *   update-text    --site <id> --page <slug> --search <str> --html <str>
- *   patch-text     --site <id> --page <slug> --search <str> --new <str>
- *   add-button     --site <id> --page <slug> --section <idx> --label <str> --url <str>
- *   remove-block   --site <id> --page <slug> --search <str>
- *   add-image      --site <id> --page <slug> --section <idx> --asset-url <str> [--alt <str>]
- *   move-section   --site <id> --page <slug> --index <n> --direction up|down
- *   section-style  --site <id> --page <slug> --search <str> [--theme <str>] [--height <str>]
+ * Run without arguments or with --help for full subcommand list.
  */
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'fs';
@@ -499,6 +488,357 @@ async function cmdSectionStyle(flags: Record<string, string>): Promise<void> {
   console.log(JSON.stringify(result, null, 2));
 }
 
+// ── Blog helper ──────────────────────────────────────────────────────────────
+
+async function resolveBlogCollectionId(
+  client: ReturnType<typeof createContentSaveClient>,
+  blogSlug: string,
+): Promise<string> {
+  const collections = await client.listCollections();
+  const blog = collections.find((c) => c.urlId === blogSlug);
+  if (!blog) {
+    const blogs = collections
+      .filter((c) => c.typeName === 'blog')
+      .map((c) => c.urlId)
+      .join(', ');
+    throw new Error(`Blog "${blogSlug}" not found. Available blogs: ${blogs || 'none'}. Use list-pages to see all collections.`);
+  }
+  return blog.id;
+}
+
+// ── New subcommands ──────────────────────────────────────────────────────────
+
+async function cmdUploadImage(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const url = flags.url;
+  if (!siteId) throw new Error('--site is required');
+  if (!url) throw new Error('--url is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.uploadImageToSite(url);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdCreatePage(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const title = flags.title;
+  if (!siteId) throw new Error('--site is required');
+  if (!title) throw new Error('--title is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.createPageViaApi(title, flags.slug);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdDeletePage(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const page = flags.page;
+  if (!siteId) throw new Error('--site is required');
+  if (!page) throw new Error('--page is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const { collectionId } = await resolvePageIds(subdomain, page, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.deletePageViaApi(collectionId);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdCreatePost(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const blogSlug = flags.blog;
+  const title = flags.title;
+  if (!siteId) throw new Error('--site is required');
+  if (!blogSlug) throw new Error('--blog is required');
+  if (!title) throw new Error('--title is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const collectionId = await resolveBlogCollectionId(client, blogSlug);
+
+  const options: { body?: string; tags?: string[]; draft?: boolean } = {};
+  if (flags.body) options.body = flags.body;
+  if (flags.tags) options.tags = flags.tags.split(',').map((t) => t.trim());
+  if (flags.draft === 'true') options.draft = true;
+
+  const result = await client.createBlogPost(collectionId, title, options);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdUpdatePost(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const blogSlug = flags.blog;
+  const search = flags.search;
+  if (!siteId) throw new Error('--site is required');
+  if (!blogSlug) throw new Error('--blog is required');
+  if (!search) throw new Error('--search is required (title text to find the post)');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const collectionId = await resolveBlogCollectionId(client, blogSlug);
+
+  // Find the post by title search
+  const items = await client.getCollectionItems(collectionId);
+  const post = items.items?.find((item) =>
+    item.title?.toLowerCase().includes(search.toLowerCase()),
+  );
+  if (!post) throw new Error(`No post matching "${search}" found in blog "${blogSlug}"`);
+
+  const updates: { title?: string; body?: string; tags?: string[]; draft?: boolean } = {};
+  if (flags.title) updates.title = flags.title;
+  if (flags.body) updates.body = flags.body;
+  if (flags.tags) updates.tags = flags.tags.split(',').map((t) => t.trim());
+  if (flags.draft !== undefined && flags.draft !== 'true') {
+    // --draft without value means true, explicit --draft false means false
+  }
+  if (flags.draft === 'true') updates.draft = true;
+  if (flags.draft === 'false') updates.draft = false;
+
+  const result = await client.updateBlogPost(collectionId, post.id, updates);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdListPosts(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const blogSlug = flags.blog;
+  if (!siteId) throw new Error('--site is required');
+  if (!blogSlug) throw new Error('--blog is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const collectionId = await resolveBlogCollectionId(client, blogSlug);
+
+  const options: { limit?: number } = {};
+  if (flags.limit) options.limit = parseInt(flags.limit, 10);
+
+  const result = await client.getCollectionItems(collectionId, options);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdMoveBlock(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  const search = flags.search;
+  const direction = flags.direction as 'up' | 'down' | 'left' | 'right';
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+  if (!search) throw new Error('--search is required');
+  if (!direction || !['up', 'down', 'left', 'right'].includes(direction)) {
+    throw new Error('--direction must be "up", "down", "left", or "right"');
+  }
+
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const steps = flags.steps ? parseInt(flags.steps, 10) : undefined;
+  const result = await client.moveBlock(pageSectionsId, collectionId, search, direction, steps);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdResizeBlock(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  const search = flags.search;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+  if (!search) throw new Error('--search is required');
+
+  const width = flags.width as 'smaller' | 'larger' | 'full' | undefined;
+  const height = flags.height as 'shorter' | 'taller' | undefined;
+  if (!width && !height) throw new Error('at least one of --width or --height is required');
+  if (width && !['smaller', 'larger', 'full'].includes(width)) {
+    throw new Error('--width must be "smaller", "larger", or "full"');
+  }
+  if (height && !['shorter', 'taller'].includes(height)) {
+    throw new Error('--height must be "shorter" or "taller"');
+  }
+
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.resizeBlock(pageSectionsId, collectionId, search, width, height);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdCustomCSS(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+
+  if (flags.css || flags.file) {
+    let css: string;
+    if (flags.file) {
+      if (!existsSync(flags.file)) throw new Error(`File not found: ${flags.file}`);
+      css = readFileSync(flags.file, 'utf-8');
+    } else {
+      css = flags.css;
+    }
+    const result = await client.saveCustomCSS(css);
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    const result = await client.getCustomCSS();
+    console.log(JSON.stringify(result, null, 2));
+  }
+}
+
+async function cmdSiteIdentity(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+
+  const hasUpdates = flags.name || flags.phone || flags.email || flags.address;
+  if (hasUpdates) {
+    const updates: { businessName?: string; phone?: string; email?: string; address?: string } = {};
+    if (flags.name) updates.businessName = flags.name;
+    if (flags.phone) updates.phone = flags.phone;
+    if (flags.email) updates.email = flags.email;
+    if (flags.address) updates.address = flags.address;
+    const result = await client.updateSiteIdentity(updates);
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    const result = await client.getSiteIdentity();
+    console.log(JSON.stringify(result, null, 2));
+  }
+}
+
+async function cmdUpdateMetadata(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const { collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const updates: { title?: string; description?: string; seoTitle?: string; seoDescription?: string } = {};
+  if (flags.title) updates.title = flags.title;
+  if (flags.description) updates.description = flags.description;
+  if (flags['seo-title']) updates.seoTitle = flags['seo-title'];
+  if (flags['seo-description']) updates.seoDescription = flags['seo-description'];
+
+  if (!updates.title && !updates.description && !updates.seoTitle && !updates.seoDescription) {
+    throw new Error('at least one of --title, --description, --seo-title, --seo-description is required');
+  }
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.updatePageMetadata(collectionId, updates);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdListPages(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.listCollections();
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdUpdateButton(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  const search = flags.search;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+  if (!search) throw new Error('--search is required');
+
+  const updates: { newLabel?: string; url?: string } = {};
+  if (flags.label) updates.newLabel = flags.label;
+  if (flags.url) updates.url = flags.url;
+
+  if (!updates.newLabel && !updates.url) {
+    throw new Error('at least one of --label or --url is required');
+  }
+
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.updateButtonBlock(pageSectionsId, collectionId, search, updates);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdUpdateImage(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  const search = flags.search;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+  if (!search) throw new Error('--search is required');
+
+  const fields: { title?: string; altText?: string; description?: string } = {};
+  if (flags.title) fields.title = flags.title;
+  if (flags.alt) fields.altText = flags.alt;
+  if (flags.description) fields.description = flags.description;
+
+  if (!fields.title && !fields.altText && !fields.description) {
+    throw new Error('at least one of --title, --alt, --description is required');
+  }
+
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.updateImageBlock(pageSectionsId, collectionId, search, fields);
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdUpdateMenu(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const slug = flags.page;
+  const search = flags.search;
+  const menusJson = flags.menus;
+  if (!siteId) throw new Error('--site is required');
+  if (!slug) throw new Error('--page is required');
+  if (!search) throw new Error('--search is required');
+  if (!menusJson) throw new Error('--menus is required (JSON string of menu array)');
+
+  let menus: unknown[];
+  try {
+    menus = JSON.parse(menusJson);
+  } catch {
+    throw new Error('--menus must be valid JSON');
+  }
+  if (!Array.isArray(menus)) throw new Error('--menus must be a JSON array');
+
+  const { subdomain } = resolveSite(siteId);
+  const { pageSectionsId, collectionId } = await resolvePageIds(subdomain, slug, {
+    psid: flags.psid,
+    colid: flags.colid,
+  });
+
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.updateMenuBlock(pageSectionsId, collectionId, search, menus);
+  console.log(JSON.stringify(result, null, 2));
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 const USAGE = `
@@ -507,17 +847,40 @@ Squarespace direct API CLI
 Usage: tsx scripts/sq.ts <subcommand> [flags]
 
 Subcommands:
-  login          --site <id>
-  snapshot       --site <id> --page <slug>
-  add-section    --site <id> --page <slug>
-  add-text       --site <id> --page <slug> --section <idx> --html <str>
-  update-text    --site <id> --page <slug> --search <str> --html <str>
-  patch-text     --site <id> --page <slug> --search <str> --new <str>
-  add-button     --site <id> --page <slug> --section <idx> --label <str> --url <str>
-  remove-block   --site <id> --page <slug> --search <str>
-  add-image      --site <id> --page <slug> --section <idx> --asset-url <str> [--alt <str>]
-  move-section   --site <id> --page <slug> --search <str> --direction up|down  (--search matches text in the section)
-  section-style  --site <id> --page <slug> --search <str> [--theme <str>] [--height <str>]
+  login            --site <id>
+  snapshot         --site <id> --page <slug>
+
+  Page & Section management:
+  add-section      --site <id> --page <slug>
+  move-section     --site <id> --page <slug> --search <str> --direction up|down
+  section-style    --site <id> --page <slug> --search <str> [--theme <str>] [--height <str>]
+  create-page      --site <id> --title <str> [--slug <str>]
+  delete-page      --site <id> --page <slug>
+  list-pages       --site <id>
+  update-metadata  --site <id> --page <slug> [--title <str>] [--description <str>] [--seo-title <str>] [--seo-description <str>]
+
+  Block editing:
+  add-text         --site <id> --page <slug> --section <idx> --html <str>
+  update-text      --site <id> --page <slug> --search <str> --html <str>
+  patch-text       --site <id> --page <slug> --search <str> --new <str>
+  add-button       --site <id> --page <slug> --section <idx> --label <str> --url <str>
+  update-button    --site <id> --page <slug> --search <str> [--label <str>] [--url <str>]
+  remove-block     --site <id> --page <slug> --search <str>
+  add-image        --site <id> --page <slug> --section <idx> --asset-url <str> [--alt <str>]
+  update-image     --site <id> --page <slug> --search <str> [--title <str>] [--alt <str>] [--description <str>]
+  update-menu      --site <id> --page <slug> --search <str> --menus <json>
+  move-block       --site <id> --page <slug> --search <str> --direction up|down|left|right [--steps <n>]
+  resize-block     --site <id> --page <slug> --search <str> [--width smaller|larger|full] [--height shorter|taller]
+
+  Blog:
+  create-post      --site <id> --blog <slug> --title <str> [--body <str>] [--tags <csv>] [--draft]
+  update-post      --site <id> --blog <slug> --search <str> [--title <str>] [--body <str>] [--tags <csv>] [--draft]
+  list-posts       --site <id> --blog <slug> [--limit <n>]
+
+  Site-wide:
+  upload-image     --site <id> --url <image-url> [--filename <str>]
+  custom-css       --site <id> [--css <str> | --file <path>]   (read if no flags, write if --css or --file)
+  site-identity    --site <id> [--name <str>] [--phone <str>] [--email <str>] [--address <str>]
 
 Common flags:
   --psid <id>    Override pageSectionsId (skip page ID resolution)
@@ -531,17 +894,32 @@ async function main(): Promise<void> {
   const flags = parseFlags(rest);
 
   switch (subcommand) {
-    case 'login':         return cmdLogin(flags);
-    case 'snapshot':      return cmdSnapshot(flags);
-    case 'add-section':   return cmdAddSection(flags);
-    case 'add-text':      return cmdAddText(flags);
-    case 'update-text':   return cmdUpdateText(flags);
-    case 'patch-text':    return cmdPatchText(flags);
-    case 'add-button':    return cmdAddButton(flags);
-    case 'remove-block':  return cmdRemoveBlock(flags);
-    case 'add-image':     return cmdAddImage(flags);
-    case 'move-section':  return cmdMoveSection(flags);
-    case 'section-style': return cmdSectionStyle(flags);
+    case 'login':           return cmdLogin(flags);
+    case 'snapshot':        return cmdSnapshot(flags);
+    case 'add-section':     return cmdAddSection(flags);
+    case 'add-text':        return cmdAddText(flags);
+    case 'update-text':     return cmdUpdateText(flags);
+    case 'patch-text':      return cmdPatchText(flags);
+    case 'add-button':      return cmdAddButton(flags);
+    case 'remove-block':    return cmdRemoveBlock(flags);
+    case 'add-image':       return cmdAddImage(flags);
+    case 'move-section':    return cmdMoveSection(flags);
+    case 'section-style':   return cmdSectionStyle(flags);
+    case 'upload-image':    return cmdUploadImage(flags);
+    case 'create-page':     return cmdCreatePage(flags);
+    case 'delete-page':     return cmdDeletePage(flags);
+    case 'create-post':     return cmdCreatePost(flags);
+    case 'update-post':     return cmdUpdatePost(flags);
+    case 'list-posts':      return cmdListPosts(flags);
+    case 'move-block':      return cmdMoveBlock(flags);
+    case 'resize-block':    return cmdResizeBlock(flags);
+    case 'custom-css':      return cmdCustomCSS(flags);
+    case 'site-identity':   return cmdSiteIdentity(flags);
+    case 'update-metadata': return cmdUpdateMetadata(flags);
+    case 'list-pages':      return cmdListPages(flags);
+    case 'update-button':   return cmdUpdateButton(flags);
+    case 'update-image':    return cmdUpdateImage(flags);
+    case 'update-menu':     return cmdUpdateMenu(flags);
     default:
       console.error(USAGE);
       process.exit(subcommand ? 1 : 0);

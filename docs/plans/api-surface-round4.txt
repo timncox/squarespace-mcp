@@ -1,0 +1,81 @@
+🔍 Round 4: Expanded API Discovery
+   Site: grey-yellow-hbxc
+   WebsiteId: 69934978b23b0453e46b6508
+   Crumb: yes
+
+═══ 1. IMAGE ASSET REPLACEMENT ═══
+
+  Looking for a page with image blocks...
+  Found test-page collection: 699f3d5bd9db5d1500d60c00
+  Found test-page pageSectionsId: 699f3d5bd9db5d1500d60c01
+  Page has 5 sections
+  Found image block: type=1337, id=yui_3_17_2_1_1772047900331_1407
+    assetUrl: none
+    title: none
+    altText: none
+
+  Testing if assetUrl can be modified via page-sections PUT...
+  (We already know PUT /api/page-sections/{id}/collection/{colId} works)
+  The assetUrl field is at: section.fluidEngineContext.gridContents[].content.value.value.assetUrl
+  → YES, this should work. The existing updateImageBlock only updates metadata (title/alt/etc.)
+  → A new method `replaceImageAsset()` could modify assetUrl via the same read-modify-write pattern
+  → Combined with MediaUploadClient.uploadImage(), this enables full image replacement via API
+
+  Media-related API endpoints:
+  ✅ /api/media/auth/v1/library/authorization — 271 bytes
+     Keys: token
+  ❌ /api/media/library → 404
+  ❌ /api/media/assets → 404
+  ❌ /api/media/upload → 404
+  ❌ /api/images → 404
+  ❌ /api/image/upload → 404
+
+═══ 2. PAGE CREATION ═══
+
+  ⚠️  POST /api/pages → 405
+
+═══ 3. NAVIGATION ORDERING ═══
+
+  Current navigation has 2 groups
+
+  Trying to update single link ordering (About)...
+
+═══ 4. SETTINGS WRITE ATTEMPTS ═══
+
+  Settings ID: 69934979b23b0453e46b6512
+  ⚠️  PUT /api/settings → 400 (endpoint exists?)
+     Error: 
+
+═══ 5. PAGE DELETION ENDPOINTS ═══
+
+
+  Checking if DELETE /api/collections/{id} works...
+  OPTIONS /api/collections/699f3d5bd9db5d1500d60c00: 404
+  No Allow header
+
+═══ 6. HEADER/FOOTER WRITE TEST ═══
+
+  GET /api/site-header-footer: 200 (6060 bytes)
+  Header keys: layout, action, showSocial, socialOptions, menuOverlayAnimation, cartStyle, cartText, showEmptyCartState, cartOptions, showButton, showCart, showAccountLogin, headerStyle, languagePicker, iconOptions, mobileOptions, solidOptions, gradientOptions, dropShadowOptions, borderOptions, showPromotedElement, buttonVariant, blurBackground, headerOpacity
+  PUT /api/site-header-footer: 200 (6060 bytes)
+  ✅ Header/footer is writable via PUT (confirmed)
+
+═══ 7. COMPREHENSIVE WRITABLE SCAN ═══
+
+  ⚠️  PUT /api/settings → 400 (exists but wrong payload?): 
+  ✅ POST /api/commondata/GetCollections/ → 200 WRITABLE!
+
+═══ 8. BLOG POST CREATION ═══
+
+  Blog collection ID: 69a358daecb2f10afcc77780
+
+═══ 9. MISCELLANEOUS ENDPOINTS ═══
+
+  ✅ /config/website — 200 (2895 bytes, json=false)
+  ⚠️  /api/me → 401
+
+======================================================================
+ROUND 4 SUMMARY
+======================================================================
+
+Key findings documented above. Check output for ✅ (working) and ⚠️ (partial).

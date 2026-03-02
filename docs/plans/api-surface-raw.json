@@ -1,0 +1,744 @@
+[
+  {
+    "endpoint": "/api/navigation",
+    "status": 200,
+    "responseSize": 3693,
+    "topLevelKeys": [
+      "(array)"
+    ],
+    "keyInfo": {
+      "(array)": "Array[2]",
+      "(array) item keys": "identifier, name, index, links, errors"
+    },
+    "sampleData": {
+      "identifier": "mainNav",
+      "name": "Main Navigation",
+      "index": false,
+      "links": [
+        {
+          "title": "About",
+          "urlId": "about-3",
+          "typeName": "page",
+          "collectionId": "69a3b7ee48d5592220bd1332",
+          "enabled": true,
+          "passwordProtected": false,
+          "collectionType": 10,
+          "isFolder": false,
+          "ordering": 3,
+          "updatedOn": 1772337134312,
+          "pagePermissionType": 1,
+          "isDraft": false,
+          "icon": "page"
+        },
+        {
+          "title": "About",
+          "urlId": "about-1",
+          "typeName": "page",
+          "collectionId": "69a3b777bb428b56138f8033",
+          "enabled": true,
+          "passwordProtected": false,
+          "collectionType": 10,
+          "isFolder": false,
+          "ordering": 3,
+          "updatedOn": 1772337015735,
+          "pagePermissionType": 1,
+          "isDraft": false,
+          "icon": "page"
+        },
+        {
+          "title": "About",
+          "urlId": "about-2",
+          "typeName": "page",
+          "collectionId": "69a3b6fc1f751b1a2f4b5ff6",
+          "enabled": true,
+          "passwordProtected": false,
+          "collectionType": 10,
+          "isFolder": false,
+          "ordering": 3,
+          "updatedOn": 1772336892974,
+          "pagePermissionType": 1,
+          "isDraft": false,
+          "icon": "page"
+        },
+        {
+          "title": "blog",
+          "urlId": "blog",
+          "typeName": "blog-masonry",
+          "collectionId": "69a358daecb2f10afcc77780",
+          "enabled": true,
+          "passwordProtected": false,
+          "collectionType": 1,
+          "isFolder": false,
+          "ordering": 2,
+          "updatedOn": 1772327364092,
+          "pagePermissionType": 1,
+          "isDraft": false,
+          "icon": "blog"
+        },
+        {
+          "title": "Test Page",
+          "urlId": "test-page",
+          "typeName": "page",
+          "collectionId": "699f3d5bd9db5d1500d60c00",
+          "enabled": true,
+          "passwordProtected": false,
+          "collectionType": 10,
+          "isFolder": false,
+          "ordering": 3,
+          "updatedOn": 1772420477212,
+          "pagePermissionType": 1,
+          "isDraft": false,
+          "icon": "page"
+        },
+        {
+          "title": "Private Dining",
+          "urlId": "private-dining",
+          "typeName": "page",
+          "collectionId": "699a0b5e356a115ca65f0439",
+          "enabled": true,
+          "passwordProtected": false,
+          "collectionType": 10,
+          "isFolder": false,
+          "ordering": 3,
+          "updatedOn": 1771705121358,
+          "pagePermissionType": 1,
+          "isDraft": false,
+          "icon": "page"
+        },
+        {
+          "title": "Wine List",
+          "urlId": "wine-list",
+          "typeName": "page",
+          "collectionId": "699a049a9dd1ab0f653f4080",
+          "enabled": true,
+          "passwordProtected": false,
+          "collectionType": 10,
+          "isFolder": false,
+          "ordering": 3,
+          "updatedOn": 1771702098624,
+          "pagePermissionType": 1,
+          "isDraft": false,
+          "icon": "page"
+        },
+        {
+          "title": "Weekend Brunch",
+          "urlId": "weekend-brunch",
+          "typeName": "page",
+          "collectionId": "6999fd1ea6e98b6d24849751",
+          "enabled": true,
+          "passwordProtected": false,
+          "collectionType": 10,
+          "isFolder": false,
+          "ordering": 3,
+          "updatedOn": 1771700193993,
+          "pagePermissionType": 1,
+          "isDraft": false,
+          "icon": "page"
+        },
+        {
+          "title": "Happy Hour",
+          "urlId": "happy-hour",
+          "typeName": "page",
+          "collectionId": "6999f76a247efd3938aa9750",
+          "enabled": true,
+          "passwordProtected": false,
+          "collectionType": 10,
+          "isFolder": false,
+          "ordering": 3,
+          "updatedOn": 1771698969930,
+          "pagePermissionType": 1,
+          "isDraft": false,
+          "icon": "page"
+        },
+        {
+          "title": "Gallery",
+          "urlId": "gallery",
+          "typeName": "page",
+          "collectionId": "6993497cb23b0453e46b6606",
+          "enabled": true,
+          "passwordProtected": false,
+          "collectionType": 10,
+          "isFolder": false,
+          "ordering": 3,
+          "updatedOn": 1771260284053,
+          "pagePermissionType": 1,
+          "isDraft": false,
+          "icon": "page"
+        },
+        {
+          "title": "Menus",
+          "urlId": "menus",
+          "typeName": "page",
+          "collectionId": "6993497ab23b0453e46b656c",
+          "enabled": true,
+          "passwordProtected": false,
+          "collectionType": 10,
+          "isFolder": false,
+          "ordering": 3,
+          "updatedOn": 1772064548052,
+          "pagePermissionType": 1,
+          "isDraft": false,
+          "icon": "page"
+        },
+        {
+          "title": "Private Events",
+          "urlId": "private-events",
+          "typeName": "page",
+          "collectionId": "6993497db23b0453e46b666e",
+          "enabled": true,
+          "passwordProtected": false,
+          "collectionType": 10,
+          "isFolder": false,
+          "ordering": 3,
+          "updatedOn": 1771260285978,
+          "pagePermissionType": 1,
+          "isDraft": false,
+          "icon": "page"
+        }
+      ],
+      "errors": []
+    }
+  },
+  {
+    "endpoint": "/api/site-design",
+    "status": 404,
+    "responseSize": 109575,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/design-data",
+    "status": 404,
+    "responseSize": 96459,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/design",
+    "status": 404,
+    "responseSize": 96459,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/url-redirects",
+    "status": 404,
+    "responseSize": 100731,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/form-builder/forms",
+    "status": 404,
+    "responseSize": 106359,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/commerce/products",
+    "status": 200,
+    "responseSize": 58,
+    "topLevelKeys": [
+      "results",
+      "hasPreviousPage",
+      "hasNextPage"
+    ],
+    "keyInfo": {
+      "results": "Array[0]",
+      "hasPreviousPage": "boolean: false",
+      "hasNextPage": "boolean: false"
+    }
+  },
+  {
+    "endpoint": "/api/members",
+    "status": 404,
+    "responseSize": 101535,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/member-areas",
+    "status": 404,
+    "responseSize": 97525,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/config/pages",
+    "status": 404,
+    "responseSize": 100731,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/settings",
+    "status": 200,
+    "responseSize": 4102,
+    "topLevelKeys": [
+      "id",
+      "hideTrialBanner",
+      "websiteId",
+      "ownerId",
+      "tutorialsCompleted",
+      "socialAccountDisplayOrder",
+      "subjects",
+      "country",
+      "state",
+      "markdownMode",
+      "simpleLikingEnabled",
+      "mobileInfoBarSettings",
+      "announcementBarSettings",
+      "lastAgreedTermsOfService",
+      "defaultPostFormat",
+      "commentLikesAllowed",
+      "commentAnonAllowed",
+      "commentThreaded",
+      "commentApprovalRequired",
+      "commentAvatarsOn",
+      "commentSortType",
+      "commentFlagThreshold",
+      "commentFlagsAllowed",
+      "commentEnableByDefault",
+      "commentDisableAfterDaysDefault",
+      "disqusShortname",
+      "homepageTitleFormat",
+      "collectionTitleFormat",
+      "itemTitleFormat",
+      "commentsEnabled",
+      "uiComponentRegistrationsFlag",
+      "scriptRegistrationsFlag",
+      "bundleEligible",
+      "bucketingSeedId",
+      "creatorAccountCreationDate",
+      "newPlanArchitectureEligible",
+      "internalContactPhoneNumber",
+      "businessHours",
+      "internalContactEmail",
+      "allowSquarespacePromotion",
+      "storeSettings",
+      "useEscapeKeyToLogin",
+      "lockScreenBetaEnabled",
+      "ssBadgeType",
+      "ssBadgePosition",
+      "ssBadgeVisibility",
+      "ssBadgeDevices",
+      "pinterestOverlayOptions",
+      "useDeviceView",
+      "coverPageOnlyEnabled",
+      "assetPurchasesByNonAdminsAllowed",
+      "ampEnabled",
+      "interfaceType",
+      "menuShortcuts",
+      "isRestrictiveCookiePolicyEnabled",
+      "seoHidden",
+      "userAccountsSettings",
+      "isCookieBannerEnabled",
+      "isVisitorDataRestricted",
+      "internationalOptedInWebsite",
+      "isChatDismissed",
+      "memberAreaNavigationSetting",
+      "displayAiContentDisclaimer"
+    ],
+    "keyInfo": {
+      "id": "string: 69934979b23b0453e46b6512",
+      "hideTrialBanner": "boolean: false",
+      "websiteId": "string: 69934978b23b0453e46b6508",
+      "ownerId": "string: 54359514e4b060d07debf72f",
+      "tutorialsCompleted": "Object{damask-guide, seven-one-site-styles}",
+      "socialAccountDisplayOrder": "Array[3]",
+      "subjects": "Array[0]",
+      "country": "string: US",
+      "state": "string: NY",
+      "markdownMode": "boolean: false",
+      "simpleLikingEnabled": "boolean: true",
+      "mobileInfoBarSettings": "Object{isContactEmailEnabled, isContactPhoneNumberEnabled, isLocationEnabled, isBusinessHoursEnabled}",
+      "announcementBarSettings": "Object{}",
+      "lastAgreedTermsOfService": "number: 3",
+      "defaultPostFormat": "string: %t",
+      "commentLikesAllowed": "boolean: true",
+      "commentAnonAllowed": "boolean: true",
+      "commentThreaded": "boolean: true",
+      "commentApprovalRequired": "boolean: false",
+      "commentAvatarsOn": "boolean: true",
+      "commentSortType": "number: 2",
+      "commentFlagThreshold": "number: 0",
+      "commentFlagsAllowed": "boolean: true",
+      "commentEnableByDefault": "boolean: true",
+      "commentDisableAfterDaysDefault": "number: 0",
+      "disqusShortname": "string: ",
+      "homepageTitleFormat": "string: %s",
+      "collectionTitleFormat": "string: %p — %s",
+      "itemTitleFormat": "string: %i — %s",
+      "commentsEnabled": "boolean: false",
+      "uiComponentRegistrationsFlag": "boolean: false",
+      "scriptRegistrationsFlag": "boolean: false",
+      "bundleEligible": "boolean: false",
+      "bucketingSeedId": "string: 8479d8db-8d02-40eb-b261-bdc497263855",
+      "creatorAccountCreationDate": "number: 1412797716485",
+      "newPlanArchitectureEligible": "boolean: true",
+      "internalContactPhoneNumber": "string: ",
+      "businessHours": "Object{monday, tuesday, wednesday, thursday, friday, saturday, sunday}",
+      "internalContactEmail": "string: ",
+      "allowSquarespacePromotion": "boolean: true",
+      "storeSettings": "Object{returnPolicy, termsOfService, privacyPolicy, storeMailingList, expressCheckout, continueShoppingLinkUrl, testModeOn, useLightCart, showNoteField, shippingCountryDefaultValue} +23 more",
+      "useEscapeKeyToLogin": "boolean: false",
+      "lockScreenBetaEnabled": "boolean: false",
+      "ssBadgeType": "number: 1",
+      "ssBadgePosition": "number: 4",
+      "ssBadgeVisibility": "number: 1",
+      "ssBadgeDevices": "number: 1",
+      "pinterestOverlayOptions": "Object{mode}",
+      "useDeviceView": "boolean: true",
+      "coverPageOnlyEnabled": "boolean: false",
+      "assetPurchasesByNonAdminsAllowed": "boolean: true",
+      "ampEnabled": "boolean: false",
+      "interfaceType": "number: 2",
+      "menuShortcuts": "Object{1, 2, 3, 4, 9}",
+      "isRestrictiveCookiePolicyEnabled": "boolean: false",
+      "seoHidden": "boolean: false",
+      "userAccountsSettings": "Object{loginAllowed, signupAllowed}",
+      "isCookieBannerEnabled": "boolean: false",
+      "isVisitorDataRestricted": "boolean: false",
+      "internationalOptedInWebsite": "boolean: false",
+      "isChatDismissed": "boolean: false",
+      "memberAreaNavigationSetting": "string: replace_main_nav",
+      "displayAiContentDisclaimer": "boolean: false"
+    }
+  },
+  {
+    "endpoint": "/api/site-settings",
+    "status": 404,
+    "responseSize": 96571,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/site-data",
+    "status": 404,
+    "responseSize": 100731,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/template-config",
+    "status": 404,
+    "responseSize": 126459,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/sitewide-settings",
+    "status": 404,
+    "responseSize": 97525,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/fonts",
+    "status": 404,
+    "responseSize": 96571,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/colors",
+    "status": 404,
+    "responseSize": 96459,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/social-links",
+    "status": 404,
+    "responseSize": 96459,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/commondata/GetCollections/",
+    "status": 200,
+    "responseSize": 10408,
+    "topLevelKeys": [
+      "collections"
+    ],
+    "keyInfo": {
+      "collections": "Object{6993497ab23b0453e46b656c, 6993497ab23b0453e46b65ab, 6993497cb23b0453e46b6606, 6993497db23b0453e46b666e, 6999f76a247efd3938aa9750, 6999fd1ea6e98b6d24849751, 699a049a9dd1ab0f653f4080, 699a0b5e356a115ca65f0439, 699f3d5bd9db5d1500d60c00, 69a358daecb2f10afcc77780} +3 more"
+    }
+  },
+  {
+    "endpoint": "/api/site-header-footer",
+    "status": 200,
+    "responseSize": 6060,
+    "topLevelKeys": [
+      "header",
+      "footer"
+    ],
+    "keyInfo": {
+      "header": "Object{layout, action, showSocial, socialOptions, menuOverlayAnimation, cartStyle, cartText, showEmptyCartState, cartOptions, showButton} +14 more",
+      "footer": "Object{sections}"
+    }
+  },
+  {
+    "endpoint": "/api/pages",
+    "status": 405,
+    "responseSize": 0,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 405: "
+  },
+  {
+    "endpoint": "/api/blog",
+    "status": 404,
+    "responseSize": 96571,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/blog/posts",
+    "status": 404,
+    "responseSize": 96459,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/collections",
+    "status": 404,
+    "responseSize": 101535,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/template",
+    "status": 404,
+    "responseSize": 104751,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/template/GetTemplate",
+    "status": 500,
+    "responseSize": 82,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 500: {\"error\":\"Something went wrong.\",\"errorKey\":\"CMJTWACR24TW4NEJH2NT\",\"cleaned\":true}"
+  },
+  {
+    "endpoint": "/api/customcss",
+    "status": 404,
+    "responseSize": 96459,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/custom-css",
+    "status": 404,
+    "responseSize": 100731,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/website-settings",
+    "status": 404,
+    "responseSize": 106359,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/site",
+    "status": 404,
+    "responseSize": 101535,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/config",
+    "status": 404,
+    "responseSize": 106359,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/schema",
+    "status": 404,
+    "responseSize": 96923,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/widgets",
+    "status": 404,
+    "responseSize": 96571,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/integrations",
+    "status": 404,
+    "responseSize": 100731,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/analytics",
+    "status": 404,
+    "responseSize": 96459,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/search",
+    "status": 404,
+    "responseSize": 99123,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/localization",
+    "status": 404,
+    "responseSize": 109575,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/i18n",
+    "status": 404,
+    "responseSize": 106359,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/seo",
+    "status": 404,
+    "responseSize": 117615,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/panel",
+    "status": 404,
+    "responseSize": 107967,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/billing",
+    "status": 405,
+    "responseSize": 0,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 405: "
+  },
+  {
+    "endpoint": "/api/domains",
+    "status": 405,
+    "responseSize": 0,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 405: "
+  },
+  {
+    "endpoint": "/api/dns",
+    "status": 404,
+    "responseSize": 108771,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/notifications",
+    "status": 404,
+    "responseSize": 100731,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/announcements",
+    "status": 404,
+    "responseSize": 109575,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/popups",
+    "status": 404,
+    "responseSize": 96459,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/scheduling",
+    "status": 404,
+    "responseSize": 103143,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/appointments",
+    "status": 404,
+    "responseSize": 96459,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/favicon",
+    "status": 404,
+    "responseSize": 108771,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/media",
+    "status": 404,
+    "responseSize": 118419,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  },
+  {
+    "endpoint": "/api/assets",
+    "status": 404,
+    "responseSize": 104751,
+    "topLevelKeys": [],
+    "keyInfo": {},
+    "error": "HTTP 404: <!doctype html>\n<html xmlns:og=\"http://opengraphprotocol.org/schema/\" xmlns:fb=\"http://www.facebook.com/2008/fbml\" lang=\"en-US\"  data-authenticated-account>\n  <head>\n    <meta http-equiv=\"X-UA-Compati"
+  }
+]

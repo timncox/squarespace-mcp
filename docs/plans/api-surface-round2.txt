@@ -1,0 +1,69 @@
+═══ /api/navigation — deep inspection ═══
+Navigation has 2 nav groups:
+  - "Main Navigation" (identifier: mainNav, index: false)
+    Links (12):
+      About → /about-3 (type: page, collectionId: 69a3b7ee48d5592220bd1332, ordering: 3, enabled: true)
+      About → /about-1 (type: page, collectionId: 69a3b777bb428b56138f8033, ordering: 3, enabled: true)
+      About → /about-2 (type: page, collectionId: 69a3b6fc1f751b1a2f4b5ff6, ordering: 3, enabled: true)
+      blog → /blog (type: blog-masonry, collectionId: 69a358daecb2f10afcc77780, ordering: 2, enabled: true)
+      Test Page → /test-page (type: page, collectionId: 699f3d5bd9db5d1500d60c00, ordering: 3, enabled: true)
+      Private Dining → /private-dining (type: page, collectionId: 699a0b5e356a115ca65f0439, ordering: 3, enabled: true)
+      Wine List → /wine-list (type: page, collectionId: 699a049a9dd1ab0f653f4080, ordering: 3, enabled: true)
+      Weekend Brunch → /weekend-brunch (type: page, collectionId: 6999fd1ea6e98b6d24849751, ordering: 3, enabled: true)
+      Happy Hour → /happy-hour (type: page, collectionId: 6999f76a247efd3938aa9750, ordering: 3, enabled: true)
+      Gallery → /gallery (type: page, collectionId: 6993497cb23b0453e46b6606, ordering: 3, enabled: true)
+      Menus → /menus (type: page, collectionId: 6993497ab23b0453e46b656c, ordering: 3, enabled: true)
+      Private Events → /private-events (type: page, collectionId: 6993497db23b0453e46b666e, ordering: 3, enabled: true)
+  - "Not Linked" (identifier: _hidden, index: false)
+    Links (1):
+      Home → /home (type: page, collectionId: 6993497ab23b0453e46b65ab, ordering: 3, enabled: true)
+
+═══ /api/settings — actionable fields ═══
+  websiteId: "69934978b23b0453e46b6508"
+  ownerId: "54359514e4b060d07debf72f"
+  country: "US"
+  state: "NY"
+  homepageTitleFormat: "%s"
+  collectionTitleFormat: "%p — %s"
+  itemTitleFormat: "%i — %s"
+  seoHidden: false
+  isCookieBannerEnabled: false
+  isVisitorDataRestricted: false
+  businessHours: {"monday":{"text":"","ranges":[{}]},"tuesday":{"text":"","ranges":[{}]},"wednesday":{"text":"","ranges":[{}]},"thursday":{"text":"","ranges":[{}]},"friday":{"text":"","ranges":[{}]},"saturday":{"text"
+  internalContactPhoneNumber: ""
+  internalContactEmail: ""
+  commentsEnabled: false
+  commentEnableByDefault: true
+  announcementBarSettings: {}
+  mobileInfoBarSettings: {"isContactEmailEnabled":false,"isContactPhoneNumberEnabled":false,"isLocationEnabled":false,"isBusinessHoursEnabled":false}
+  storeSettings: {"returnPolicy":{"raw":false},"termsOfService":{"raw":false},"privacyPolicy":{"raw":false},"storeMailingList":{"connected":false,"list":"","useSingleOptIn":false},"expressCheckout":false,"continueShop
+  userAccountsSettings: {"loginAllowed":true,"signupAllowed":true}
+  ssBadgeType: 1
+  ssBadgePosition: 4
+  ssBadgeVisibility: 1
+  memberAreaNavigationSetting: "replace_main_nav"
+  displayAiContentDisclaimer: false
+
+  Testing PUT /api/settings (read-only check)...
+  PUT /api/settings: 400 (0 bytes)
+  ⚠️  PUT failed: 
+
+═══ 405 endpoints — trying POST ═══
+  POST /api/pages: 405 (0 bytes)
+  POST /api/billing: 405 (0 bytes)
+  POST /api/domains: 405 (0 bytes)
+
+═══ Additional endpoint patterns ═══
+  ⚠️  405 /api/commerce/inventory — 
+  ⚠️  500 /api/template/GetTemplate — {"error":"Something went wrong.","errorKey":"MWJFNLRE336T96SPD3LH","cleaned":true}
+  ✅ /config/design — 2895 bytes
+  ✅ /config/pages — 2895 bytes
+
+═══ /api/commerce deep dive ═══
+  ✅ /api/commerce/products — 58 bytes: {"results":[],"hasPreviousPage":false,"hasNextPage":false}
+  ⚠️  /api/commerce/inventory → 405
+  ⚠️  /api/commerce/shipping → 405
+
+═══ /api/navigation — testing PUT for page reordering ═══
+  PUT /api/navigation: 405 (0 bytes)
+  ⚠️  PUT failed: 

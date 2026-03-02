@@ -38,20 +38,27 @@ Strip HTML tags when displaying text snippets. Truncate to 80 characters with `.
 
 **Block structure**: the type and value are nested at `block.content.value.type` and `block.content.value.value` — not at the top level of the block object.
 
-## Block type reference
+## Block type reference (Fluid Engine)
 
-| Type number | Name         | Key fields in `value`                            |
-|-------------|--------------|--------------------------------------------------|
-| 2           | Text         | `html`                                           |
-| 46          | Button       | `label`, `url`                                   |
-| 1337        | Image        | `altText`, `assetUrl`                            |
-| 18          | Menu         | `menus[]`, `raw`                                 |
-| 31          | Quote        | `quote` (HTML), `attribution`                    |
-| 47          | Divider      | (no significant fields)                          |
-| 8           | Gallery      | `collectionId` (images are in a separate collection, not embedded) |
-| 22          | Video        | `url` (YouTube/Vimeo), `html` (embed code)       |
-| 54          | Social Links | `accounts[]`, `iconSize`, `iconStyle`            |
-| 32          | Map          | `description`, `layout`                          |
+| Type | Name           | Key fields in `value`                                          |
+|------|----------------|----------------------------------------------------------------|
+| 2    | Text           | `html`                                                         |
+| 8    | Gallery        | `collectionId` (images in separate collection, not embedded)   |
+| 18   | Menu           | `menus[]`, `raw`, `menuStyle`, `currencySymbol`                |
+| 22   | Embed          | `html` (embed code), `url`                                     |
+| 31   | Quote          | `quote` (HTML), `attribution`                                  |
+| 32   | Video          | `url` (YouTube/Vimeo), `html` (embed code)                     |
+| 46   | Button         | `label`, `url`                                                 |
+| 47   | Divider        | (no significant fields)                                        |
+| 51   | Newsletter     | `headline`, `description`, `buttonText`                        |
+| 54   | Social Links   | `accounts[]`, `iconSize`, `iconStyle`                          |
+| 69   | Accordion      | `title`, `paragraphs[]`                                        |
+| 70   | Marquee        | `text`, `speed`                                                |
+| 1337 | Image          | `altText`, `assetUrl`                                          |
+| 1337 | Code           | `wysiwyg.engine === 'code'` (distinguishes from Image)         |
+| 1337 | Form           | `buttonVariant` field present (distinguishes from Image/Code)  |
+
+**Note**: Types 1337 (Image), 1337 (Code), and 1337 (Form) share the same type number. Distinguish by: Code has `wysiwyg.engine === 'code'`; Form has `buttonVariant` field; Image is the default.
 
 Any other type number: display as `[Unknown type <N>]`.
 

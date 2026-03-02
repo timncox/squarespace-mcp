@@ -97,4 +97,30 @@ json.dump(cache, open(path, 'w'), indent=2)
 
 ## Session lifetime
 
-Cookies typically last 24 hours on active Squarespace sessions, but have been observed to work up to 90 hours. If API calls start returning 401 errors, re-run the login flow for that site.
+Sessions work reliably well past the 24h warning — 77-hour and 90-hour sessions have been confirmed working. The `checkSessionHealth()` static method warns at 24h, but do not preemptively re-login. Check with `sq.ts snapshot` first — only re-run the login flow when API calls actually start returning 401 errors.
+
+## Page ID cache management
+
+`getPageIds()` caches resolved `pageSectionsId` and `collectionId` values in `~/.squarespace/page-id-cache.json`. For public/published sites, IDs are resolved automatically from the site's public JSON. For private or trial sites, automatic resolution may fail — pass `--psid` and `--colid` flags manually:
+
+```bash
+tsx scripts/sq.ts snapshot --site <id> --page <slug> --psid <pageSectionsId> --colid <collectionId>
+```
+
+These IDs appear in the Squarespace editor URL:
+```
+https://<subdomain>.squarespace.com/config/pages/<pageSectionsId>?collectionId=<collectionId>
+```
+
+Run `snapshot` first to verify IDs are correct before running other commands. Once resolved (manually or automatically), IDs are cached and reused for subsequent commands.
+
+## Next steps
+
+After setup is complete, use these task-oriented skills for specific workflows:
+
+- **squarespace-snapshot** — View current page content and structure
+- **squarespace-create** — Add new sections, blocks, and pages
+- **squarespace-edit** — Modify existing content (text, images, menus, etc.)
+- **squarespace-blog** — Create and manage blog posts
+- **squarespace-design** — Section styling, themes, CSS, and visual changes
+- **squarespace-settings** — Page metadata, SEO, navigation, and site config
