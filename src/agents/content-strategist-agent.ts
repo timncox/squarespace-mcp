@@ -18,6 +18,7 @@ import type {
   SiteAnalysis,
   PageStructure,
 } from './types.js';
+import type { NavigationData } from '../services/content-save-types.js';
 import type { TemplateCatalog } from '../config/section-templates-types.js';
 import type { TemplateDiscoveryResult } from '../services/template-discovery.js';
 import { formatDiscoveredTemplatesForPrompt } from '../services/template-discovery.js';
@@ -153,6 +154,7 @@ export async function runContentStrategistAgent(
   previousPlan?: ContentPlan,
   discoveredTemplates?: TemplateDiscoveryResult,
   pageStructures?: Record<string, PageStructure>,
+  navigationData?: NavigationData,
 ): Promise<AgentResult<ContentPlan>> {
   const start = Date.now();
 
@@ -164,7 +166,7 @@ export async function runContentStrategistAgent(
       logger.info({ count: learnings.length, siteId: primaryTask?.siteId }, 'Content strategist: injecting learned patterns');
     }
 
-    const prompt = buildStrategyPrompt(tasks, research, siteAnalysis, revisionFeedback, previousPlan, learnings, discoveredTemplates, pageStructures);
+    const prompt = buildStrategyPrompt(tasks, research, siteAnalysis, revisionFeedback, previousPlan, learnings, discoveredTemplates, pageStructures, navigationData);
 
     const response = await getAnthropicClient().messages.create({
       model: MODEL_SONNET,
@@ -216,6 +218,7 @@ function buildStrategyPrompt(
   learnings?: Learning[],
   discoveredTemplates?: TemplateDiscoveryResult,
   pageStructures?: Record<string, PageStructure>,
+  navigationData?: NavigationData,
 ): string {
   const parts: string[] = [];
 
@@ -411,6 +414,47 @@ The content you write will be typed VERBATIM into the Squarespace website editor
         parts.push('');
       }
     }
+  }
+
+  // Navigation data (from API — shows what pages exist on the site)
+  if (navigationData) {
+    parts.push('## Site Navigation (from API)\n');
+    if (navigationData.mainNavigation.length > 0) {
+      parts.push('Main Navigation:');
+      for (let i = 0; i < navigationData.mainNavigation.length; i++) {
+        const item = navigationData.mainNavigation[i];
+        const typeLabel = item.collectionType === 1 ? 'blog' : 'page';
+        const flags: string[] = [];
+        if (item.enabled === false) flags.push('disabled');
+        if (item.isDraft) flags.push('draft');
+        if (item.isFolder) flags.push('folder');
+        const flagStr = flags.length > 0 ? `, ${flags.join(', ')}` : '';
+        parts.push(`${i + 1}. ${item.title} (${typeLabel}, slug: ${item.urlSlug}${item.enabled !== false ? ', enabled' : ''}${flagStr})`);
+        if (item.children && item.children.length > 0) {
+          for (const child of item.children) {
+            const childType = child.collectionType === 1 ? 'blog' : 'page';
+            parts.push(`   - ${child.title} (${childType}, slug: ${child.urlSlug})`);
+          }
+        }
+      }
+    }
+    if (navigationData.notLinked.length > 0) {
+      parts.push('\nNot Linked:');
+      for (const item of navigationData.notLinked) {
+        const typeLabel = item.collectionType === 1 ? 'blog' : 'page';
+        const flags: string[] = [];
+        if (item.isDraft) flags.push('draft');
+        if (item.enabled === false) flags.push('disabled');
+        const flagStr = flags.length > 0 ? ` (${flags.join(', ')})` : '';
+        parts.push(`- ${item.title} (${typeLabel}, slug: ${item.urlSlug}${flagStr})`);
+      }
+    }
+    parts.push('');
+    parts.push('Use this navigation data to:');
+    parts.push('- Avoid creating duplicate pages');
+    parts.push('- Know which page is the blog collection (for blog post routing)');
+    parts.push('- Identify hidden/draft pages');
+    parts.push('');
   }
 
   // Learned editor patterns (from past executions)

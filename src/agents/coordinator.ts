@@ -20,6 +20,7 @@ import { getBrowserManager } from '../automation/browser-manager.js';
 import { ensureLoggedIn } from '../automation/squarespace-auth.js';
 import { resolveSite, navigateToSite, navigateToPage, enterEditMode } from '../automation/site-navigator.js';
 import { getOrDiscoverTemplates, getCachedDiscovery, type TemplateDiscoveryResult } from '../services/template-discovery.js';
+import type { NavigationData } from '../services/content-save-types.js';
 import { getOrFetchCatalog, catalogToDiscoveryResult } from '../services/section-catalog.js';
 import { sendToTim } from '../services/whatsapp.js';
 import { logger } from '../utils/logger.js';
@@ -297,6 +298,30 @@ export async function runContentPipeline(
       });
     }
 
+    // ── Step 2d: Navigation data (pure API call, no browser needed) ──
+    let navigationData: NavigationData | undefined;
+    try {
+      if (subdomain) {
+        const { createContentSaveClient } = await import('../services/content-save.js');
+        const navClient = createContentSaveClient(subdomain);
+        const navResult = await navClient.getNavigation();
+        if (navResult.success && navResult.data) {
+          navigationData = navResult.data;
+          logger.info(
+            { mainNav: navigationData.mainNavigation.length, notLinked: navigationData.notLinked.length },
+            'Content pipeline: navigation fetched',
+          );
+          dashboardEvents.emit('dashboard', {
+            type: 'agent_activity' as const,
+            data: { agent: 'navigation', status: 'completed', message: `Navigation: ${navigationData.mainNavigation.length} main pages, ${navigationData.notLinked.length} not linked` },
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+    } catch (err) {
+      logger.warn({ error: errMsg(err) }, 'Content pipeline: navigation fetch failed');
+    }
+
     // Close the browser — the editor agent will open its own session later
     await browserManager.close();
   } catch (err) {
@@ -311,7 +336,7 @@ export async function runContentPipeline(
     timestamp: new Date().toISOString(),
   });
 
-  const strategyResult = await runContentStrategistAgent(tasks, research, siteAnalysis, undefined, undefined, discoveredTemplates, pageStructures);
+  const strategyResult = await runContentStrategistAgent(tasks, research, siteAnalysis, undefined, undefined, discoveredTemplates, pageStructures, navigationData);
 
   if (!strategyResult.success || !strategyResult.data) {
     throw new Error(`Content strategist failed: ${strategyResult.error ?? 'Unknown error'}`);
@@ -376,6 +401,7 @@ export async function reviseContentPlan(
   siteAnalysis?: SiteAnalysis,
   conversationId?: string,
   discoveredTemplates?: TemplateDiscoveryResult,
+  navigationData?: NavigationData,
 ): Promise<ContentPlan> {
   logger.info({ feedback: feedback.substring(0, 100) }, 'Content pipeline: revising plan');
 
@@ -400,6 +426,8 @@ export async function reviseContentPlan(
     feedback,
     previousPlan,
     templates,
+    undefined,
+    navigationData,
   );
 
   if (!result.success || !result.data) {
