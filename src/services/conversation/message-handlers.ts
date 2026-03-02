@@ -178,6 +178,8 @@ export async function handleDirectRequest(msg: IncomingWhatsAppMessage & { image
       const { discoverSites } = await import('../../automation/site-discovery.js');
       discoveredSites = await discoverSites(page);
       logger.info({ count: discoveredSites.length }, 'Discovered sites for request interpretation');
+      // Save session so Content Save API has fresh cookies (crumb token etc.)
+      await browserManager.saveSession();
     } catch (err) {
       logger.warn({ error: errMsg(err) }, 'Could not discover sites — falling back to static config');
     }

@@ -824,6 +824,11 @@ async function executeTask(
     // Navigate to the site admin
     await navigateToSite(page, client);
 
+    // Save session after navigating to the editor — Squarespace sets fresh
+    // crumb cookies on navigation, so persisting them to disk keeps the
+    // Content Save API fast path working for subsequent tasks.
+    await browserManager.saveSession();
+
     // Detect page-creation tasks — these need to start from the Pages panel,
     // NOT inside edit mode on an existing page.
     const isPageCreationTask = taskIsPageCreation(task);

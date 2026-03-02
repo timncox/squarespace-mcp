@@ -405,6 +405,18 @@ export class ContentSaveClient {
   }
 
   /**
+   * Re-read session cookies from disk (e.g. after the browser has refreshed them).
+   * Resets all cookie state and reloads from the session file.
+   */
+  reloadSessionCookies(sessionPath?: string): void {
+    this.siteCookieHeader = '';
+    this.crumbToken = null;
+    this.websiteIdCache = null;
+    this.memberAccountIdCache = null;
+    this.loadSessionCookies(sessionPath);
+  }
+
+  /**
    * Get the current page sections data.
    * Uses GET /api/page-sections/{pageSectionsId} (no collection suffix needed).
    */
