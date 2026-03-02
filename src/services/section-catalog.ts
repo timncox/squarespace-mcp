@@ -9,7 +9,7 @@
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
 import { getDb } from '../db/database.js';
-import { createContentSaveClient, type SectionCatalogEntry, type SectionCatalogResponse } from './content-save.js';
+import { createContentSaveClient, type SectionCatalogEntry, type SectionCatalogResponse, type CopyTemplateSectionResult } from './content-save.js';
 import type { DiscoveredCategory, TemplateDiscoveryResult } from './template-discovery.js';
 
 // ── Cache TTL ────────────────────────────────────────────────────────────────
@@ -160,6 +160,68 @@ function getCachedCatalog(subdomain: string): Record<string, SectionCatalogEntry
     return catalog;
   } catch (err) {
     logger.warn({ subdomain, error: errMsg(err) }, 'section-catalog: failed to read cache');
+    return null;
+  }
+}
+
+// ── Shared Helper: Copy Template Section ────────────────────────────────
+
+/**
+ * Copy a template section via the Content Save API (~300ms).
+ *
+ * This is the shared helper used by:
+ * - handler-utils.ts (browser agent fast path)
+ * - execution.ts (template fast path in conversation execution)
+ * - api-executor.ts (API-only pipeline)
+ *
+ * Flow: getOrFetchCatalog() → lookupCatalogEntry() → createContentSaveClient() → copyTemplateSection()
+ *
+ * @returns Copy result with sectionId on success, null on any failure. Never throws.
+ */
+export async function copyTemplateSectionFromCatalog(
+  subdomain: string,
+  categoryName: string,
+  templateIndex: number,
+): Promise<CopyTemplateSectionResult | null> {
+  try {
+    // Step 1: Get catalog (cached, ~0ms on hit)
+    const catalog = await getOrFetchCatalog(subdomain);
+    if (!catalog) {
+      logger.warn({ subdomain }, 'copyTemplateSectionFromCatalog: catalog fetch failed');
+      return null;
+    }
+
+    // Step 2: Look up the specific template entry
+    const entry = lookupCatalogEntry(catalog, categoryName, templateIndex);
+    if (!entry) {
+      logger.warn(
+        { categoryName, templateIndex },
+        'copyTemplateSectionFromCatalog: entry not found in catalog',
+      );
+      return null;
+    }
+
+    // Step 3: Copy the template section
+    const client = createContentSaveClient(subdomain);
+    const result = await client.copyTemplateSection(
+      entry.websiteId, entry.collectionId, entry.sectionId,
+    );
+
+    if (!result.success) {
+      logger.warn(
+        { error: result.error, categoryName, templateIndex },
+        'copyTemplateSectionFromCatalog: copy failed',
+      );
+      return null;
+    }
+
+    logger.info(
+      { sectionId: result.sectionId, categoryName, templateIndex },
+      'copyTemplateSectionFromCatalog: template section copied via API (~300ms)',
+    );
+    return result;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'copyTemplateSectionFromCatalog: error');
     return null;
   }
 }

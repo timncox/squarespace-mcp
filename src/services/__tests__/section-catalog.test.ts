@@ -4,6 +4,7 @@ import {
   lookupCatalogEntry,
   catalogToDiscoveryResult,
   getOrFetchCatalog,
+  copyTemplateSectionFromCatalog,
 } from '../section-catalog.js';
 import type { SectionCatalogEntry } from '../content-save.js';
 
@@ -29,10 +30,16 @@ vi.mock('fs', () => ({
   statSync: vi.fn(() => ({ mtimeMs: Date.now() - 3600_000 })),
 }));
 
-// ── Mock fetch for getSectionCatalog ─────────────────────────────────────
+// ── Mock content-save for copyTemplateSection + getSectionCatalog ────────
 
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+const mockCopyTemplateSection = vi.fn();
+const mockGetSectionCatalog = vi.fn();
+vi.mock('../content-save.js', () => ({
+  createContentSaveClient: () => ({
+    getSectionCatalog: () => mockGetSectionCatalog(),
+    copyTemplateSection: (...args: unknown[]) => mockCopyTemplateSection(...args),
+  }),
+}));
 
 // ── Sample catalog data ──────────────────────────────────────────────────
 
@@ -185,33 +192,33 @@ describe('getOrFetchCatalog', () => {
 
     const result = await getOrFetchCatalog('test-site');
     expect(result).toEqual(SAMPLE_CATALOG);
-    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockGetSectionCatalog).not.toHaveBeenCalled();
   });
 
   it('fetches from API on cache miss', async () => {
     mockDbGet.mockReturnValueOnce(undefined); // cache miss
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => SAMPLE_CATALOG,
+    mockGetSectionCatalog.mockResolvedValueOnce({
+      success: true,
+      catalog: SAMPLE_CATALOG,
     });
 
     const result = await getOrFetchCatalog('test-site');
     expect(result).toEqual(SAMPLE_CATALOG);
-    expect(mockFetch).toHaveBeenCalled();
+    expect(mockGetSectionCatalog).toHaveBeenCalled();
     // Should cache the result
     expect(mockDbRun).toHaveBeenCalled();
   });
 
   it('bypasses cache when forceRefresh is true', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => SAMPLE_CATALOG,
+    mockGetSectionCatalog.mockResolvedValueOnce({
+      success: true,
+      catalog: SAMPLE_CATALOG,
     });
 
     const result = await getOrFetchCatalog('test-site', true);
     expect(result).toEqual(SAMPLE_CATALOG);
-    expect(mockFetch).toHaveBeenCalled();
+    expect(mockGetSectionCatalog).toHaveBeenCalled();
     // Should not read cache
     expect(mockDbGet).not.toHaveBeenCalled();
   });
@@ -219,10 +226,9 @@ describe('getOrFetchCatalog', () => {
   it('returns null when API fails', async () => {
     mockDbGet.mockReturnValueOnce(undefined); // cache miss
 
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 401,
-      text: async () => 'Unauthorized',
+    mockGetSectionCatalog.mockResolvedValueOnce({
+      success: false,
+      error: 'Unauthorized',
     });
 
     const result = await getOrFetchCatalog('test-site');
@@ -231,9 +237,101 @@ describe('getOrFetchCatalog', () => {
 
   it('returns null on network error', async () => {
     mockDbGet.mockReturnValueOnce(undefined); // cache miss
-    mockFetch.mockRejectedValueOnce(new Error('Network error'));
+    mockGetSectionCatalog.mockRejectedValueOnce(new Error('Network error'));
 
     const result = await getOrFetchCatalog('test-site');
     expect(result).toBeNull();
+  });
+});
+
+describe('copyTemplateSectionFromCatalog', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('copies a template section successfully', async () => {
+    // Cache hit for catalog
+    mockDbGet.mockReturnValueOnce({
+      categories_json: JSON.stringify(SAMPLE_CATALOG),
+      expires_at: new Date(Date.now() + 86400_000).toISOString(),
+    });
+
+    mockCopyTemplateSection.mockResolvedValueOnce({
+      success: true,
+      sectionId: 'new-section-123',
+    });
+
+    const result = await copyTemplateSectionFromCatalog('test-site', 'Contact', 1);
+    expect(result).toEqual({ success: true, sectionId: 'new-section-123' });
+    expect(mockCopyTemplateSection).toHaveBeenCalledWith('web1', 'coll1', 'sec-contact-1');
+  });
+
+  it('returns null when catalog fetch fails', async () => {
+    // Cache miss + API failure
+    mockDbGet.mockReturnValueOnce(undefined);
+    mockGetSectionCatalog.mockRejectedValueOnce(new Error('Network error'));
+
+    const result = await copyTemplateSectionFromCatalog('test-site', 'Contact', 0);
+    expect(result).toBeNull();
+    expect(mockCopyTemplateSection).not.toHaveBeenCalled();
+  });
+
+  it('returns null when category not found in catalog', async () => {
+    mockDbGet.mockReturnValueOnce({
+      categories_json: JSON.stringify(SAMPLE_CATALOG),
+      expires_at: new Date(Date.now() + 86400_000).toISOString(),
+    });
+
+    const result = await copyTemplateSectionFromCatalog('test-site', 'NonExistent', 0);
+    expect(result).toBeNull();
+    expect(mockCopyTemplateSection).not.toHaveBeenCalled();
+  });
+
+  it('returns null when template index out of range', async () => {
+    mockDbGet.mockReturnValueOnce({
+      categories_json: JSON.stringify(SAMPLE_CATALOG),
+      expires_at: new Date(Date.now() + 86400_000).toISOString(),
+    });
+
+    const result = await copyTemplateSectionFromCatalog('test-site', 'Contact', 99);
+    expect(result).toBeNull();
+    expect(mockCopyTemplateSection).not.toHaveBeenCalled();
+  });
+
+  it('returns null when copy API fails', async () => {
+    mockDbGet.mockReturnValueOnce({
+      categories_json: JSON.stringify(SAMPLE_CATALOG),
+      expires_at: new Date(Date.now() + 86400_000).toISOString(),
+    });
+
+    mockCopyTemplateSection.mockResolvedValueOnce({
+      success: false,
+      error: 'Copy failed',
+    });
+
+    const result = await copyTemplateSectionFromCatalog('test-site', 'About', 0);
+    expect(result).toBeNull();
+    expect(mockCopyTemplateSection).toHaveBeenCalledWith('web2', 'coll2', 'sec-about-0');
+  });
+
+  it('normalizes category name before lookup', async () => {
+    mockDbGet.mockReturnValueOnce({
+      categories_json: JSON.stringify(SAMPLE_CATALOG),
+      expires_at: new Date(Date.now() + 86400_000).toISOString(),
+    });
+
+    mockCopyTemplateSection.mockResolvedValueOnce({
+      success: true,
+      sectionId: 'new-section-svc',
+    });
+
+    const result = await copyTemplateSectionFromCatalog('test-site', 'Services', 0);
+    expect(result).toEqual({ success: true, sectionId: 'new-section-svc' });
+    // Should resolve 'Services' → 'SERVICES/OFFERINGS' and find sec-services-0
+    expect(mockCopyTemplateSection).toHaveBeenCalledWith('web3', 'coll3', 'sec-services-0');
   });
 });

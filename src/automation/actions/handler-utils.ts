@@ -1079,6 +1079,48 @@ export async function trySectionStyleApi(
 }
 
 /**
+ * Attempt to copy a template section via the Content Save API (no UI).
+ * Uses the shared copyTemplateSectionFromCatalog() helper (~300ms).
+ * Returns the ActionResult and sectionId on success, null on failure. Never throws.
+ */
+export async function tryCopyTemplateSectionApi(
+  page: Page,
+  categoryName: string,
+  templateIndex: number,
+): Promise<{ result: ActionResult; sectionId: string } | null> {
+  const subdomain = extractSubdomain(page);
+  if (!subdomain) {
+    logger.debug('tryCopyTemplateSectionApi: could not extract subdomain from URL');
+    return null;
+  }
+
+  try {
+    const { copyTemplateSectionFromCatalog } = await import('../../services/section-catalog.js');
+    const copyResult = await copyTemplateSectionFromCatalog(subdomain, categoryName, templateIndex);
+
+    if (copyResult?.success && copyResult.sectionId) {
+      logger.info(
+        { sectionId: copyResult.sectionId, categoryName, templateIndex },
+        'Copy Template Section API: section copied successfully',
+      );
+      return {
+        result: {
+          success: true,
+          message: `addSection: Copied template section via API (category: ${categoryName}, index: ${templateIndex}, section ${copyResult.sectionId}).`,
+        },
+        sectionId: copyResult.sectionId,
+      };
+    }
+
+    logger.warn({ categoryName, templateIndex }, 'Copy Template Section API: copy failed');
+    return null;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'Copy Template Section API failed');
+    return null;
+  }
+}
+
+/**
  * Attempt to add a blank section via the Content Save API (no UI).
  * Returns the ActionResult and sectionId on success, null on failure. Never throws.
  */

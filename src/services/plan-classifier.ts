@@ -77,7 +77,9 @@ function canRunViaApi(op: ContentOperation): boolean {
       if (content.contentStrategy === 'blank_api') return true;
       // Infer blank_api when apiBlocks are present but strategy wasn't explicitly set
       if (content.apiBlocks && content.apiBlocks.length > 0) return true;
-      // No strategy specified (or template) — can't route via API
+      // Template strategy with category + index — API can copy template sections
+      if (content.contentStrategy === 'template' && content.templateCategory && content.templateIndex !== undefined) return true;
+      // No strategy specified (or template without required fields) — can't route via API
       return false;
     }
 
