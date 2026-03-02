@@ -638,6 +638,81 @@ describe('ContentSaveClient — updateButtonBlock', () => {
 
     fetchSpy.mockRestore();
   });
+
+  it('updates type 1337 button text and link', async () => {
+    const sections = makeSections(makeNewButtonBlock('btn-new', 'Old Text', 'https://old.com'));
+    const data = makePageSectionsData(sections);
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const result = await client.updateButtonBlock(
+      'psid-1', 'cid-1', 'Old Text', { newLabel: 'New Text', url: 'https://new.com' },
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.blockId).toBe('btn-new');
+    expect(result.oldLabel).toBe('Old Text');
+    expect(result.newLabel).toBe('New Text');
+    expect(result.oldUrl).toBe('https://old.com');
+    expect(result.newUrl).toBe('https://new.com');
+
+    // Verify PUT body uses type 1337 field names
+    const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    const putBody = JSON.parse(putOptions.body as string);
+    const block = putBody.sections[0].fluidEngineContext.gridContents[0];
+    expect(block.content.value.value.buttonText).toBe('New Text');
+    expect(block.content.value.value.buttonLink).toBe('https://new.com');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('updates type 1337 button design fields (size, style, alignment, variant)', async () => {
+    const sections = makeSections(makeNewButtonBlock('btn-new', 'CTA', 'https://example.com', { size: 'medium' }));
+    const data = makePageSectionsData(sections);
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const result = await client.updateButtonBlock(
+      'psid-1', 'cid-1', 'CTA',
+      { size: 'large', style: 'secondary', alignment: 'left', variant: 'outline' },
+    );
+
+    expect(result.success).toBe(true);
+
+    const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    const putBody = JSON.parse(putOptions.body as string);
+    const block = putBody.sections[0].fluidEngineContext.gridContents[0];
+    expect(block.content.value.value.buttonSize).toBe('large');
+    expect(block.content.value.value.buttonStyle).toBe('secondary');
+    expect(block.content.value.value.buttonAlignment).toBe('left');
+    expect(block.content.value.value.buttonVariant).toBe('outline');
+
+    fetchSpy.mockRestore();
+  });
+
+  it('accepts design-only updates (no label/url) for type 1337', async () => {
+    const sections = makeSections(makeNewButtonBlock('btn-new', 'Keep Text', 'https://keep.com'));
+    const data = makePageSectionsData(sections);
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const result = await client.updateButtonBlock(
+      'psid-1', 'cid-1', 'Keep Text', { size: 'small' },
+    );
+
+    expect(result.success).toBe(true);
+    // Label/URL unchanged
+    expect(result.newLabel).toBe('Keep Text');
+    expect(result.newUrl).toBe('https://keep.com');
+
+    fetchSpy.mockRestore();
+  });
 });
 
 // ── Button type detection helpers ──────────────────────────────────────────

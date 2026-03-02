@@ -3353,22 +3353,31 @@ export class ContentSaveClient {
   }
 
   /**
-   * Update a button block's label and/or URL.
-   * Uses findBlock() which matches on `value.label`.
-   *
-   * @param pageSectionsId  The page sections ID
-   * @param collectionId    The collection ID
-   * @param searchText      Text to find the button by (matches label)
-   * @param updates         Fields to update: newLabel and/or url
+   * Update a button block's label, URL, and/or design fields.
+   * Supports both type 46 (legacy) and type 1337 (new) button blocks.
+   * Uses findBlock() which matches on label/buttonText.
    */
   async updateButtonBlock(
     pageSectionsId: string,
     collectionId: string,
     searchText: string,
-    updates: { newLabel?: string; url?: string },
+    updates: {
+      newLabel?: string;
+      url?: string;
+      size?: string;
+      style?: string;
+      alignment?: string;
+      variant?: string;
+      newWindow?: boolean;
+    },
   ): Promise<ButtonBlockUpdateResult> {
-    if (!updates.newLabel && !updates.url) {
-      return { success: false, error: 'Must provide at least newLabel or url to update' };
+    const hasAnyUpdate = updates.newLabel !== undefined || updates.url !== undefined ||
+      updates.size !== undefined || updates.style !== undefined ||
+      updates.alignment !== undefined || updates.variant !== undefined ||
+      updates.newWindow !== undefined;
+
+    if (!hasAnyUpdate) {
+      return { success: false, error: 'Must provide at least one field to update' };
     }
 
     try {
@@ -3384,30 +3393,29 @@ export class ContentSaveClient {
       const { gridContent } = match;
       const blockValue = gridContent.content.value;
 
-      // Step 3: Verify block type is button (46)
-      if (blockValue.type !== BLOCK_TYPE_BUTTON) {
+      // Step 3: Verify block is a button (either type 46 or type 1337 button)
+      if (!ContentSaveClient.isButtonBlock(blockValue)) {
         return {
           success: false,
-          error: `Block "${searchText}" is type ${blockValue.type}, not a button block (expected ${BLOCK_TYPE_BUTTON})`,
+          error: `Block "${searchText}" is type ${blockValue.type}, not a button block`,
         };
       }
 
       const blockId = blockValue.id;
-      const oldLabel = blockValue.value?.label as string | undefined;
-      const oldUrl = blockValue.value?.url as string | undefined;
+      const oldFields = ContentSaveClient.getButtonFields(blockValue)!;
+      const oldLabel = oldFields.text;
+      const oldUrl = oldFields.url;
 
-      // Ensure value sub-object exists
-      if (!blockValue.value) {
-        blockValue.value = {};
-      }
-
-      // Step 4: Update provided fields
-      if (updates.newLabel !== undefined) {
-        blockValue.value.label = updates.newLabel;
-      }
-      if (updates.url !== undefined) {
-        blockValue.value.url = updates.url;
-      }
+      // Step 4: Update provided fields using normalized setter
+      ContentSaveClient.setButtonFields(blockValue, {
+        text: updates.newLabel,
+        url: updates.url,
+        size: updates.size,
+        style: updates.style,
+        alignment: updates.alignment,
+        variant: updates.variant,
+        newWindow: updates.newWindow,
+      });
 
       logger.info(
         { blockId, searchText, oldLabel, newLabel: updates.newLabel, oldUrl, newUrl: updates.url },
