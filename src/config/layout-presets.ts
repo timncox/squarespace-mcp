@@ -179,6 +179,11 @@ export function formatPresetsForPrompt(): string {
   }
 
   lines.push('');
+  lines.push('**IMPORTANT: When a blank_api section has 2+ blocks that should appear side-by-side on desktop (text + form, text + image, two content columns), you MUST specify a `layoutPreset`.** Without a preset, all blocks are stacked full-width and will overlap on desktop. Common patterns:');
+  lines.push('- Contact section (text + form): use `"two-column"` or `"content-sidebar"`');
+  lines.push('- Bio section (photo + text): use `"sidebar-content"`');
+  lines.push('- Skills/services (2-3 equal items): use `"two-column"` or `"three-column"`');
+  lines.push('');
   lines.push('**Usage**: Add `"layoutPreset": "two-column"` to the `content` object alongside `apiBlocks`. The number of `apiBlocks` should match the preset slot count (extra blocks stack below automatically).');
   lines.push('');
   lines.push('**Example** (two-column skills section):');

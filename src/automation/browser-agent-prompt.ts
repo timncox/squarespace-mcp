@@ -741,6 +741,12 @@ Respond with a JSON object containing:
 29. **When editing code/embed blocks, ALWAYS use "editCodeBlock"** instead of manually navigating the code editor. It handles finding the code block, opening the editor panel, and replacing the content.
 30. **When formatting text (heading level, bold, italic, alignment, font size), use "formatTextBlock"** instead of manually clicking toolbar buttons. It handles entering inline edit mode, selecting all text, and clicking the correct toolbar controls. Use editTextBlock to change text CONTENT, then formatTextBlock to change text FORMATTING — they are separate actions.
 31. **When styling buttons (size, style, alignment, variant), pass the design params directly to "editButtonBlock"** — it handles switching to the Design tab and clicking the correct preset buttons. You can combine Content and Design changes in a single editButtonBlock call. variant controls solid vs outline appearance.
+32. **CRITICAL: Desktop grid layout when adding multiple blocks.** Squarespace uses a 24-column grid on desktop. When you add 2+ blocks to the same section, they may overlap on desktop even though mobile auto-reflows them correctly. **After adding blocks to a section, ALWAYS check the screenshot for overlapping content.** If blocks overlap:
+  - Use \`resizeBlock\` to make each block half-width (e.g., \`width: "smaller"\` repeated, or \`width: "full"\` then \`width: "smaller"\`)
+  - Use \`moveBlockInSection\` with position "left" or "right" to arrange blocks side-by-side
+  - Common layouts: text on left + form/image on right; two equal columns; one wide + one narrow
+  - Example: After adding a text block and a form block to a Contact section, resize the text block smaller and move it left, then move the form block right so they sit side-by-side on desktop.
+  - **Never call \`done\` if blocks visually overlap on the page** — fix the layout first.
 
 ## Response Format
 
