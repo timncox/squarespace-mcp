@@ -11,7 +11,7 @@ import {
   saveChanges,
 } from '../editor-actions.js';
 import { errMsg } from '../../utils/errors.js';
-import { isFluidEngineActive, clickEditorButton, trySectionMoveApi, trySectionStyleApi, trySelectorsInFrame } from './handler-utils.js';
+import { isFluidEngineActive, clickEditorButton, trySectionMoveApi, trySectionStyleApi, trySelectorsInFrame, tryAddBlankSectionApi } from './handler-utils.js';
 import type { ActionResult } from './types.js';
 // Cross-module handler imports for handleAddSectionFromTemplate
 import { handleEditTextBlock, handleEditButtonBlock } from './text-editing-handlers.js';
@@ -35,6 +35,70 @@ export async function handleAddSection(
   action: { action: 'addSection'; template?: string; category?: string; templateIndex?: number },
 ): Promise<ActionResult> {
   const { template, category, templateIndex } = action;
+
+  // ── API Fast Path: blank sections only (no template/category) ─────
+  // The Content Save API adds a blank section in ~200ms vs 5-25s UI automation.
+  // After adding via API, we reload the page so the editor's in-memory state
+  // syncs with the server (prevents the "editor save overwrites API section" issue).
+  if (!template && !category && templateIndex === undefined) {
+    logger.info('addSection[0]: trying API fast path for blank section');
+    const apiResult = await tryAddBlankSectionApi(page);
+    if (apiResult) {
+      logger.info({ sectionId: apiResult.sectionId }, 'addSection[0]: API succeeded — reloading page to sync editor state');
+
+      // Reload so the editor picks up the server-side section
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.waitForTimeout(2000);
+
+      // Re-enter edit mode (reload exits it)
+      try {
+        const { enterEditMode } = await import('../site-navigator.js');
+        await enterEditMode(page);
+        await page.waitForTimeout(1500);
+      } catch (err) {
+        logger.warn({ error: errMsg(err) }, 'addSection[0]: failed to re-enter edit mode after reload');
+      }
+
+      // Find the new section in the DOM by matching the API-returned sectionId
+      const siteFrame = getSiteFrame(page);
+      let newSectionInfo = '';
+      if (siteFrame) {
+        const sectionData = await siteFrame.locator('.page-section').evaluateAll(
+          (els, targetId) => {
+            for (let i = 0; i < els.length; i++) {
+              if (els[i].getAttribute('data-section-id') === targetId) {
+                return { index: i, total: els.length };
+              }
+            }
+            return { index: -1, total: els.length };
+          },
+          apiResult.sectionId,
+        ).catch(() => ({ index: -1, total: 0 }));
+
+        if (sectionData.index >= 0) {
+          // Store for enterSectionEditMode to use
+          await page.evaluate((info: { index: number; id: string }) => {
+            (window as any).__lastAddedSectionIndex = info.index;
+            (window as any).__lastAddedSectionId = info.id;
+          }, { index: sectionData.index, id: apiResult.sectionId });
+          newSectionInfo = ` New section at index ${sectionData.index} (data-section-id: ${apiResult.sectionId}). Total sections: ${sectionData.total}.`;
+        } else {
+          newSectionInfo = ` Section ID: ${apiResult.sectionId}. Total sections: ${sectionData.total}.`;
+        }
+      }
+
+      const inEditMode = await isFluidEngineActive(page, 2000);
+      const editModeHint = inEditMode
+        ? ' You are already in section edit mode — you can immediately use addImageBlock or addBlockToSection.'
+        : ' You are NOT in section edit mode. Use enterSectionEditMode with sectionIndex:"last" to enter edit mode for the new section.';
+
+      return {
+        success: true,
+        message: `addSection: Added blank section via API fast path.${editModeHint}${newSectionInfo}`,
+      };
+    }
+    logger.info('addSection[0]: API fast path unavailable — falling through to UI automation');
+  }
 
   // Capture section IDs before adding so we can find the new one after
   const siteFramePre = getSiteFrame(page);

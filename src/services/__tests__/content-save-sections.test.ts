@@ -650,7 +650,7 @@ describe('ContentSaveClient — Section Operations', () => {
       const result = await client.addBlankSection(PS_ID, COLL_ID);
 
       expect(result.success).toBe(true);
-      expect(result.sectionId).toMatch(/^[0-9a-f]{20}$/);
+      expect(result.sectionId).toMatch(/^[0-9a-f]{24}$/);
       const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
       expect(result.sectionId).toBe(putBody.sections[0].id);
     });

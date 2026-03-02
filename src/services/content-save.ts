@@ -2817,6 +2817,11 @@ export class ContentSaveClient {
     return randomBytes(10).toString('hex');
   }
 
+  /** Generate a 24-char hex ID for sections (Squarespace validates 12-byte ObjectID format). */
+  static generateSectionId(): string {
+    return randomBytes(12).toString('hex');
+  }
+
   /**
    * Build rich HTML from structured content elements.
    * Produces Squarespace-compatible HTML for text block source/html fields.
@@ -7463,17 +7468,42 @@ export class ContentSaveClient {
       // GET current sections
       const data = await this.getPageSections(pageSectionsId);
 
-      // Construct a minimal blank Fluid Engine section locally.
-      // The catalog-preview endpoint returns HTML (not JSON), so we build
-      // the section structure ourselves and append it via the proven PUT path.
-      const newSectionId = ContentSaveClient.generateBlockId();
+      // Construct a blank Fluid Engine section matching what Squarespace creates
+      // when "Add Blank" is clicked in the UI. Section IDs must be 24-char hex
+      // (12-byte ObjectID format) — Squarespace returns 400 for shorter IDs.
+      // The structure must include styles, sourceType, isCloneable, and full
+      // gridSettings (with mobile breakpoint and rowSize/rowGap/columnGap).
+      const newSectionId = ContentSaveClient.generateSectionId();
       const blankSection: PageSection = {
         id: newSectionId,
         sectionName: 'FLUID_ENGINE',
+        isCloneable: false,
+        styles: {
+          backgroundWidth: 'background-width--full-bleed',
+          imageOverlayOpacity: 0.15,
+          sectionHeight: 'section-height--medium',
+          customSectionHeight: 10,
+          horizontalAlignment: 'horizontal-alignment--center',
+          verticalAlignment: 'vertical-alignment--middle',
+          contentWidth: 'content-width--wide',
+          customContentWidth: 50,
+          sectionTheme: '',
+          sectionAnimation: 'none',
+          backgroundMode: 'image',
+        },
+        sourceType: 'blank',
         fluidEngineContext: {
-          id: ContentSaveClient.generateBlockId(),
+          id: ContentSaveClient.generateSectionId(),
           gridContents: [],
-          gridSettings: { breakpointSettings: { desktop: { columns: 24 } } },
+          gridSettings: {
+            rowGap: { unit: 'px', value: 11 },
+            columnGap: { unit: 'px', value: 11 },
+            rowStretch: false,
+            breakpointSettings: {
+              mobile: { rows: 2, columns: 8, rowSize: { unit: 'vw', value: 6 } },
+              desktop: { rows: 8, columns: 24, rowSize: { unit: 'vw', value: 2 } },
+            },
+          },
         },
       };
 

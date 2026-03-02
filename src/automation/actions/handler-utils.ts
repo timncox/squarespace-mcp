@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { logger } from '../../utils/logger.js';
 import { errMsg } from '../../utils/errors.js';
 import { createMediaUploadClient } from '../../services/media-upload.js';
-import { createContentSaveClient, ContentSaveClient, type BlockMoveResult, type BlockResizeResult, type BlockRemoveResult, type SectionMoveResult, type ImageBlockUpdateResult, type TextBlockAddResult, type TextPatchResult, type MenuBlockUpdateResult, type SectionStyleResult, type SectionStyleOptions } from '../../services/content-save.js';
+import { createContentSaveClient, ContentSaveClient, type BlockMoveResult, type BlockResizeResult, type BlockRemoveResult, type SectionMoveResult, type ImageBlockUpdateResult, type TextBlockAddResult, type TextPatchResult, type MenuBlockUpdateResult, type SectionStyleResult, type SectionStyleOptions, type AddBlankSectionResult } from '../../services/content-save.js';
 import type { ActionResult } from './types.js';
 
 /**
@@ -1074,6 +1074,44 @@ export async function trySectionStyleApi(
     return null;
   } catch (err) {
     logger.warn({ error: errMsg(err) }, 'Section Style API failed');
+    return null;
+  }
+}
+
+/**
+ * Attempt to add a blank section via the Content Save API (no UI).
+ * Returns the ActionResult and sectionId on success, null on failure. Never throws.
+ */
+export async function tryAddBlankSectionApi(
+  page: Page,
+): Promise<{ result: ActionResult; sectionId: string } | null> {
+  const ctx = await extractApiContext(page, 'tryAddBlankSectionApi');
+  if (!ctx) return null;
+
+  try {
+    const apiResult: AddBlankSectionResult = await ctx.client.addBlankSection(
+      ctx.pageSectionsId,
+      ctx.collectionId,
+    );
+
+    if (apiResult.success && apiResult.sectionId) {
+      logger.info(
+        { sectionId: apiResult.sectionId },
+        'Add Blank Section API: section added successfully',
+      );
+      return {
+        result: {
+          success: true,
+          message: `addSection: Added blank section via Content Save API (section ${apiResult.sectionId}).`,
+        },
+        sectionId: apiResult.sectionId,
+      };
+    }
+
+    logger.warn({ error: apiResult.error }, 'Add Blank Section API: add failed');
+    return null;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'Add Blank Section API failed');
     return null;
   }
 }

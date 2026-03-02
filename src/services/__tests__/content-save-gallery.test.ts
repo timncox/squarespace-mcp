@@ -310,7 +310,7 @@ describe('ContentSaveClient — Gallery', () => {
       const result = await client.addBlankSection(PS_ID, COLL_ID);
 
       expect(result.success).toBe(true);
-      expect(result.sectionId).toMatch(/^[0-9a-f]{20}$/);
+      expect(result.sectionId).toMatch(/^[0-9a-f]{24}$/);
 
       // Only 2 fetch calls: GET + PUT (no POST to add endpoint)
       expect(mockFetch).toHaveBeenCalledTimes(2);
@@ -341,8 +341,8 @@ describe('ContentSaveClient — Gallery', () => {
 
       const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
       const newSection = putBody.sections[0];
-      expect(newSection.id).toMatch(/^[0-9a-f]{20}$/);
-      expect(newSection.fluidEngineContext.id).toMatch(/^[0-9a-f]{20}$/);
+      expect(newSection.id).toMatch(/^[0-9a-f]{24}$/);
+      expect(newSection.fluidEngineContext.id).toMatch(/^[0-9a-f]{24}$/);
       expect(newSection.id).not.toBe(newSection.fluidEngineContext.id);
       expect(result.sectionId).toBe(newSection.id);
     });
