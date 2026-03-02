@@ -187,9 +187,9 @@ describe('ContentSaveClient — addButtonBlock', () => {
     const putBody = JSON.parse(putOptions.body as string);
     const gridContents = putBody.sections[0].fluidEngineContext.gridContents;
     expect(gridContents).toHaveLength(1);
-    expect(gridContents[0].content.value.type).toBe(46);
-    expect(gridContents[0].content.value.value.label).toBe('Reserve Now');
-    expect(gridContents[0].content.value.value.url).toBe('https://example.com/reserve');
+    expect(gridContents[0].content.value.type).toBe(1337);
+    expect(gridContents[0].content.value.value.buttonText).toBe('Reserve Now');
+    expect(gridContents[0].content.value.value.buttonLink).toBe('https://example.com/reserve');
 
     fetchSpy.mockRestore();
   });
@@ -404,7 +404,7 @@ describe('ContentSaveClient — addButtonBlock', () => {
     fetchSpy.mockRestore();
   });
 
-  it('creates correct GridContent structure (type=46, label, url, mobile+desktop layout)', async () => {
+  it('creates correct GridContent structure (type=1337, buttonText, buttonLink, mobile+desktop layout)', async () => {
     const sections = makeSections();
     const data = makePageSectionsData(sections);
 
@@ -421,12 +421,12 @@ describe('ContentSaveClient — addButtonBlock', () => {
     const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
 
     // Block type
-    expect(newBlock.content.value.type).toBe(46);
+    expect(newBlock.content.value.type).toBe(1337);
     expect(newBlock.content.value.id).toHaveLength(20);
 
     // Content
-    expect(newBlock.content.value.value.label).toBe('Book Now');
-    expect(newBlock.content.value.value.url).toBe('https://example.com/book');
+    expect(newBlock.content.value.value.buttonText).toBe('Book Now');
+    expect(newBlock.content.value.value.buttonLink).toBe('https://example.com/book');
 
     // Desktop layout
     expect(newBlock.layout.desktop.visible).toBe(true);
@@ -455,6 +455,66 @@ describe('ContentSaveClient — addButtonBlock', () => {
     const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
     // First block: gap=0, so starts at y=0
     expect(newBlock.layout.desktop.start.y).toBe(0);
+
+    fetchSpy.mockRestore();
+  });
+
+  it('creates type 1337 button block (new format) with definitionName', async () => {
+    const sections = makeSections();
+    const data = makePageSectionsData(sections);
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    await client.addButtonBlock('psid-1', 'cid-1', 0, 'Book Now', 'https://example.com/book');
+
+    const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    const putBody = JSON.parse(putOptions.body as string);
+    const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+
+    // Type 1337 with button definitionName
+    expect(newBlock.content.value.type).toBe(1337);
+    expect(newBlock.content.value.definitionName).toBe('website.components.button');
+
+    // New field names
+    expect(newBlock.content.value.value.buttonText).toBe('Book Now');
+    expect(newBlock.content.value.value.buttonLink).toBe('https://example.com/book');
+
+    // Design defaults
+    expect(newBlock.content.value.value.buttonSize).toBe('medium');
+    expect(newBlock.content.value.value.buttonAlignment).toBe('center');
+    expect(newBlock.content.value.value.newWindow).toBe(false);
+
+    // Required structures
+    expect(newBlock.content.value.value.containerStyles).toBeDefined();
+    expect(newBlock.content.value.value.transforms).toBeDefined();
+    expect(newBlock.content.value.containerStyles).toBeDefined();
+
+    fetchSpy.mockRestore();
+  });
+
+  it('creates type 1337 button with custom design fields', async () => {
+    const sections = makeSections();
+    const data = makePageSectionsData(sections);
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    await client.addButtonBlock('psid-1', 'cid-1', 0, 'CTA', 'https://example.com', undefined, {
+      size: 'large', style: 'secondary', alignment: 'right', variant: 'outline', newWindow: true,
+    });
+
+    const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    const putBody = JSON.parse(putOptions.body as string);
+    const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+
+    expect(newBlock.content.value.value.buttonSize).toBe('large');
+    expect(newBlock.content.value.value.buttonStyle).toBe('secondary');
+    expect(newBlock.content.value.value.buttonAlignment).toBe('right');
+    expect(newBlock.content.value.value.buttonVariant).toBe('outline');
+    expect(newBlock.content.value.value.newWindow).toBe(true);
 
     fetchSpy.mockRestore();
   });

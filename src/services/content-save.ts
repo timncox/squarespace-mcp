@@ -3240,6 +3240,13 @@ export class ContentSaveClient {
       startY?: number;
       endY?: number;
     },
+    design?: {
+      size?: string;
+      style?: string;
+      alignment?: string;
+      variant?: string;
+      newWindow?: boolean;
+    },
   ): Promise<ButtonBlockAddResult> {
     try {
       // Step 1: GET current sections
@@ -3326,8 +3333,29 @@ export class ContentSaveClient {
         content: {
           value: {
             id: blockId,
-            type: BLOCK_TYPE_BUTTON,
-            value: { label, url },
+            type: BLOCK_TYPE_IMAGE, // 1337
+            value: {
+              buttonText: label,
+              buttonLink: url,
+              newWindow: design?.newWindow ?? false,
+              buttonAlignment: design?.alignment ?? 'center',
+              buttonSize: design?.size ?? 'medium',
+              ...(design?.style ? { buttonStyle: design.style } : {}),
+              ...(design?.variant ? { buttonVariant: design.variant } : {}),
+              containerStyles: { stretchedToFill: true },
+              transforms: {
+                rotation: { value: 0, unit: 'deg' },
+                scale: { x: { value: 100, unit: '%' }, y: { value: 100, unit: '%' } },
+                opacity: { value: 100, unit: '%' },
+                offset: { x: { value: 0, unit: 'px' }, y: { value: 0, unit: 'px' } },
+                origin: { x: { value: 50, unit: '%' }, y: { value: 50, unit: '%' } },
+                skew: { x: { value: 0, unit: 'deg' }, y: { value: 0, unit: 'deg' } },
+              },
+              animations: [],
+              breakpointOverrides: {},
+            },
+            containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+            definitionName: BUTTON_DEFINITION_NAME,
           },
         },
       };
