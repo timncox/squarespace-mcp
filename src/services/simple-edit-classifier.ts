@@ -129,7 +129,10 @@ function tryPreLlmClassification(task: Task): SimpleEditClassification | null {
       isSimpleEdit: true,
       editType: 'menu_update',
       confidence: 'high',
-      params: { menuItems: task.contentToAdd },
+      params: {
+        searchText: task.contentToFind || task.contentToAdd.split('\n')[0].trim(),
+        menuItems: task.contentToAdd,
+      },
       reason: 'Task type is update_menu_block with contentToAdd specified',
     };
   }
@@ -148,7 +151,7 @@ function tryPreLlmClassification(task: Task): SimpleEditClassification | null {
     return {
       isSimpleEdit: true,
       editType: 'blog_post_create',
-      confidence: 'medium',
+      confidence: 'high',
       params: {
         postTitle: blogPostTitleMatch[1].trim(),
         postDraft: isDraft,
@@ -157,17 +160,9 @@ function tryPreLlmClassification(task: Task): SimpleEditClassification | null {
     };
   }
 
-  // 5. Business hours update — require action verb to avoid matching "below the opening hours"
-  const desc = task.description ?? '';
-  if (/\b(?:update|change|set|modify|edit|adjust)\b.{0,30}\b(?:business|opening|trading)\s+hours\b/i.test(desc)) {
-    return {
-      isSimpleEdit: true,
-      editType: 'business_hours_update',
-      confidence: 'medium',  // medium because hours text needs LLM extraction
-      params: {},
-      reason: 'Description mentions updating business/opening/trading hours',
-    };
-  }
+  // 5. Business hours update — DON'T return here. The pre-LLM check can detect the
+  // intent but can't extract the actual hours data from the description. Let the LLM
+  // classifier handle it so it can extract params AND return high confidence.
 
   return null;
 }

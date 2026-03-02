@@ -7,6 +7,7 @@ const mockGetCollectionItems = vi.fn();
 const mockUpdateBlogPost = vi.fn();
 const mockGetPageMetadata = vi.fn();
 const mockFindBlogPostByTitle = vi.fn();
+const mockGetPageIds = vi.fn().mockResolvedValue({ collectionId: 'col-abc' });
 
 vi.mock('../content-save.js', () => ({
   createContentSaveClient: vi.fn(() => ({
@@ -15,6 +16,7 @@ vi.mock('../content-save.js', () => ({
     updateBlogPost: mockUpdateBlogPost,
     getPageMetadata: mockGetPageMetadata,
     findBlogPostByTitle: mockFindBlogPostByTitle,
+    getPageIds: mockGetPageIds,
     loadCookies: vi.fn().mockResolvedValue(undefined),
   })),
   ContentSaveClient: {
@@ -22,7 +24,7 @@ vi.mock('../content-save.js', () => ({
   },
 }));
 
-// Mock page ID resolver — returns blog collection ID as collectionId
+// Mock page ID resolver — still needed for non-blog types
 vi.mock('../page-id-resolver.js', () => ({
   resolvePageIds: vi.fn().mockResolvedValue({ pageSectionsId: 'ps-abc', collectionId: 'col-abc' }),
 }));

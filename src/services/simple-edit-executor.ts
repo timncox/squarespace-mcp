@@ -42,6 +42,9 @@ function normalizeSlug(slug: string): string {
 
 const NO_PAGE_ID_TYPES: ReadonlySet<SimpleEditType> = new Set(['footer_edit', 'css_change', 'page_seo', 'site_identity', 'business_hours_update']);
 
+// Blog operations only need collectionId (no pageSectionsId) — use lighter resolution
+const COLLECTION_ONLY_TYPES: ReadonlySet<SimpleEditType> = new Set(['blog_post_create', 'blog_post_update']);
+
 // ── Dispatch helpers ─────────────────────────────────────────────────────────
 
 async function execTextReplace(
@@ -437,23 +440,49 @@ export async function executeSimpleEdit(
     // Step 3: Create client
     const client = createContentSaveClient(subdomain);
 
-    // Step 4: Resolve page IDs (skip for footer/css)
+    // Step 4: Resolve page IDs (skip for footer/css/site-wide types)
     let pageSectionsId = '';
     let collectionId = '';
 
     if (!NO_PAGE_ID_TYPES.has(editType)) {
-      const ids = await resolvePageIds(subdomain, slug);
-      if (!ids) {
-        return {
-          success: false,
-          editType,
-          summary: '',
-          error: `Could not resolve page IDs for ${subdomain}/${slug}`,
-          durationMs: Date.now() - startMs,
-        };
+      if (COLLECTION_ONLY_TYPES.has(editType)) {
+        // Blog operations only need collectionId — skip pageSectionsId resolution
+        // which can fail for blog collection pages that lack data-page-sections
+        try {
+          const pageIds = await client.getPageIds(slug === 'home' ? '' : slug);
+          if (!pageIds) {
+            return {
+              success: false,
+              editType,
+              summary: '',
+              error: `Could not resolve collection for ${subdomain}/${slug}`,
+              durationMs: Date.now() - startMs,
+            };
+          }
+          collectionId = pageIds.collectionId;
+        } catch (err) {
+          return {
+            success: false,
+            editType,
+            summary: '',
+            error: `Collection resolution failed: ${errMsg(err)}`,
+            durationMs: Date.now() - startMs,
+          };
+        }
+      } else {
+        const ids = await resolvePageIds(subdomain, slug);
+        if (!ids) {
+          return {
+            success: false,
+            editType,
+            summary: '',
+            error: `Could not resolve page IDs for ${subdomain}/${slug}`,
+            durationMs: Date.now() - startMs,
+          };
+        }
+        pageSectionsId = ids.pageSectionsId;
+        collectionId = ids.collectionId;
       }
-      pageSectionsId = ids.pageSectionsId;
-      collectionId = ids.collectionId;
     }
 
     // Step 5: Dispatch
