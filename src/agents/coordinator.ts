@@ -240,6 +240,9 @@ export async function runContentPipeline(
       logger.warn({ error: errMsg(err) }, 'Content pipeline: page structure fetch failed, continuing without');
     }
 
+    // Extract subdomain for API calls (used by template discovery + navigation)
+    const subdomain = page.url().match(/https?:\/\/([a-z0-9-]+)\.squarespace\.com/i)?.[1];
+
     // ── Step 2c: Template Discovery ─────────────────────────────────────
     // Try API catalog first (~1.5s), fall back to UI probing (~30s).
     try {
@@ -248,9 +251,6 @@ export async function runContentPipeline(
         data: { agent: 'template_discovery', status: 'started', message: 'Discovering available section templates...' },
         timestamp: new Date().toISOString(),
       });
-
-      // Try API-based section catalog first (much faster than UI probing)
-      const subdomain = page.url().match(/https?:\/\/([a-z0-9-]+)\.squarespace\.com/i)?.[1];
       if (subdomain) {
         const catalog = await getOrFetchCatalog(subdomain);
         if (catalog) {
