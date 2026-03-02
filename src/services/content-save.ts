@@ -108,6 +108,14 @@ export type {
   SiteSettings,
   SettingsResult,
   CodeInjectionData,
+  UpdateNavigationRequest,
+  UpdateNavigationItem,
+  UpdateNavigationResult,
+  WebsiteFontsData,
+  WebsiteFontsResult,
+  WebsiteColorsData,
+  WebsiteColorsResult,
+  AdvancedSettingsResult,
 } from './content-save-types.js';
 
 import type {
@@ -191,6 +199,14 @@ import type {
   SiteSettings,
   SettingsResult,
   CodeInjectionData,
+  UpdateNavigationRequest,
+  UpdateNavigationItem,
+  UpdateNavigationResult,
+  WebsiteFontsData,
+  WebsiteFontsResult,
+  WebsiteColorsData,
+  WebsiteColorsResult,
+  AdvancedSettingsResult,
 } from './content-save-types.js';
 
 // ── Config ──────────────────────────────────────────────────────────────────
@@ -8187,6 +8203,168 @@ export class ContentSaveClient {
 
       logger.info('Code injection saved successfully');
       return { success: true };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Navigation Update ────────────────────────────────────────────────────
+
+  /**
+   * Reorder pages in the site navigation.
+   * Uses POST /api/widget/UpdateNavigation with full navigation items array.
+   * The items array determines the new ordering of pages.
+   *
+   * Typical workflow:
+   *   1. getNavigation() → get current mainNavigation items
+   *   2. Reorder/modify the items array
+   *   3. updateNavigation('mainNav', items) → save new order
+   */
+  async updateNavigation(
+    fieldName: string,
+    items: UpdateNavigationItem[],
+  ): Promise<UpdateNavigationResult> {
+    this.ensureCookies();
+
+    // We need the templateId — fetch it from GetTemplate or site layout
+    try {
+      const layoutUrl = this.buildApiUrl('/api/commondata/GetSiteLayout');
+      const layoutRes = await fetch(layoutUrl, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!layoutRes.ok) {
+        const body = await layoutRes.text().catch(() => '');
+        return { success: false, error: `GetSiteLayout failed: ${layoutRes.status} ${body}` };
+      }
+
+      // Get templateId from GetTemplate endpoint
+      const templateUrl = this.buildApiUrl('/api/template/GetTemplate');
+      const templateRes = await fetch(templateUrl, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      let templateId = '';
+      if (templateRes.ok) {
+        const templateData = await templateRes.json() as Record<string, unknown>;
+        templateId = String(templateData.id ?? templateData.templateId ?? '');
+      }
+
+      if (!templateId) {
+        return { success: false, error: 'Could not determine templateId for navigation update' };
+      }
+
+      const requestBody: UpdateNavigationRequest = {
+        fieldName,
+        templateId,
+        navigation: { items },
+      };
+
+      let url = this.buildApiUrl('/api/widget/UpdateNavigation');
+      if (this.crumbToken) url += `?crumb=${encodeURIComponent(this.crumbToken)}`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { ...this.buildHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `UpdateNavigation failed: ${response.status} ${body}` };
+      }
+
+      logger.info({ fieldName, itemCount: items.length }, 'Navigation updated');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Design Settings ──────────────────────────────────────────────────────
+
+  /**
+   * Get the current website font configuration.
+   * Uses GET /api/website-fonts (read-only).
+   */
+  async getWebsiteFonts(): Promise<WebsiteFontsResult> {
+    this.ensureCookies();
+
+    const url = this.buildApiUrl('/api/website-fonts');
+
+    try {
+      const response = await fetch(url, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `${response.status} ${response.statusText}: ${body}` };
+      }
+
+      const data = await response.json() as WebsiteFontsData;
+      logger.info({ fontPack: data.name }, 'Website fonts fetched');
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Get the current website color palette and themes.
+   * Uses GET /api/website-colors (read-only).
+   */
+  async getWebsiteColors(): Promise<WebsiteColorsResult> {
+    this.ensureCookies();
+
+    const url = this.buildApiUrl('/api/website-colors');
+
+    try {
+      const response = await fetch(url, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `${response.status} ${response.statusText}: ${body}` };
+      }
+
+      const data = await response.json() as WebsiteColorsData;
+      logger.info({ paletteCount: data.palette?.length, themeCount: data.colorThemes?.length }, 'Website colors fetched');
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Get advanced site settings (URL mappings, 404 config, etc.).
+   * Uses GET /api/config/GetAdvancedSettings (read-only).
+   */
+  async getAdvancedSettings(): Promise<AdvancedSettingsResult> {
+    this.ensureCookies();
+
+    const url = this.buildApiUrl('/api/config/GetAdvancedSettings');
+
+    try {
+      const response = await fetch(url, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `${response.status} ${response.statusText}: ${body}` };
+      }
+
+      const data = await response.json() as Record<string, unknown>;
+      logger.info('Advanced settings fetched');
+      return { success: true, data };
     } catch (err) {
       return { success: false, error: errMsg(err) };
     }

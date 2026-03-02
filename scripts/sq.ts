@@ -12,6 +12,7 @@ import { join } from 'path';
 import { createInterface } from 'readline';
 import { createContentSaveClient, ContentSaveClient } from '../src/services/content-save.js';
 import type { SectionStyleOptions } from '../src/services/content-save.js';
+import type { UpdateNavigationItem } from '../src/services/content-save-types.js';
 import { extractAndValidateLinks } from '../src/services/link-validator.js';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -897,6 +898,111 @@ async function cmdCodeInjection(flags: Record<string, string>): Promise<void> {
   }
 }
 
+// ── Design Settings / Advanced ──────────────────────────────────────────────
+
+async function cmdGetFonts(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.getWebsiteFonts();
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdGetColors(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.getWebsiteColors();
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdGetAdvancedSettings(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  if (!siteId) throw new Error('--site is required');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+  const result = await client.getAdvancedSettings();
+  console.log(JSON.stringify(result, null, 2));
+}
+
+async function cmdReorderNav(flags: Record<string, string>): Promise<void> {
+  const siteId = flags.site;
+  const pageIdsStr = flags['page-ids'];
+  if (!siteId) throw new Error('--site is required');
+  if (!pageIdsStr) throw new Error('--page-ids is required (comma-separated collection IDs in desired order)');
+
+  const desiredOrder = pageIdsStr.split(',').map((id) => id.trim()).filter(Boolean);
+  if (desiredOrder.length === 0) throw new Error('--page-ids must contain at least one collection ID');
+
+  const { subdomain } = resolveSite(siteId);
+  const client = createContentSaveClient(subdomain, getCookiePath(subdomain));
+
+  // 1. Get current navigation
+  const navResult = await client.getNavigation();
+  if (!navResult.success || !navResult.data) {
+    throw new Error(`Failed to get navigation: ${navResult.error ?? 'unknown error'}`);
+  }
+
+  const currentItems = navResult.data.mainNavigation;
+  console.error(`Current navigation: ${currentItems.map((i) => `${i.title} (${i.collectionId})`).join(', ')}`);
+
+  // 2. Validate all provided IDs exist in current navigation
+  const itemMap = new Map<string, typeof currentItems[0]>();
+  for (const item of currentItems) {
+    if (item.collectionId) itemMap.set(item.collectionId, item);
+  }
+
+  for (const id of desiredOrder) {
+    if (!itemMap.has(id)) {
+      throw new Error(
+        `Collection ID "${id}" not found in main navigation.\n` +
+        `Available IDs: ${currentItems.map((i) => `${i.collectionId} (${i.title})`).join(', ')}`,
+      );
+    }
+  }
+
+  // 3. Build UpdateNavigationItem[] in desired order
+  // Items not in the desired order list are appended at the end (preserving relative order)
+  const orderedItems: typeof currentItems[0][] = [];
+  for (const id of desiredOrder) {
+    orderedItems.push(itemMap.get(id)!);
+  }
+  for (const item of currentItems) {
+    if (item.collectionId && !desiredOrder.includes(item.collectionId)) {
+      orderedItems.push(item);
+    }
+  }
+
+  // 4. Convert NavigationItem[] to UpdateNavigationItem[]
+  const updateItems = orderedItems.map((item, idx) => ({
+    title: item.title,
+    urlId: item.urlSlug,
+    typeName: 'page',
+    collectionId: item.collectionId ?? item.id,
+    enabled: item.enabled ?? true,
+    passwordProtected: false,
+    collectionType: item.collectionType ?? 10,
+    isFolder: item.isFolder ?? false,
+    ordering: idx,
+    updatedOn: Date.now(),
+    pagePermissionType: 3,
+    isDraft: item.isDraft ?? false,
+    items: [] as UpdateNavigationItem[],
+    id: item.id,
+  }));
+
+  console.error(`New order: ${orderedItems.map((i) => i.title).join(', ')}`);
+
+  // 5. Save
+  const result = await client.updateNavigation('mainNav', updateItems);
+  console.log(JSON.stringify(result, null, 2));
+}
+
 // ── Block addition commands ──────────────────────────────────────────────────
 
 async function cmdAddQuote(flags: Record<string, string>): Promise<void> {
@@ -1157,6 +1263,10 @@ Subcommands:
   settings         --site <id>
   footer           --site <id> [--search <str> --text <str>]   (read if no flags, patch text if --search + --text)
   code-injection   --site <id> [--header <str>] [--footer <str>] [--get]   (read if --get or no flags, write if --header/--footer)
+  reorder-nav      --site <id> --page-ids <id1,id2,id3>       (reorder main navigation pages)
+  get-fonts        --site <id>                                  (get website font configuration)
+  get-colors       --site <id>                                  (get website color palette and themes)
+  get-advanced-settings --site <id>                             (get advanced settings: URL mappings, 404, etc.)
 
   Utilities:
   session-health   --site <id>
@@ -1204,6 +1314,10 @@ async function main(): Promise<void> {
     case 'settings':        return cmdSettings(flags);
     case 'footer':          return cmdFooter(flags);
     case 'code-injection':  return cmdCodeInjection(flags);
+    case 'reorder-nav':     return cmdReorderNav(flags);
+    case 'get-fonts':       return cmdGetFonts(flags);
+    case 'get-colors':      return cmdGetColors(flags);
+    case 'get-advanced-settings': return cmdGetAdvancedSettings(flags);
     case 'add-quote':       return cmdAddQuote(flags);
     case 'add-code':        return cmdAddCode(flags);
     case 'add-video':       return cmdAddVideo(flags);
