@@ -10,7 +10,7 @@ AI agent that edits Squarespace websites based on forwarded client emails and Wh
 npm run dev          # Start dev server (tsx watch)
 npm run build        # TypeScript compile
 npm run start        # Run compiled JS (node dist/src/index.js)
-npm run test         # vitest run (~1590 tests, 52 files)
+npm run test         # vitest run (~1712 tests, 56 files)
 npm run test:unit    # Parse agent action tests only
 npm run cli          # CLI tool (tsx src/cli.ts)
 npm run setup-gmail  # Gmail OAuth setup
@@ -77,7 +77,7 @@ storage/            # Runtime data (uploads/, screenshots/) — not committed
 | `src/services/content-validator.ts` | Post-operation validation via API snapshot comparison |
 | `src/db/plan-operations.ts` | CRUD for granular per-operation tracking (plan_operations table) |
 | `src/config/section-templates.json` | Template catalog (27 templates, 8 categories) with placeholder patterns |
-| `src/services/content-save.ts` | Content Save API client (75+ methods, ~8200 lines — text/image/block/section/menu/navigation/settings/code-injection) |
+| `src/services/content-save.ts` | Content Save API client (86+ methods — text/image/block/section/menu/navigation/settings/code-injection/design) |
 | `src/services/menu-parser.ts` | Menu block text ↔ structured JSON (`parseMenuText`, `serializeMenu`) |
 | `src/services/menu-merger.ts` | Menu merge: LLM (`mergeMenuContent`) + deterministic (`mergeMenuStructured`, `mergeMenuFromText`) |
 | `src/services/whatsapp.ts` | WhatsApp Cloud API + dashboard SSE bridge |
@@ -154,6 +154,13 @@ Grid system: Desktop = 24 columns (X: 1–24), `start` inclusive / `end` exclusi
 Additional methods: `swapBlocks()` exchanges two blocks' full layout objects (desktop + mobile + zIndex) in a single GET + PUT. `removeBlock()` splices a block from its section's gridContents array. `moveSection()` reorders sections by splicing/inserting in the sections array (boundary-safe: returns success with oldIndex === newIndex at edges). `updateImageBlock()` updates image block metadata (title, description, subtitle, altText, linkTo, assetUrl) via read-modify-write — `assetUrl` writes to `content.value.value.assetUrl` for full image replacement. `addTextBlock()` adds a new text block to a section via API (generates block ID, calculates grid position with configurable `gapRows`/`rowHeight` spacing, includes `verticalAlignment` and `zIndex` fields, backfills missing fields on existing blocks before PUT).
 
 **Site-wide methods**: `getNavigation()` returns page structure (mainNavigation + notLinked). `getSettings()` returns full ~63-field settings object. `getCodeInjection()` extracts header/footer scripts from settings. `saveCodeInjection(header?, footer?)` saves via `POST /api/config/SaveInjectionSettings`.
+
+**Design settings methods** (all confirmed working via non-headless manual capture):
+- `getWebsiteFonts()` / `updateWebsiteFonts(data)` — `GET`/`PUT /api/website-fonts` (PUT returns 204). Full font pack: `name`, `baseFontSize`, `masterFonts[]` (fontFamily/fontWeight/fontStyle/textTransform/letterSpacing/lineHeight), `masterSizes[]`, `fontMappings[]`.
+- `getWebsiteColors()` / `updateWebsiteColors(data)` — `GET`/`PUT /api/website-colors` (PUT returns 200). Full palette: `palette[]` (id + HSL values), `colorThemes[]` (hundreds of CSS variable→palette mappings), `defaultTheme`.
+- `getTemplateTweakSettings()` / `setTemplateTweakSettings(updates)` — `GET /api/template/GetTemplateTweakSettings?version=3` / `POST /api/template/SetTemplateTweakSettings`. POST body is URL-encoded: `tweakJson=<url-encoded-json>`. Read-modify-write pattern: fetches current ~200+ tweaks, merges partial updates, POSTs full merged config.
+- `updateFont(fontName, updates)` — convenience: read-modify-write for a single font by name (e.g., "heading-font", "body-font").
+- `updatePaletteColor(colorId, hsl)` — convenience: read-modify-write for a single palette color by ID (e.g., "accent", "white", "darkAccent").
 
 **Block spacing**: `addTextBlock()` accepts `layout.gapRows` (default 2 for non-first blocks, 0 for first) and `layout.rowHeight` (default 3). Content strategist outputs layout hints per `apiBlock`. Section styling (`sectionPadding`, `blockSpacing`, `sectionTheme`) applied after both blank_api and template operations.
 
@@ -352,7 +359,7 @@ Upload strategies (fallback chain):
 
 ## Testing
 
-- `vitest` for unit tests — **~1590 tests** across 52 test files
+- `vitest` for unit tests — **~1712 tests** across 56 test files
 - Main test suite: `src/automation/__tests__/parse-agent-action.test.ts` (parse tests including templateIndex)
 - `src/services/__tests__/content-save-add-block.test.ts` — addTextBlock tests (block ID generation, layout calculation, backfill, gapRows/rowHeight spacing)
 - `src/services/__tests__/content-validator.test.ts` — content validation tests
@@ -361,6 +368,7 @@ Upload strategies (fallback chain):
 - `src/services/__tests__/menu-parser.test.ts` — menu text parser + serializer tests (45 tests)
 - `src/services/__tests__/content-save-menu.test.ts` — menu block API methods tests (24 tests)
 - `src/services/__tests__/menu-merger.test.ts` — menu merger (LLM + structured) tests (36 tests)
+- `src/services/__tests__/content-save-design-nav.test.ts` — design write + navigation tests (30 tests: fonts, colors, tweaks, nav reorder)
 - Integration test: `src/automation/__tests__/compound-actions.integration.test.ts` (requires live browser session)
 - Run: `npm run test` (integration test files show as "failed" when no browser session — this is expected)
-- **operationType union** now includes 19 types: `create_page`, `delete_page`, `update_page_metadata`, `add_section`, `add_block`, `add_gallery`, `modify_text`, `replace_image`, `remove_block`, `modify_block`, `modify_style`, `edit_footer`, `edit_css`, `reorder_sections`, `move_block`, `resize_block`, `create_blog_post`, `update_blog_post`, `edit_code_injection`, `modify_gallery_settings`. Site-wide ops (footer/CSS/code-injection/blog) skip `resolvePageContext()` in the api-executor.
+- **operationType union** now includes 20 types: `create_page`, `delete_page`, `update_page_metadata`, `add_section`, `add_block`, `add_gallery`, `modify_text`, `replace_image`, `remove_block`, `modify_block`, `modify_style`, `edit_footer`, `edit_css`, `reorder_sections`, `move_block`, `resize_block`, `create_blog_post`, `update_blog_post`, `edit_code_injection`, `modify_gallery_settings`. Site-wide ops (footer/CSS/code-injection/blog) skip `resolvePageContext()` in the api-executor.
