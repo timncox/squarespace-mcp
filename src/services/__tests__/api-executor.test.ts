@@ -54,6 +54,9 @@ const mockEditSectionStyle = vi.fn();
 const mockAddBlankSection = vi.fn();
 const mockCreatePageViaApi = vi.fn();
 const mockMoveSection = vi.fn();
+const mockDuplicateBlock = vi.fn();
+const mockDuplicateSection = vi.fn();
+const mockSwapBlocks = vi.fn();
 const mockCheckSessionHealth = vi.fn();
 
 vi.mock('../content-save.js', () => ({
@@ -72,6 +75,9 @@ vi.mock('../content-save.js', () => ({
     addBlankSection: mockAddBlankSection,
     createPageViaApi: mockCreatePageViaApi,
     moveSection: mockMoveSection,
+    duplicateBlock: mockDuplicateBlock,
+    duplicateSection: mockDuplicateSection,
+    swapBlocks: mockSwapBlocks,
   }),
   ContentSaveClient: {
     checkSessionHealth: () => mockCheckSessionHealth(),
@@ -482,6 +488,150 @@ describe('executeContentPlanViaApi', () => {
       expect(result.success).toBe(false);
       expect(result.failedOperations).toHaveLength(1);
       expect(result.operationResults[0].error).toContain('Could not resolve page context');
+    });
+  });
+
+  describe('duplicate_block operations', () => {
+    it('duplicates a block by search text', async () => {
+      mockDuplicateBlock.mockResolvedValue({
+        success: true,
+        originalBlockId: 'orig-1',
+        newBlockId: 'new-1',
+        sectionId: 's1',
+      });
+
+      const plan = makePlan([
+        makeOp({
+          operationType: 'duplicate_block',
+          content: { duplicateBlockSearchText: 'About Us' },
+        }),
+      ]);
+      const result = await executeContentPlanViaApi(plan, 'test-site');
+
+      expect(result.success).toBe(true);
+      expect(mockDuplicateBlock).toHaveBeenCalledWith('ps-123', 'col-456', 'About Us');
+    });
+
+    it('fails when duplicateBlock returns failure', async () => {
+      mockDuplicateBlock.mockResolvedValue({
+        success: false,
+        error: 'Block not found',
+      });
+
+      const plan = makePlan([
+        makeOp({
+          operationType: 'duplicate_block',
+          content: { duplicateBlockSearchText: 'Missing Block' },
+        }),
+      ]);
+      const result = await executeContentPlanViaApi(plan, 'test-site');
+
+      expect(result.success).toBe(false);
+      expect(result.failedOperations).toHaveLength(1);
+    });
+  });
+
+  describe('duplicate_section operations', () => {
+    it('duplicates a section by text search', async () => {
+      mockDuplicateSection.mockResolvedValue({
+        success: true,
+        originalSectionId: 's1',
+        newSectionId: 'new-s1',
+        newSectionIndex: 1,
+      });
+
+      const plan = makePlan([
+        makeOp({
+          operationType: 'duplicate_section',
+          content: { duplicateSectionSearch: 'Hero Section' },
+        }),
+      ]);
+      const result = await executeContentPlanViaApi(plan, 'test-site');
+
+      expect(result.success).toBe(true);
+      expect(mockDuplicateSection).toHaveBeenCalledWith('ps-123', 'col-456', 'Hero Section');
+    });
+
+    it('duplicates a section by index', async () => {
+      mockDuplicateSection.mockResolvedValue({
+        success: true,
+        originalSectionId: 's1',
+        newSectionId: 'new-s1',
+        newSectionIndex: 1,
+      });
+
+      const plan = makePlan([
+        makeOp({
+          operationType: 'duplicate_section',
+          content: { duplicateSectionSearch: 0 },
+        }),
+      ]);
+      const result = await executeContentPlanViaApi(plan, 'test-site');
+
+      expect(result.success).toBe(true);
+      expect(mockDuplicateSection).toHaveBeenCalledWith('ps-123', 'col-456', 0);
+    });
+
+    it('fails when duplicateSection returns failure', async () => {
+      mockDuplicateSection.mockResolvedValue({
+        success: false,
+        error: 'Section not found',
+      });
+
+      const plan = makePlan([
+        makeOp({
+          operationType: 'duplicate_section',
+          content: { duplicateSectionSearch: 'Missing Section' },
+        }),
+      ]);
+      const result = await executeContentPlanViaApi(plan, 'test-site');
+
+      expect(result.success).toBe(false);
+      expect(result.failedOperations).toHaveLength(1);
+    });
+  });
+
+  describe('swap_blocks operations', () => {
+    it('swaps two blocks by search text', async () => {
+      mockSwapBlocks.mockResolvedValue({
+        success: true,
+        blockId: 'b1',
+      });
+
+      const plan = makePlan([
+        makeOp({
+          operationType: 'swap_blocks',
+          content: {
+            swapBlock1SearchText: 'About Us',
+            swapBlock2SearchText: 'Our Mission',
+          },
+        }),
+      ]);
+      const result = await executeContentPlanViaApi(plan, 'test-site');
+
+      expect(result.success).toBe(true);
+      expect(mockSwapBlocks).toHaveBeenCalledWith('ps-123', 'col-456', 'About Us', 'Our Mission');
+    });
+
+    it('fails when swapBlocks returns failure', async () => {
+      mockSwapBlocks.mockResolvedValue({
+        success: false,
+        error: 'Block 2 not found',
+      });
+
+      const plan = makePlan([
+        makeOp({
+          operationType: 'swap_blocks',
+          content: {
+            swapBlock1SearchText: 'About Us',
+            swapBlock2SearchText: 'Missing Block',
+          },
+        }),
+      ]);
+      const result = await executeContentPlanViaApi(plan, 'test-site');
+
+      expect(result.success).toBe(false);
+      expect(result.failedOperations).toHaveLength(1);
     });
   });
 

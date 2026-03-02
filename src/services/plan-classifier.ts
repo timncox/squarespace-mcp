@@ -48,6 +48,9 @@ export interface PlanClassification {
  *   - resize_block (block resizing via width/height)
  *   - create_blog_post (blog post creation via blogCollectionId)
  *   - update_blog_post (blog post update via blogCollectionId + blogPostId)
+ *   - duplicate_block (clone a block via duplicateBlockSearchText)
+ *   - duplicate_section (clone a section via duplicateSectionSearch)
+ *   - swap_blocks (swap two blocks via swapBlock1SearchText + swapBlock2SearchText)
  *
  * Browser-required:
  *   - contentStrategy 'manual' (needs full browser control)
@@ -129,6 +132,15 @@ function canRunViaApi(op: ContentOperation): boolean {
 
     case 'update_blog_post':
       return !!(content.blogCollectionId && content.blogPostId);
+
+    case 'duplicate_block':
+      return !!content.duplicateBlockSearchText;
+
+    case 'duplicate_section':
+      return content.duplicateSectionSearch !== undefined;
+
+    case 'swap_blocks':
+      return !!(content.swapBlock1SearchText && content.swapBlock2SearchText);
 
     default:
       // Unknown operation type — assume browser required

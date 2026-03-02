@@ -214,4 +214,69 @@ describe('parseContentSpec', () => {
       expect(strResult.templateIndex).toBeUndefined();
     });
   });
+
+  // ── Duplicate/Swap fields ──────────────────────────────────────────────
+
+  describe('duplicate and swap fields', () => {
+    it('extracts duplicateBlockSearchText', () => {
+      const result = parseContentSpec({ duplicateBlockSearchText: 'About Us' });
+      expect(result.duplicateBlockSearchText).toBe('About Us');
+    });
+
+    it('rejects non-string duplicateBlockSearchText', () => {
+      const result = parseContentSpec({ duplicateBlockSearchText: 42 });
+      expect(result.duplicateBlockSearchText).toBeUndefined();
+    });
+
+    it('extracts duplicateSectionSearch as string', () => {
+      const result = parseContentSpec({ duplicateSectionSearch: 'Hero Section' });
+      expect(result.duplicateSectionSearch).toBe('Hero Section');
+    });
+
+    it('extracts duplicateSectionSearch as number (index)', () => {
+      const result = parseContentSpec({ duplicateSectionSearch: 0 });
+      expect(result.duplicateSectionSearch).toBe(0);
+    });
+
+    it('extracts duplicateSectionSearch as number > 0', () => {
+      const result = parseContentSpec({ duplicateSectionSearch: 3 });
+      expect(result.duplicateSectionSearch).toBe(3);
+    });
+
+    it('rejects non-string/non-number duplicateSectionSearch', () => {
+      const result = parseContentSpec({ duplicateSectionSearch: true });
+      expect(result.duplicateSectionSearch).toBeUndefined();
+    });
+
+    it('extracts swapBlock1SearchText', () => {
+      const result = parseContentSpec({ swapBlock1SearchText: 'About Us' });
+      expect(result.swapBlock1SearchText).toBe('About Us');
+    });
+
+    it('extracts swapBlock2SearchText', () => {
+      const result = parseContentSpec({ swapBlock2SearchText: 'Our Mission' });
+      expect(result.swapBlock2SearchText).toBe('Our Mission');
+    });
+
+    it('rejects non-string swap search texts', () => {
+      const r1 = parseContentSpec({ swapBlock1SearchText: 123 });
+      expect(r1.swapBlock1SearchText).toBeUndefined();
+
+      const r2 = parseContentSpec({ swapBlock2SearchText: null });
+      expect(r2.swapBlock2SearchText).toBeUndefined();
+    });
+
+    it('extracts all duplicate/swap fields together', () => {
+      const result = parseContentSpec({
+        duplicateBlockSearchText: 'Block A',
+        duplicateSectionSearch: 1,
+        swapBlock1SearchText: 'Block B',
+        swapBlock2SearchText: 'Block C',
+      });
+      expect(result.duplicateBlockSearchText).toBe('Block A');
+      expect(result.duplicateSectionSearch).toBe(1);
+      expect(result.swapBlock1SearchText).toBe('Block B');
+      expect(result.swapBlock2SearchText).toBe('Block C');
+    });
+  });
 });

@@ -171,6 +171,9 @@ Choose the correct \`operationType\` for each operation. Each type maps to a spe
 |---------------|----------------|-------------|
 | \`move_block\` | blockDirection ("up"/"down"/"left"/"right"), gridSteps (optional), placement | Move a block within its section grid |
 | \`resize_block\` | blockWidth ("smaller"/"larger"/"full") and/or blockHeight ("shorter"/"taller"), placement | Resize a block |
+| \`duplicate_block\` | duplicateBlockSearchText, placement | Duplicate a block (clone with new ID, positioned below original) |
+| \`duplicate_section\` | duplicateSectionSearch (text or section index), placement | Duplicate a section (deep clone with regenerated IDs) |
+| \`swap_blocks\` | swapBlock1SearchText, swapBlock2SearchText, placement | Swap two blocks' positions within a section |
 
 ### Page Management
 | operationType | Required Fields | Description |
@@ -209,6 +212,9 @@ Choose the correct \`operationType\` for each operation. Each type maps to a spe
 | "move the section up" | \`reorder_sections\` (sectionDirection: "up") | Section reorder |
 | "move the image left" | \`move_block\` (blockDirection: "left") | Block grid movement |
 | "make the block wider" | \`resize_block\` (blockWidth: "larger") | Block resize |
+| "duplicate this block" | \`duplicate_block\` (duplicateBlockSearchText) | Block clone |
+| "duplicate this section" | \`duplicate_section\` (duplicateSectionSearch) | Section clone |
+| "swap these two blocks" | \`swap_blocks\` (swapBlock1SearchText, swapBlock2SearchText) | Block position swap |
 | "add custom CSS" | \`edit_css\` | Site-wide CSS |
 | "add Google Analytics" | \`edit_code_injection\` | Header/footer scripts |
 | "change section to dark" | \`modify_style\` (sectionTheme: "dark") | Section styling |
@@ -1128,6 +1134,11 @@ export function parseContentSpec(raw: Record<string, unknown> | undefined): Cont
     blogBody: typeof raw.blogBody === 'string' ? raw.blogBody : undefined,
     blogTags: Array.isArray(raw.blogTags) ? (raw.blogTags as string[]) : undefined,
     blogDraft: typeof raw.blogDraft === 'boolean' ? raw.blogDraft : undefined,
+    // Block/section duplication + swap
+    duplicateBlockSearchText: typeof raw.duplicateBlockSearchText === 'string' ? raw.duplicateBlockSearchText : undefined,
+    duplicateSectionSearch: (typeof raw.duplicateSectionSearch === 'string' || typeof raw.duplicateSectionSearch === 'number') ? raw.duplicateSectionSearch : undefined,
+    swapBlock1SearchText: typeof raw.swapBlock1SearchText === 'string' ? raw.swapBlock1SearchText : undefined,
+    swapBlock2SearchText: typeof raw.swapBlock2SearchText === 'string' ? raw.swapBlock2SearchText : undefined,
   };
 }
 

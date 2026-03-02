@@ -16,6 +16,8 @@
  *   - Custom CSS (getCustomCSS / saveCustomCSS) — site-wide
  *   - Code injection (getCodeInjection / saveCodeInjection) — site-wide
  *   - Block layout ops (moveBlock / resizeBlock) — page-scoped
+ *   - Block/section duplication (duplicateBlock / duplicateSection) — page-scoped
+ *   - Block swap (swapBlocks) — page-scoped
  *   - Section reorder (moveSection / reorderSections) — page-scoped
  *   - Blog posts (createBlogPost / updateBlogPost) — collection-scoped
  *
@@ -950,6 +952,52 @@ async function executeResizeBlock(
   return `Resized block "${searchText.slice(0, 50)}" (width: ${op.content.blockWidth ?? 'unchanged'}, height: ${op.content.blockHeight ?? 'unchanged'})`;
 }
 
+async function executeDuplicateBlock(
+  client: ContentSaveClient,
+  ctx: PageContext,
+  op: ContentOperation,
+): Promise<string> {
+  const searchText = op.content.duplicateBlockSearchText;
+  if (!searchText) {
+    throw new Error('duplicate_block needs duplicateBlockSearchText in content spec');
+  }
+
+  const result = await client.duplicateBlock(ctx.pageSectionsId, ctx.collectionId, searchText);
+  if (!result.success) throw new Error(result.error ?? 'duplicateBlock failed');
+  return `Duplicated block "${searchText.slice(0, 50)}" → new block ${result.newBlockId}`;
+}
+
+async function executeDuplicateSection(
+  client: ContentSaveClient,
+  ctx: PageContext,
+  op: ContentOperation,
+): Promise<string> {
+  const search = op.content.duplicateSectionSearch;
+  if (search === undefined) {
+    throw new Error('duplicate_section needs duplicateSectionSearch in content spec');
+  }
+
+  const result = await client.duplicateSection(ctx.pageSectionsId, ctx.collectionId, search);
+  if (!result.success) throw new Error(result.error ?? 'duplicateSection failed');
+  return `Duplicated section → new section ${result.newSectionId} at index ${result.newSectionIndex}`;
+}
+
+async function executeSwapBlocks(
+  client: ContentSaveClient,
+  ctx: PageContext,
+  op: ContentOperation,
+): Promise<string> {
+  const text1 = op.content.swapBlock1SearchText;
+  const text2 = op.content.swapBlock2SearchText;
+  if (!text1 || !text2) {
+    throw new Error('swap_blocks needs swapBlock1SearchText and swapBlock2SearchText in content spec');
+  }
+
+  const result = await client.swapBlocks(ctx.pageSectionsId, ctx.collectionId, text1, text2);
+  if (!result.success) throw new Error(result.error ?? 'swapBlocks failed');
+  return `Swapped blocks "${text1.slice(0, 30)}" and "${text2.slice(0, 30)}"`;
+}
+
 async function executeCreateBlogPost(
   client: ContentSaveClient,
   op: ContentOperation,
@@ -1270,6 +1318,15 @@ export async function executeContentPlanViaApi(
             break;
           case 'resize_block':
             summary = await executeResizeBlock(client, ctx, op);
+            break;
+          case 'duplicate_block':
+            summary = await executeDuplicateBlock(client, ctx, op);
+            break;
+          case 'duplicate_section':
+            summary = await executeDuplicateSection(client, ctx, op);
+            break;
+          case 'swap_blocks':
+            summary = await executeSwapBlocks(client, ctx, op);
             break;
           default:
             throw new Error(`Unsupported operation type: ${op.operationType}`);

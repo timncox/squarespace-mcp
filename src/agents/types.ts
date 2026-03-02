@@ -47,7 +47,10 @@ export interface ContentOperation {
     | 'resize_block'
     | 'create_blog_post'
     | 'update_blog_post'
-    | 'edit_code_injection';
+    | 'edit_code_injection'
+    | 'duplicate_block'
+    | 'duplicate_section'
+    | 'swap_blocks';
   /** Where on the page (e.g., "below the hero section", "replace the current mountain image") */
   placement: string;
   /** The exact content to use */
@@ -170,6 +173,14 @@ export interface ContentSpec {
   blogTags?: string[];
   /** Whether the blog post is a draft */
   blogDraft?: boolean;
+  /** Text to find the block to duplicate */
+  duplicateBlockSearchText?: string;
+  /** Text to find the section to duplicate (or section index) */
+  duplicateSectionSearch?: string | number;
+  /** Text to find the first block for swap */
+  swapBlock1SearchText?: string;
+  /** Text to find the second block for swap */
+  swapBlock2SearchText?: string;
 }
 
 // ─── API Block Types (for blank_api strategy) ──────────────────────────────

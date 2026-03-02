@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { logger } from '../../utils/logger.js';
 import { errMsg } from '../../utils/errors.js';
 import { createMediaUploadClient } from '../../services/media-upload.js';
-import { createContentSaveClient, ContentSaveClient, type BlockMoveResult, type BlockResizeResult, type BlockRemoveResult, type SectionMoveResult, type ImageBlockUpdateResult, type TextBlockAddResult, type TextPatchResult, type MenuBlockUpdateResult, type SectionStyleResult, type SectionStyleOptions, type AddBlankSectionResult } from '../../services/content-save.js';
+import { createContentSaveClient, ContentSaveClient, type BlockMoveResult, type BlockResizeResult, type BlockRemoveResult, type SectionMoveResult, type ImageBlockUpdateResult, type ImageBlockAddResult, type TextBlockAddResult, type TextPatchResult, type MenuBlockUpdateResult, type SectionStyleResult, type SectionStyleOptions, type AddBlankSectionResult } from '../../services/content-save.js';
 import type { ActionResult } from './types.js';
 
 /**
@@ -1112,6 +1112,150 @@ export async function tryAddBlankSectionApi(
     return null;
   } catch (err) {
     logger.warn({ error: errMsg(err) }, 'Add Blank Section API failed');
+    return null;
+  }
+}
+
+/**
+ * Attempt to replace an image block's image via the Content Save API (no UI).
+ *
+ * Flow:
+ * 1. Extract API context (subdomain, pageSectionsId, collectionId)
+ * 2. Upload the new image via MediaUploadClient
+ * 3. Call ContentSaveClient.updateImageBlock() with the new assetUrl + optional altText
+ *
+ * Returns an ActionResult on success, null on failure. Never throws.
+ */
+export async function tryReplaceImageApi(
+  page: Page,
+  searchText: string,
+  imagePath: string,
+  altText?: string,
+): Promise<ActionResult | null> {
+  const ctx = await extractApiContext(page, 'tryReplaceImageApi');
+  if (!ctx) return null;
+
+  try {
+    // Step 1: Upload image via media API
+    const assetUrl = await tryMediaApiUpload(page, imagePath);
+    if (!assetUrl || assetUrl === 'uploaded') {
+      // 'uploaded' means success but no URL returned — can't set assetUrl without it
+      logger.debug('tryReplaceImageApi: media upload did not return a usable assetUrl');
+      return null;
+    }
+
+    // Step 2: Update the image block with new assetUrl (and altText if provided)
+    const fields: { assetUrl: string; altText?: string } = { assetUrl };
+    if (altText) fields.altText = altText;
+
+    const result: ImageBlockUpdateResult = await ctx.client.updateImageBlock(
+      ctx.pageSectionsId,
+      ctx.collectionId,
+      searchText,
+      fields,
+    );
+
+    if (result.success) {
+      logger.info(
+        { blockId: result.blockId, searchText, assetUrl: assetUrl.substring(0, 60), altText },
+        'Replace Image API: image replaced successfully',
+      );
+      return {
+        success: true,
+        message: `replaceImage: Replaced image "${searchText}" via Content Save API (block ${result.blockId}). New assetUrl: ${assetUrl.substring(0, 60)}...${altText ? ` Alt text: "${altText}".` : ''} Reload the page to see the change.`,
+      };
+    }
+
+    logger.warn({ error: result.error, searchText }, 'Replace Image API: update failed');
+    return null;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'Replace Image API failed');
+    return null;
+  }
+}
+
+/**
+ * Attempt to add an image block to a section via the Content Save API (no UI).
+ *
+ * Flow:
+ * 1. Extract API context (subdomain, pageSectionsId, collectionId)
+ * 2. Detect the active/editing section index from the editor DOM
+ * 3. Upload the image via MediaUploadClient
+ * 4. Call ContentSaveClient.addImageBlock() with the uploaded assetUrl
+ *
+ * Returns an ActionResult on success, null on failure. Never throws.
+ */
+export async function tryAddImageBlockApi(
+  page: Page,
+  imagePath: string,
+  altText?: string,
+): Promise<ActionResult | null> {
+  const ctx = await extractApiContext(page, 'tryAddImageBlockApi');
+  if (!ctx) return null;
+
+  try {
+    // Step 1: Detect active section index from iframe DOM
+    const siteFrame = page.frame({ name: 'sqs-site-frame' });
+    if (!siteFrame) {
+      logger.debug('tryAddImageBlockApi: no sqs-site-frame found');
+      return null;
+    }
+
+    const sectionIndex = await siteFrame.evaluate(() => {
+      const sections = document.querySelectorAll(
+        '[data-page-sections] > section, article[data-page-sections] > section',
+      );
+      // Look for active/editing section (Squarespace marks it with class or attribute)
+      for (let i = 0; i < sections.length; i++) {
+        if (
+          sections[i].classList.contains('sqs-editing') ||
+          sections[i].querySelector('.sqs-editing') ||
+          sections[i].classList.contains('fe-active') ||
+          sections[i].getAttribute('data-edit') === 'true'
+        ) {
+          return i;
+        }
+      }
+      // Fallback: return last section
+      return sections.length > 0 ? sections.length - 1 : -1;
+    }).catch(() => -1);
+
+    if (sectionIndex < 0) {
+      logger.debug('tryAddImageBlockApi: could not determine section index');
+      return null;
+    }
+
+    // Step 2: Upload image via media API
+    const assetUrl = await tryMediaApiUpload(page, imagePath);
+    if (!assetUrl || assetUrl === 'uploaded') {
+      logger.debug('tryAddImageBlockApi: media upload did not return a usable assetUrl');
+      return null;
+    }
+
+    // Step 3: Add the image block via API
+    const result: ImageBlockAddResult = await ctx.client.addImageBlock(
+      ctx.pageSectionsId,
+      ctx.collectionId,
+      sectionIndex,
+      assetUrl,
+      { altText },
+    );
+
+    if (result.success) {
+      logger.info(
+        { blockId: result.blockId, sectionId: result.sectionId, sectionIndex, assetUrl: assetUrl.substring(0, 60), altText },
+        'Add Image Block API: image block added successfully',
+      );
+      return {
+        success: true,
+        message: `addImageBlock: Added image block via Content Save API (block ${result.blockId}, section ${result.sectionId} at index ${sectionIndex}). Asset: ${assetUrl.substring(0, 60)}...${altText ? ` Alt text: "${altText}".` : ''} Reload the page to see the change.`,
+      };
+    }
+
+    logger.warn({ error: result.error, sectionIndex }, 'Add Image Block API: add failed');
+    return null;
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'Add Image Block API failed');
     return null;
   }
 }
