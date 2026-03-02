@@ -69,7 +69,7 @@ function formatCatalogForPrompt(): string {
   const catalog = loadCatalog();
   const lines: string[] = [];
 
-  lines.push('### Section Template Catalog (reference only — use blank_api strategy, not template strategy)');
+  lines.push('### Section Template Catalog (for template strategy — use when layout matches a catalog template)');
   lines.push('');
   lines.push('Use the **addSectionFromTemplate** compound action to add a template AND replace its placeholder content in one step.');
   lines.push('');
@@ -162,7 +162,7 @@ Choose the correct \`operationType\` for each operation. Each type maps to a spe
 ### Section Operations
 | operationType | Required Fields | Description |
 |---------------|----------------|-------------|
-| \`add_section\` | contentStrategy: "blank_api", apiBlocks | Add a new section with content |
+| \`add_section\` | contentStrategy: "template" + templateCategory + templateIndex + replacements, OR contentStrategy: "blank_api" + apiBlocks | Add a new section with content |
 | \`modify_style\` | sectionTheme/sectionHeight/contentWidth/etc, placement | Change section visual styling |
 | \`reorder_sections\` | sectionDirection ("up"/"down") OR sectionOrder (index array) | Move sections up/down or reorder |
 
@@ -570,11 +570,12 @@ The content you write will be typed VERBATIM into the Squarespace website editor
 
 Your editorInstruction fields are executed by a browser automation agent. Use these EXACT UI patterns:
 
-### Adding a Section (always use blank_api strategy — NOT templates)
-1. Hover between existing sections to reveal "Add Section" button
-2. Click "Add Section" — section picker panel opens on the left
-3. Click **"+ Add Blank"** to add a blank section (do NOT pick a template category)
-4. The blank section is then populated via the Content Save API (handled automatically by the execution pipeline)
+### Adding a Section
+**Two strategies are available — choose based on the content:**
+
+**template strategy** (preferred when a catalog template matches): The execution pipeline copies a template section via API (~300ms), then replaces placeholder content via API. Set \`contentStrategy: "template"\` + \`templateCategory\` + \`templateIndex\` + \`replacements\`. No browser automation needed.
+
+**blank_api strategy** (for custom layouts or when no template matches): Adds a blank section and populates via API. Set \`contentStrategy: "blank_api"\` + \`apiBlocks\` array. No browser automation needed.
 
 ${formatTemplateCatalogSection(discoveredTemplates)}
 
@@ -753,7 +754,31 @@ Example with image (uses addSectionFromTemplate with image replacement):
     "templateName": "Bio with Image",
     "templateIndex": 0
   },
-  "editorInstruction": "1. Use addSectionFromTemplate with category='About', template='Bio with Image', templateIndex=0, replacements: texts=[{searchText:'About Us', newText:'Menu Formatter'}, {searchText:'Lorem ipsum', newText:'A drag-and-drop menu builder for restaurants.'}], buttons=[{searchText:'Learn More', newLabel:'View Project', url:'https://menu-block.lovable.app'}], images=[{searchText:'placeholder', imagePath:'/Users/timcox/squarespace helper/storage/project-screenshots/menu-block.png', altText:'Menu Formatter app screenshot'}]. 2. Verify the section."
+  "editorInstruction": "Template section added and placeholders replaced via API — no browser steps needed."
+}
+
+Template strategy example (API-only — no browser agent needed):
+{
+  "operationType": "add_section",
+  "placement": "Contact section at page bottom",
+  "content": {
+    "heading": "Get In Touch",
+    "contentStrategy": "template",
+    "templateCategory": "Contact",
+    "templateIndex": 1,
+    "replacements": {
+      "texts": [
+        { "searchText": "Contact Us", "newText": "Get In Touch" },
+        { "searchText": "We'd love to hear from you", "newText": "Book a table or ask about private events." }
+      ],
+      "buttons": [
+        { "searchText": "Send Message", "newLabel": "Reserve a Table", "url": "/reservations" }
+      ],
+      "removeBlocks": ["Subscribe"]
+    },
+    "sectionTheme": "Dark"
+  },
+  "editorInstruction": "Template section copied and placeholders replaced via API — no browser steps needed."
 }
 
 Blank+API example (text-heavy content — no browser agent needed):
@@ -963,7 +988,13 @@ Fallback example (blank section when no template fits):
 IMPORTANT:
 - **ONLY do what was explicitly requested.** Do NOT add extra sections, pages, or content beyond what the task describes. If the user says "add a gallery page with photos", create ONE gallery operation — do NOT also add "Featured Work", "Get In Touch", "About", or other sections you think might be nice. The user will ask for additional sections if they want them. Stick strictly to the task scope.
 - **Content Strategy Routing** — choose the right strategy per operation:
-  - **blank_api** (DEFAULT — use this for all section additions): Add a blank section and populate via API. Set \`contentStrategy: "blank_api"\` and provide \`apiBlocks\` array. Supported block types:
+  - **template** (PREFERRED when a catalog template matches the desired layout): Copy a pre-designed template section and replace its placeholder content via API. Set \`contentStrategy: "template"\` + \`templateCategory\` (e.g., "About", "Contact", "Team") + \`templateIndex\` (0-based index from the catalog) + \`replacements\` object. Replacements fields:
+    - \`texts\`: \`[{ searchText: "About Us", newText: "Meet Our Chef" }]\` — replaces placeholder headings/body text
+    - \`buttons\`: \`[{ searchText: "Learn More", newLabel: "View Menu", url: "/menus" }]\` — updates button labels and URLs
+    - \`images\`: \`[{ searchText: "placeholder", imagePath: "/path/to/photo.jpg", altText: "Chef portrait" }]\` — replaces placeholder images
+    - \`removeBlocks\`: \`["Contact Us"]\` — removes unwanted template buttons or blocks by text match
+    Use template when the desired layout matches a catalog category (About, Contact, Team, Services, FAQ, Images, Intro). The pre-designed layouts look better than blank sections with manually added blocks. ~1 second vs ~60 seconds for browser automation.
+  - **blank_api** (for custom layouts, text-heavy content, or block types not in templates): Add a blank section and populate via API. Set \`contentStrategy: "blank_api"\` and provide \`apiBlocks\` array. Supported block types:
     - Text: \`{ html: "..." }\` or \`{ html: "Heading", formatting: { tag: "h2", alignment: "center" } }\`
     - Button: \`{ type: "button", label: "Book a Call", url: "https://..." }\`
     - Image: \`{ type: "image", imagePath: "/path/to/image.jpg", altText: "..." }\`
@@ -981,8 +1012,7 @@ IMPORTANT:
       Note: Social profile URLs come from site settings (connected accounts) — the block only controls display options (size/style/color/alignment).
     - **Menu blocks CANNOT be added fresh** via API — only modified on existing blocks. To add a new menu, use \`contentStrategy: "manual"\`.
     - No browser agent needed — ~1 second vs ~60 seconds for browser automation.
-  - **manual**: Use for custom layouts, interactive elements, new menu blocks, or anything not expressible as apiBlocks. Set \`contentStrategy: "manual"\` and write detailed \`editorInstruction\`.
-  - **NEVER use "template"** strategy. Always use \`blank_api\` instead, even for standard layouts (About, Contact, Team, etc.).
+  - **manual**: Use for custom layouts, interactive elements, new menu blocks, or anything not expressible as apiBlocks or template replacements. Set \`contentStrategy: "manual"\` and write detailed \`editorInstruction\`.
 - The addSectionFromTemplate action handles: add template + replace all placeholder content in ONE step. Write it as a SINGLE instruction step, not separate steps.
 - Write the EXACT heading and body text to use. No placeholders.
 - The "editorInstruction" must be NUMBERED step-by-step instructions for a browser automation agent. Use the Squarespace editor reference above to write precise instructions with exact button names and locations.

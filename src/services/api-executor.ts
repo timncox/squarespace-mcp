@@ -376,6 +376,95 @@ async function executeAddSectionBlankApi(
   return `Added blank section "${heading}" with ${blocksAdded} blocks`;
 }
 
+async function executeAddSectionTemplate(
+  client: ContentSaveClient,
+  ctx: PageContext,
+  op: ContentOperation,
+  opIndex: number,
+  tracker: SectionTracker,
+  subdomain: string,
+): Promise<string> {
+  const { content } = op;
+  const categoryName = content.templateCategory;
+  const templateIndex = content.templateIndex;
+
+  if (!categoryName || templateIndex === undefined) {
+    throw new Error('Template operation requires templateCategory and templateIndex');
+  }
+
+  // Step 1: Copy template section via catalog API
+  const { copyTemplateSectionFromCatalog } = await import('./section-catalog.js');
+  const copyResult = await copyTemplateSectionFromCatalog(subdomain, categoryName, templateIndex);
+  if (!copyResult?.success) {
+    throw new Error(`copyTemplateSectionFromCatalog failed for ${categoryName}[${templateIndex}]`);
+  }
+
+  // Track the new section index (appended to the end)
+  const newSectionIndex = tracker.sectionCount;
+  tracker.sectionIndices.set(opIndex, newSectionIndex);
+  tracker.sectionCount++;
+
+  // Step 2: Apply replacements if provided
+  const replacements = content.replacements;
+  let replacementsApplied = 0;
+
+  if (replacements) {
+    // Replace text blocks
+    if (replacements.texts) {
+      for (const { searchText, newText } of replacements.texts) {
+        const html = newText.includes('<') ? newText : `<p>${newText}</p>`;
+        const result = await client.updateTextBlock(
+          ctx.pageSectionsId, ctx.collectionId, searchText, html,
+        );
+        if (result.success) replacementsApplied++;
+        else logger.warn({ error: result.error, searchText }, 'api-executor: template text replacement failed');
+      }
+    }
+
+    // Remove blocks (e.g., unwanted template buttons)
+    if (replacements.removeBlocks) {
+      for (const searchText of replacements.removeBlocks) {
+        const result = await client.removeBlock(
+          ctx.pageSectionsId, ctx.collectionId, searchText,
+        );
+        if (result.success) replacementsApplied++;
+        else logger.warn({ error: result.error, searchText }, 'api-executor: template block removal failed');
+      }
+    }
+
+    // Update buttons
+    if (replacements.buttons) {
+      for (const btn of replacements.buttons) {
+        const result = await client.updateButtonBlock(
+          ctx.pageSectionsId, ctx.collectionId, btn.searchText,
+          { newLabel: btn.newLabel, url: btn.url },
+        );
+        if (result.success) replacementsApplied++;
+        else logger.warn({ error: result.error, searchText: btn.searchText }, 'api-executor: template button replacement failed');
+      }
+    }
+
+    // Replace images (upload + update)
+    if (replacements.images) {
+      for (const img of replacements.images) {
+        const assetUrl = await uploadImageForBlock(subdomain, img.imagePath);
+        const result = await client.updateImageBlock(
+          ctx.pageSectionsId, ctx.collectionId, img.searchText,
+          { assetUrl, altText: img.altText },
+        );
+        if (result.success) replacementsApplied++;
+        else logger.warn({ error: result.error, searchText: img.searchText }, 'api-executor: template image replacement failed');
+      }
+    }
+  }
+
+  // Step 3: Apply section styling if specified
+  await applySectionStyle(client, ctx, newSectionIndex, content);
+
+  const heading = content.heading ?? `Section ${opIndex + 1}`;
+  return `Added template section "${heading}" (${categoryName}[${templateIndex}]) with ${replacementsApplied} replacements`;
+}
+
 async function executeModifyText(
   client: ContentSaveClient,
   ctx: PageContext,
@@ -1164,10 +1253,15 @@ export async function executeContentPlanViaApi(
       // Infer blank_api when apiBlocks are present but strategy wasn't explicitly set
       const effectiveStrategy = op.content.contentStrategy
         ?? (op.content.apiBlocks?.length ? 'blank_api' : undefined);
-      if (effectiveStrategy !== 'blank_api') {
+
+      let summary: string;
+      if (effectiveStrategy === 'template' && op.content.templateCategory && op.content.templateIndex !== undefined) {
+        summary = await executeAddSectionTemplate(client, ctx, op, index, tracker, subdomain);
+      } else if (effectiveStrategy === 'blank_api') {
+        summary = await executeAddSectionBlankApi(client, ctx, op, index, tracker, subdomain);
+      } else {
         throw new Error(`Unsupported content strategy: ${op.content.contentStrategy ?? 'none'}`);
       }
-      const summary = await executeAddSectionBlankApi(client, ctx, op, index, tracker, subdomain);
 
       // Post-operation validation
       let validation: ValidationResult | undefined;

@@ -1767,56 +1767,19 @@ async function executeBlankApiOperation(
 /**
  * Try to copy a template section via the Content Save API (~300ms).
  * Returns the copy result if successful, or null if any step fails (caller falls through to UI).
+ *
+ * Delegates to the shared copyTemplateSectionFromCatalog() helper in section-catalog.ts.
+ * The pageSectionsId parameter is kept for backward compatibility but is no longer used
+ * (the shared helper creates its own client internally).
  */
 async function tryCopyTemplateViaApi(
   subdomain: string,
-  pageSectionsId: string,
+  _pageSectionsId: string,
   categoryName: string,
   templateIndex: number,
 ): Promise<import('../../services/content-save.js').CopyTemplateSectionResult | null> {
-  try {
-    const { getOrFetchCatalog, lookupCatalogEntry } = await import('../../services/section-catalog.js');
-
-    // Step 1: Get catalog (cached, ~0ms on hit)
-    const catalog = await getOrFetchCatalog(subdomain);
-    if (!catalog) {
-      logger.warn({ subdomain }, 'tryCopyTemplateViaApi: catalog fetch failed');
-      return null;
-    }
-
-    // Step 2: Look up the specific template entry
-    const entry = lookupCatalogEntry(catalog, categoryName, templateIndex);
-    if (!entry) {
-      logger.warn(
-        { categoryName, templateIndex },
-        'tryCopyTemplateViaApi: entry not found in catalog',
-      );
-      return null;
-    }
-
-    // Step 3: Copy the template section
-    const client = createContentSaveClient(subdomain);
-    const result = await client.copyTemplateSection(
-      entry.websiteId, entry.collectionId, entry.sectionId,
-    );
-
-    if (!result.success) {
-      logger.warn(
-        { error: result.error, categoryName, templateIndex },
-        'tryCopyTemplateViaApi: copy failed',
-      );
-      return null;
-    }
-
-    logger.info(
-      { sectionId: result.sectionId, categoryName, templateIndex },
-      'tryCopyTemplateViaApi: template section copied via API (~300ms)',
-    );
-    return result;
-  } catch (err) {
-    logger.warn({ error: errMsg(err) }, 'tryCopyTemplateViaApi: error');
-    return null;
-  }
+  const { copyTemplateSectionFromCatalog } = await import('../../services/section-catalog.js');
+  return copyTemplateSectionFromCatalog(subdomain, categoryName, templateIndex);
 }
 
 // ─── Template Operation Execution ────────────────────────────────────────────

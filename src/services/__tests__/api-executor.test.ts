@@ -79,6 +79,12 @@ vi.mock('../content-save.js', () => ({
   },
 }));
 
+// Mock section-catalog for template copy
+const mockCopyTemplateSectionFromCatalog = vi.fn();
+vi.mock('../section-catalog.js', () => ({
+  copyTemplateSectionFromCatalog: (...args: unknown[]) => mockCopyTemplateSectionFromCatalog(...args),
+}));
+
 // Mock media upload
 vi.mock('../media-upload.js', () => ({
   MediaUploadClient: class {
@@ -508,6 +514,163 @@ describe('executeContentPlanViaApi', () => {
 
       expect(result.summary).toContain('1/2 operations succeeded');
       expect(result.summary).toContain('1 failed');
+    });
+  });
+
+  describe('template section operations', () => {
+    it('copies a template section and applies text replacements', async () => {
+      mockCopyTemplateSectionFromCatalog.mockResolvedValue({
+        success: true,
+        sectionId: 'tmpl-section-123',
+      });
+      mockUpdateTextBlock.mockResolvedValue({ success: true });
+
+      const plan = makePlan([
+        makeOp({
+          operationType: 'add_section',
+          targetPage: 'home',
+          content: {
+            heading: 'Contact Us',
+            contentStrategy: 'template',
+            templateCategory: 'Contact',
+            templateIndex: 1,
+            replacements: {
+              texts: [
+                { searchText: 'Contact Us', newText: 'Get In Touch' },
+                { searchText: 'Lorem ipsum', newText: 'We would love to hear from you.' },
+              ],
+            },
+          },
+        }),
+      ]);
+      const result = await executeContentPlanViaApi(plan, 'test-site');
+
+      expect(result.success).toBe(true);
+      expect(result.operationResults).toHaveLength(1);
+      expect(result.operationResults[0].success).toBe(true);
+      expect(result.operationResults[0].summary).toContain('template section');
+      expect(mockCopyTemplateSectionFromCatalog).toHaveBeenCalledWith('test-site', 'Contact', 1);
+      expect(mockUpdateTextBlock).toHaveBeenCalledTimes(2);
+    });
+
+    it('copies a template section with block removals', async () => {
+      mockCopyTemplateSectionFromCatalog.mockResolvedValue({
+        success: true,
+        sectionId: 'tmpl-section-456',
+      });
+      mockRemoveBlock.mockResolvedValue({ success: true });
+
+      const plan = makePlan([
+        makeOp({
+          operationType: 'add_section',
+          targetPage: 'home',
+          content: {
+            heading: 'About',
+            contentStrategy: 'template',
+            templateCategory: 'About',
+            templateIndex: 0,
+            replacements: {
+              removeBlocks: ['Learn More', 'Subscribe'],
+            },
+          },
+        }),
+      ]);
+      const result = await executeContentPlanViaApi(plan, 'test-site');
+
+      expect(result.success).toBe(true);
+      expect(mockCopyTemplateSectionFromCatalog).toHaveBeenCalledWith('test-site', 'About', 0);
+      expect(mockRemoveBlock).toHaveBeenCalledTimes(2);
+    });
+
+    it('copies a template section with button replacements', async () => {
+      mockCopyTemplateSectionFromCatalog.mockResolvedValue({
+        success: true,
+        sectionId: 'tmpl-section-789',
+      });
+      mockUpdateButtonBlock.mockResolvedValue({ success: true });
+
+      const plan = makePlan([
+        makeOp({
+          operationType: 'add_section',
+          targetPage: 'home',
+          content: {
+            heading: 'Services',
+            contentStrategy: 'template',
+            templateCategory: 'Services',
+            templateIndex: 0,
+            replacements: {
+              buttons: [
+                { searchText: 'Learn More', newLabel: 'Book Now', url: '/book' },
+              ],
+            },
+          },
+        }),
+      ]);
+      const result = await executeContentPlanViaApi(plan, 'test-site');
+
+      expect(result.success).toBe(true);
+      expect(mockUpdateButtonBlock).toHaveBeenCalledWith(
+        'ps-123', 'col-456', 'Learn More',
+        { newLabel: 'Book Now', url: '/book' },
+      );
+    });
+
+    it('fails when template copy fails', async () => {
+      mockCopyTemplateSectionFromCatalog.mockResolvedValue(null);
+
+      const plan = makePlan([
+        makeOp({
+          operationType: 'add_section',
+          targetPage: 'home',
+          content: {
+            heading: 'Contact',
+            contentStrategy: 'template',
+            templateCategory: 'Contact',
+            templateIndex: 99,
+          },
+        }),
+      ]);
+      const result = await executeContentPlanViaApi(plan, 'test-site');
+
+      expect(result.success).toBe(false);
+      expect(result.failedOperations).toHaveLength(1);
+    });
+
+    it('handles mixed template + blank_api plan', async () => {
+      mockCopyTemplateSectionFromCatalog.mockResolvedValue({
+        success: true,
+        sectionId: 'tmpl-section-mix',
+      });
+      mockAddBlankSection.mockResolvedValue({ success: true, sectionId: 'blank-section-mix' });
+      mockAddTextBlock.mockResolvedValue({ success: true, blockId: 'b1' });
+
+      const plan = makePlan([
+        makeOp({
+          operationType: 'add_section',
+          targetPage: 'home',
+          content: {
+            heading: 'About',
+            contentStrategy: 'template',
+            templateCategory: 'About',
+            templateIndex: 0,
+          },
+        }),
+        makeOp({
+          operationType: 'add_section',
+          targetPage: 'home',
+          content: {
+            heading: 'Custom Section',
+            contentStrategy: 'blank_api',
+            apiBlocks: [{ html: '<p>Custom content</p>' }],
+          },
+        }),
+      ]);
+      const result = await executeContentPlanViaApi(plan, 'test-site');
+
+      expect(result.success).toBe(true);
+      expect(result.operationResults).toHaveLength(2);
+      expect(mockCopyTemplateSectionFromCatalog).toHaveBeenCalledTimes(1);
+      expect(mockAddBlankSection).toHaveBeenCalledTimes(1);
     });
   });
 });

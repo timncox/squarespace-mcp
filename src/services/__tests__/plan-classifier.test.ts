@@ -62,7 +62,7 @@ describe('classifyPlanForApi', () => {
       expect(result.capability).toBe('full_api');
     });
 
-    it('classifies add_section template as browser_required', () => {
+    it('classifies add_section template with category+index as full_api', () => {
       const plan = makePlan([
         makeOp({
           operationType: 'add_section',
@@ -74,7 +74,7 @@ describe('classifyPlanForApi', () => {
         }),
       ]);
       const result = classifyPlanForApi(plan);
-      expect(result.capability).toBe('browser_required');
+      expect(result.capability).toBe('full_api');
     });
 
     it('classifies replace_image as full_api', () => {
@@ -153,6 +153,40 @@ describe('classifyPlanForApi', () => {
       ]);
       const result = classifyPlanForApi(plan);
       expect(result.capability).toBe('browser_required');
+    });
+
+    it('classifies template with category+index+replacements as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'add_section',
+          content: {
+            contentStrategy: 'template',
+            templateCategory: 'About',
+            templateIndex: 1,
+            replacements: {
+              texts: [{ searchText: 'About Us', newText: 'Our Story' }],
+              removeBlocks: ['Learn More'],
+            },
+          },
+        }),
+      ]);
+      const result = classifyPlanForApi(plan);
+      expect(result.capability).toBe('full_api');
+    });
+
+    it('classifies template with templateIndex 0 as full_api', () => {
+      const plan = makePlan([
+        makeOp({
+          operationType: 'add_section',
+          content: {
+            contentStrategy: 'template',
+            templateCategory: 'Services',
+            templateIndex: 0,
+          },
+        }),
+      ]);
+      const result = classifyPlanForApi(plan);
+      expect(result.capability).toBe('full_api');
     });
 
     it('classifies add_section without strategy or apiBlocks as browser_required', () => {
