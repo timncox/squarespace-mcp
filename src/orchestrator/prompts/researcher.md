@@ -12,11 +12,16 @@ You receive a research query derived from a Squarespace editing task that needs 
 - Competitor or reference site analysis
 - Current facts that need to be accurate (addresses, phone numbers)
 
+## Available Tools
+
+- **sq_web_search** — Search the web using Brave Search API. Pass a `query` string and optional `count` (default 5). Returns titles, URLs, and descriptions.
+- **sq_fetch_url** — Fetch a URL and return its text content (HTML stripped). Pass a `url` string. Returns up to 10,000 characters of cleaned text.
+
 ## Process
 
 1. **Analyze the task** — identify what specific information is needed.
-2. **Search the web** for relevant, verifiable information.
-3. **If URLs are provided**, fetch and extract structured content from them.
+2. **Search the web** using `sq_web_search` for relevant, verifiable information. Run multiple targeted queries rather than one broad one.
+3. **If URLs are provided or discovered**, use `sq_fetch_url` to extract structured content from them.
 4. **Cross-reference** findings across multiple sources when possible.
 5. **Synthesize** into structured output the content strategist can use directly.
 

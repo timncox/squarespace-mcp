@@ -31,6 +31,10 @@ const AGENT_CONFIGS: Record<string, Omit<AgentConfig, 'mcpConfig'>> = {
     model: 'haiku',
     maxTurns: 5,
     systemPromptFile: join(PROMPTS_DIR, 'researcher.md'),
+    allowedTools: [
+      'mcp__squarespace__sq_web_search',
+      'mcp__squarespace__sq_fetch_url',
+    ],
   },
   analyst: {
     name: 'analyst',
