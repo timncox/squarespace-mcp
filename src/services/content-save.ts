@@ -6820,6 +6820,7 @@ export class ContentSaveClient {
       categories?: string[];
       excerpt?: string;
       draft?: boolean;
+      publishDate?: string;
     },
   ): Promise<BlogPostCreateResult> {
     this.ensureCookies();
@@ -6828,10 +6829,13 @@ export class ContentSaveClient {
       // No crumb in URL — this endpoint uses X-CSRF-Token header
       const url = `https://${this.siteSubdomain}.squarespace.com/api/content/blogs/${collectionId}/text-posts`;
       const now = Date.now();
+      const publishOn = options?.publishDate
+        ? new Date(options.publishDate).getTime() || now
+        : now;
 
       const postBody = JSON.stringify({
         addedOn: now,
-        publishOn: now,
+        publishOn,
         ...(this.websiteIdCache ? { websiteId: this.websiteIdCache } : {}),
         ...(this.memberAccountIdCache ? { authorId: this.memberAccountIdCache } : {}),
         mediaFocalPoint: { x: 0.5, y: 0.5 },
@@ -6881,6 +6885,17 @@ export class ContentSaveClient {
 
       const data = (await response.json()) as Record<string, unknown>;
       logger.info({ collectionId, itemId: data.id, urlId: data.urlId }, 'createBlogPost: post created');
+
+      // Follow-up: set fields the create endpoint doesn't accept
+      const needsUpdate = options?.body || options?.tags || options?.excerpt || options?.categories;
+      if (needsUpdate && data.id) {
+        await this.updateBlogPost(collectionId, String(data.id), {
+          ...(options.body ? { body: options.body } : {}),
+          ...(options.tags ? { tags: options.tags } : {}),
+          ...(options.excerpt ? { excerpt: options.excerpt } : {}),
+          ...(options.categories ? { categories: options.categories } : {}),
+        });
+      }
 
       return {
         success: true,

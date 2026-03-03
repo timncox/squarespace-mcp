@@ -163,6 +163,80 @@ describe('updateBlogPost', () => {
   });
 });
 
+// ─── createBlogPost ───────────────────────────────────────────────────────
+
+describe('createBlogPost', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  it('uses publishDate ISO string for publishOn in POST body', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true, status: 200,
+      json: async () => ({ id: 'new-post-1', urlId: 'my-post' }),
+      text: async () => '',
+    } as Response);
+
+    const client = makeClient();
+    const result = await client.createBlogPost('col-1', 'Test Post', {
+      publishDate: '2026-01-15T10:00:00Z',
+      draft: false,
+    });
+
+    expect(result.success).toBe(true);
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.publishOn).toBe(new Date('2026-01-15T10:00:00Z').getTime());
+  });
+
+  it('calls updateBlogPost after create when body/tags/excerpt/categories provided', async () => {
+    // First call: POST create → success
+    mockFetch.mockResolvedValueOnce({
+      ok: true, status: 200,
+      json: async () => ({ id: 'new-post-2', urlId: 'rich-post' }),
+      text: async () => '',
+    } as Response);
+    // Second call: PUT update → success
+    mockFetch.mockResolvedValueOnce({
+      ok: true, status: 200,
+      json: async () => ({ id: 'new-post-2' }),
+      text: async () => '',
+    } as Response);
+
+    const client = makeClient();
+    const result = await client.createBlogPost('col-1', 'Rich Post', {
+      body: '<p>Hello</p>',
+      tags: ['news'],
+      excerpt: 'A summary',
+      categories: ['updates'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.itemId).toBe('new-post-2');
+    // Should have made 2 fetch calls: POST create + PUT update
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const [updateUrl, updateInit] = mockFetch.mock.calls[1] as [string, RequestInit];
+    expect(updateUrl).toContain('/text-posts/new-post-2');
+    expect(updateInit.method).toBe('PUT');
+    const updateBody = JSON.parse(updateInit.body as string);
+    expect(updateBody.body).toEqual({ html: '<p>Hello</p>' });
+    expect(updateBody.tags).toEqual(['news']);
+    expect(updateBody.excerpt).toEqual({ html: 'A summary', raw: false });
+    expect(updateBody.categories).toEqual(['updates']);
+  });
+
+  it('does not call updateBlogPost when only title and draft provided', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true, status: 200,
+      json: async () => ({ id: 'new-post-3', urlId: 'simple' }),
+      text: async () => '',
+    } as Response);
+
+    const client = makeClient();
+    await client.createBlogPost('col-1', 'Simple Post', { draft: true });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
 // ─── findBlogPostByTitle ──────────────────────────────────────────────────
 
 describe('findBlogPostByTitle', () => {
