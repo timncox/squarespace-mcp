@@ -20,7 +20,6 @@ import {
 import { interpretWhatsAppRequest } from '../whatsapp-request-interpreter.js';
 import { getBrowserManager } from '../../automation/browser-manager.js';
 import { ensureLoggedIn } from '../../automation/squarespace-auth.js';
-import { taskNeedsContentPlanning, runPlanningPipeline, revisePlanFromFeedback } from './planning.js';
 import { executeTasks } from './execution.js';
 import { executionQueue } from '../execution-queue.js';
 import { formatDirectRequestTaskList } from './helpers.js';
@@ -360,43 +359,12 @@ export async function handleConfirmation(conversation: Conversation, msg: Incomi
   if (response === 'yes') {
     logAction(null, 'conversation_confirmed', `Conversation ${conversation.id} confirmed by Tim`);
 
-    // Check if planning was already attempted and failed (skipPlanning marker)
-    let skipPlanning = false;
-    if (conversation.contentPlan) {
-      try {
-        const planData = JSON.parse(conversation.contentPlan);
-        if (planData.skipPlanning) skipPlanning = true;
-      } catch {
-        // Not JSON or no skipPlanning — proceed normally
-      }
-    }
+    await sendToTim(`Got it. Starting ${conversation.taskIds.length} task(s)...`, conversation.id);
+    updateConversationStatus(conversation.id, 'executing');
 
-    const tasks = conversation.taskIds.map((id) => getTask(id)).filter(Boolean) as Task[];
-    const originalMsg = conversation.originalMessage;
-    const needsPlanning = !skipPlanning && tasks.some((t) => taskNeedsContentPlanning(t, originalMsg));
-
-    if (needsPlanning) {
-      await sendToTim('Got it! Let me research and put together a plan for you...', conversation.id);
-      updateConversationStatus(conversation.id, 'planning');
-
-      // Run planning pipeline in background
-      runPlanningPipeline(conversation, tasks).catch((err) => {
-        logger.error({ error: err, conversationId: conversation.id }, 'Planning pipeline failed');
-      });
-    } else {
-      // Clear the skipPlanning marker if it was set
-      if (skipPlanning) {
-        const { updateConversationPlan } = await import('../../db/conversations.js');
-        updateConversationPlan(conversation.id, '');
-      }
-
-      await sendToTim(`Got it. Starting ${conversation.taskIds.length} task(s)...`, conversation.id);
-      updateConversationStatus(conversation.id, 'executing');
-
-      // Enqueue for execution (per-site queue: different sites run in parallel)
-      const siteId = getSiteIdForQueue(conversation);
-      executionQueue.enqueue(conversation.id, siteId, () => executeTasks(conversation));
-    }
+    // Enqueue for execution (per-site queue: different sites run in parallel)
+    const siteId = getSiteIdForQueue(conversation);
+    executionQueue.enqueue(conversation.id, siteId, () => executeTasks(conversation));
   } else if (response === 'no') {
     logAction(null, 'conversation_rejected', `Conversation ${conversation.id} rejected by Tim`);
     updateConversationStatus(conversation.id, 'rejected');
@@ -665,19 +633,18 @@ export async function handlePlanApproval(conversation: Conversation, msg: Incomi
     return await rejectPlan(conversation);
   }
 
-  // Treat as revision feedback
+  // Treat as revision feedback — store it and re-run through the orchestrator
   logger.info({ feedback: msg.body.substring(0, 100), conversationId: conversation.id }, 'Treating response as plan revision feedback');
 
   updateConversationFeedback(conversation.id, msg.body);
-  updateConversationStatus(conversation.id, 'revising');
   logAction(null, 'plan_revision_requested', `Tim's feedback: ${msg.body.substring(0, 200)}`);
 
-  await sendToTim('Got it — revising the plan based on your feedback...', conversation.id);
+  await sendToTim('Got it — re-running with your feedback...', conversation.id);
+  updateConversationStatus(conversation.id, 'executing');
 
-  // Re-run content strategist with feedback in background
-  revisePlanFromFeedback(conversation, msg.body).catch((err) => {
-    logger.error({ error: err, conversationId: conversation.id }, 'Plan revision failed');
-  });
+  // Re-enqueue: the orchestrator will pick up feedback from the conversation
+  const siteId = getSiteIdForQueue(conversation);
+  executionQueue.enqueue(conversation.id, siteId, () => executeTasks(conversation));
 }
 
 async function approvePlan(conversation: Conversation): Promise<void> {

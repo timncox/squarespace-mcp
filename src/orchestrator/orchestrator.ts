@@ -1,8 +1,7 @@
 /**
  * MCP Agent Orchestrator — full pipeline: classify → research → analyze → strategize → execute → supervise.
  *
- * Gated behind USE_MCP_AGENTS=true env flag. Replaces browser-agent execution with
- * autonomous Claude CLI agents backed by MCP tools.
+ * Routes all tasks through autonomous Claude CLI agents backed by MCP tools.
  */
 
 import { runAgent, type AgentConfig } from './cli-runner.js';
