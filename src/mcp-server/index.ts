@@ -17,6 +17,7 @@ import { registerBlockTools } from './tools/blocks.js';
 import { registerPageTools } from './tools/pages.js';
 import { registerSiteTools } from './tools/site.js';
 import { registerContentTools } from './tools/content.js';
+import { registerWebSearchTools } from './tools/web-search.js';
 
 const server = new McpServer({
   name: 'squarespace',
@@ -30,6 +31,7 @@ registerBlockTools(server);
 registerPageTools(server);
 registerSiteTools(server);
 registerContentTools(server);
+registerWebSearchTools(server);
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
