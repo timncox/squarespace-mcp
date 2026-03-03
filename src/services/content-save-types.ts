@@ -553,6 +553,7 @@ export interface BlogPostUpdateOptions {
   tags?: string[];
   categories?: string[];
   urlId?: string;
+  publishDate?: string; // ISO 8601 string → converted to publishOn (Unix ms)
   draft?: boolean;
 }
 

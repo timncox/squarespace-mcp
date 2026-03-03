@@ -239,7 +239,9 @@ import type {
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
-const SESSION_PATH = join(process.cwd(), 'storage', 'auth', 'sqsp-session.json');
+const SESSION_PATH = process.env.SESSION_DIR
+  ? join(process.env.SESSION_DIR, 'sqsp-session.json')
+  : join(process.cwd(), 'storage', 'auth', 'sqsp-session.json');
 const FETCH_TIMEOUT_MS = 15_000;
 
 const USER_AGENT =
@@ -6550,7 +6552,11 @@ export class ContentSaveClient {
       });
 
       if (!response.ok) {
-        logger.warn({ status: response.status }, 'listCollections: API returned error');
+        const body = await response.text().catch(() => '');
+        logger.warn({ status: response.status, body }, 'listCollections: API returned error');
+        if (response.status === 401) {
+          throw new Error(`401 Unauthorized: ${body || 'Session cookies may be expired or missing. Re-authenticate and refresh the session file.'}`);
+        }
         return [];
       }
 
@@ -6577,7 +6583,13 @@ export class ContentSaveClient {
         };
       });
     } catch (err) {
-      logger.warn({ error: errMsg(err) }, 'listCollections: failed');
+      // Propagate auth errors so callers (e.g. sq_list_pages) report them
+      // instead of silently returning empty results
+      const msg = errMsg(err);
+      if (msg.includes('401') || msg.includes('Unauthorized') || msg.includes('not logged in')) {
+        throw err;
+      }
+      logger.warn({ error: msg }, 'listCollections: failed');
       return [];
     }
   }
@@ -6923,6 +6935,10 @@ export class ContentSaveClient {
       set('tags', updates.tags);
       set('categories', updates.categories);
       set('urlId', updates.urlId);
+      if (updates.publishDate) {
+        const ms = new Date(updates.publishDate).getTime();
+        if (!isNaN(ms)) set('publishOn', ms, 'publishDate');
+      }
       set('workflowState', updates.draft != null ? (updates.draft ? 4 : 1) : undefined, 'draft');
 
       if (updatedFields.length === 0) {
