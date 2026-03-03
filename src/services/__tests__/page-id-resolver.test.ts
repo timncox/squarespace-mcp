@@ -145,20 +145,16 @@ describe('page-id-resolver', () => {
       expect(mockRun).toHaveBeenCalledWith('my-site', 'services', 'ps-html', 'col-api');
     });
 
-    it('falls back to browser when HTML fetch fails', async () => {
+    it('returns null when HTML fetch fails (browser fallback archived)', async () => {
       mockGet.mockReturnValue(undefined);
 
       mockGetPageIds.mockResolvedValue({ collectionId: 'col-api' });
       mockFetch.mockResolvedValue({ ok: false });
-      mockGetAttribute.mockResolvedValue('ps-browser');
 
       const result = await resolvePageIds('my-site', 'contact');
 
-      expect(result).toEqual({
-        pageSectionsId: 'ps-browser',
-        collectionId: 'col-api',
-      });
-      expect(mockGetAttribute).toHaveBeenCalled();
+      // Browser fallback is archived — returns null when HTML fetch fails
+      expect(result).toBeNull();
     });
 
     it('returns null when collectionId cannot be resolved', async () => {
@@ -209,7 +205,7 @@ describe('page-id-resolver', () => {
       expect(result).toBeNull();
     });
 
-    it('handles HTML fetch returning no data-page-sections', async () => {
+    it('returns null when HTML has no data-page-sections (browser fallback archived)', async () => {
       mockGet.mockReturnValue(undefined);
 
       mockGetPageIds.mockResolvedValue({ collectionId: 'col-api' });
@@ -217,14 +213,11 @@ describe('page-id-resolver', () => {
         ok: true,
         text: async () => '<html><body>No sections attribute here</body></html>',
       });
-      mockGetAttribute.mockResolvedValue('ps-browser-fallback');
 
       const result = await resolvePageIds('my-site', 'blog');
 
-      expect(result).toEqual({
-        pageSectionsId: 'ps-browser-fallback',
-        collectionId: 'col-api',
-      });
+      // Browser fallback is archived — returns null when HTML has no sections attribute
+      expect(result).toBeNull();
     });
   });
 });
