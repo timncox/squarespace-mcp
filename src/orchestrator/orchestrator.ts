@@ -77,6 +77,8 @@ const AGENT_CONFIGS: Record<string, Omit<AgentConfig, 'mcpConfig'>> = {
       'mcp__squarespace__sq_get_settings',
       'mcp__squarespace__sq_get_design',
       'mcp__squarespace__sq_take_screenshot',
+      'mcp__squarespace__sq_get_code_injection',
+      'mcp__squarespace__sq_get_menu',
     ],
   },
 };
@@ -237,6 +239,7 @@ export async function orchestrateTask(
       `Task: ${task.description}`,
       `Site: ${task.siteId}`,
       `Target page: ${task.targetPage ?? 'home'}`,
+      `\n## ContentPlan\n${plan}`,
       `\n## Executor Result\n${executorOutput}`,
     ].join('\n');
     const result = await runAgent(agentConfig('supervisor'), input, {
