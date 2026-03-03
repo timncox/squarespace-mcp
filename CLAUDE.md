@@ -109,6 +109,14 @@ The Content Save API is the primary execution mechanism, exposed as MCP tools. U
 
 **Grid system**: Desktop = 24 columns (X: 1–24), `start` inclusive / `end` exclusive. Mobile auto-reflows — only desktop coordinates are modified.
 
+**Blog post methods**:
+- `createBlogPost(collectionId, title, options?)` — `POST /api/content/blogs/{id}/text-posts`. Options: `body`, `tags`, `excerpt`, `categories`, `slug`, `publishDate` (ISO 8601), `draft`. Uses create-then-update pattern: creates post, then calls `updateBlogPost()` to set body/tags/excerpt/categories.
+- `updateBlogPost(collectionId, itemId, updates)` — `PUT /api/content/blogs/{id}/text-posts/{itemId}`. Supports: `title`, `body`, `excerpt`, `tags`, `categories`, `urlId`, `publishDate`, `draft`.
+- `getCollectionItems(collectionId, options?)` — list blog posts with optional filter (published/draft/all) and limit
+- `findBlogPostByTitle(collectionId, searchTitle)` — case-insensitive substring match, returns first match
+
+**MCP blog tools**: `sq_create_blog_post`, `sq_update_blog_post`, `sq_list_blog_posts`, `sq_find_blog_post`. All accept `siteId` + `collectionId`. Create/update also accept `excerpt`, `categories`, `slug`, `publishDate` (ISO 8601).
+
 **Site-wide methods**: `getNavigation()`, `getSettings()`, `getCodeInjection()`, `saveCodeInjection()`.
 
 **Design settings methods**:
