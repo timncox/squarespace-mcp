@@ -4,6 +4,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockClient = {
   createBlogPost: vi.fn(),
   updateBlogPost: vi.fn(),
+  getCollectionItems: vi.fn(),
+  findBlogPostByTitle: vi.fn(),
   getMenuBlock: vi.fn(),
   updateMenuBlock: vi.fn(),
   updateGallerySettings: vi.fn(),
@@ -45,9 +47,11 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
     registerContentTools(server as any);
   });
 
-  it('should register all 5 content tools', () => {
+  it('should register all 7 content tools', () => {
     expect(server.tools.has('sq_create_blog_post')).toBe(true);
     expect(server.tools.has('sq_update_blog_post')).toBe(true);
+    expect(server.tools.has('sq_list_blog_posts')).toBe(true);
+    expect(server.tools.has('sq_find_blog_post')).toBe(true);
     expect(server.tools.has('sq_get_menu')).toBe(true);
     expect(server.tools.has('sq_update_menu')).toBe(true);
     expect(server.tools.has('sq_update_gallery')).toBe(true);
@@ -115,6 +119,23 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Network timeout');
     });
+
+    it('should pass excerpt, categories, slug, publishDate to createBlogPost', async () => {
+      mockClient.createBlogPost.mockResolvedValue({
+        success: true, endpointAvailable: true, itemId: 'post-456', urlId: 'custom-slug',
+      });
+
+      await server.callTool('sq_create_blog_post', {
+        siteId: 'smyth-tavern', collectionId: 'blog-col-1', title: 'Full Post',
+        body: '<p>Content</p>', excerpt: 'A brief summary', categories: ['food', 'nyc'],
+        slug: 'custom-slug', publishDate: '2026-01-15T10:00:00Z', tags: ['review'], draft: false,
+      });
+
+      expect(mockClient.createBlogPost).toHaveBeenCalledWith('blog-col-1', 'Full Post', {
+        body: '<p>Content</p>', excerpt: 'A brief summary', categories: ['food', 'nyc'],
+        slug: 'custom-slug', publishDate: '2026-01-15T10:00:00Z', tags: ['review'], draft: false,
+      });
+    });
   });
 
   describe('sq_update_blog_post', () => {
@@ -165,6 +186,72 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Post not found');
+    });
+
+    it('should pass excerpt, categories, slug, publishDate to updateBlogPost', async () => {
+      mockClient.updateBlogPost.mockResolvedValue({
+        success: true, itemId: 'post-789', updatedFields: ['excerpt', 'categories', 'urlId', 'publishDate'],
+      });
+
+      await server.callTool('sq_update_blog_post', {
+        siteId: 'smyth-tavern', collectionId: 'blog-col-1', postId: 'post-789',
+        excerpt: 'Updated summary', categories: ['travel'], slug: 'new-slug', publishDate: '2026-06-01T00:00:00Z',
+      });
+
+      expect(mockClient.updateBlogPost).toHaveBeenCalledWith('blog-col-1', 'post-789', {
+        excerpt: 'Updated summary', categories: ['travel'], urlId: 'new-slug', publishDate: '2026-06-01T00:00:00Z',
+      });
+    });
+  });
+
+  // ── List / Find Blog Posts ──────────────────────────────────────────────────
+
+  describe('sq_list_blog_posts', () => {
+    it('should list blog posts with default options', async () => {
+      mockClient.getCollectionItems.mockResolvedValue({
+        success: true,
+        items: [
+          { id: 'post-1', title: 'First Post', urlId: 'first-post', tags: ['news'] },
+          { id: 'post-2', title: 'Second Post', urlId: 'second-post', tags: [] },
+        ],
+        total: 2,
+      });
+      const result = await server.callTool('sq_list_blog_posts', { siteId: 'smyth-tavern', collectionId: 'blog-col-1' });
+      expect(mockClient.getCollectionItems).toHaveBeenCalledWith('blog-col-1', {});
+      expect(result.isError).toBeUndefined();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.items).toHaveLength(2);
+    });
+
+    it('should pass filter and limit options', async () => {
+      mockClient.getCollectionItems.mockResolvedValue({ success: true, items: [], total: 0 });
+      await server.callTool('sq_list_blog_posts', { siteId: 'smyth-tavern', collectionId: 'blog-col-1', filter: 'published', limit: 10 });
+      expect(mockClient.getCollectionItems).toHaveBeenCalledWith('blog-col-1', { filter: 'published', limit: 10 });
+    });
+
+    it('should return error on failure', async () => {
+      mockClient.getCollectionItems.mockResolvedValue({ success: false, error: 'Collection not found' });
+      const result = await server.callTool('sq_list_blog_posts', { siteId: 'smyth-tavern', collectionId: 'bad-col' });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Collection not found');
+    });
+  });
+
+  describe('sq_find_blog_post', () => {
+    it('should find a blog post by title', async () => {
+      mockClient.findBlogPostByTitle.mockResolvedValue({ id: 'post-1', title: 'Vegan Restaurants in NYC', urlId: 'vegan-restaurants' });
+      const result = await server.callTool('sq_find_blog_post', { siteId: 'smyth-tavern', collectionId: 'blog-col-1', title: 'vegan' });
+      expect(mockClient.findBlogPostByTitle).toHaveBeenCalledWith('blog-col-1', 'vegan');
+      expect(result.isError).toBeUndefined();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.id).toBe('post-1');
+    });
+
+    it('should return error when post not found', async () => {
+      mockClient.findBlogPostByTitle.mockResolvedValue(null);
+      const result = await server.callTool('sq_find_blog_post', { siteId: 'smyth-tavern', collectionId: 'blog-col-1', title: 'nonexistent' });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('No blog post found');
     });
   });
 
