@@ -12,6 +12,8 @@ import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
 import type { Task } from '../models/task.js';
 import type { Conversation } from '../models/conversation.js';
+import type { ContentPlan } from '../agents/types.js';
+import { createPlanOperations, type PlanOperation } from '../db/plan-operations.js';
 import { join } from 'path';
 
 // ── Agent Configs ───────────────────────────────────────────────────────────
@@ -137,7 +139,7 @@ export async function classifyTask(task: Task): Promise<{ route: 'simple' | 'pip
 
 export async function orchestrateTask(
   task: Task,
-  _conversation: Conversation,
+  conversation: Conversation,
 ): Promise<OrchestratorResult> {
   const agentCosts: Record<string, number> = {};
   const taskId = task.id;
@@ -209,13 +211,68 @@ export async function orchestrateTask(
   }
   emitActivity(taskId, 'strategist', 'completed');
 
+  // 4b. Parse ContentPlan JSON
+  let contentPlan: ContentPlan;
+  try {
+    contentPlan = JSON.parse(plan);
+  } catch {
+    logger.error({ raw: plan.substring(0, 500) }, 'Strategist returned invalid JSON');
+    return { success: false, fallbacks: [], agentCosts, totalCost: sumCosts(agentCosts) };
+  }
+
+  // 4c. Track operations in DB
+  let trackedOps: PlanOperation[] = [];
+  try {
+    trackedOps = createPlanOperations(conversation.id, contentPlan);
+    for (const op of trackedOps) {
+      dashboardEvents.emit('operation_update', {
+        conversationId: conversation.id,
+        operationId: op.id,
+        status: 'pending',
+        description: `${op.operationType} on ${op.targetPage ?? 'site'}`,
+      });
+    }
+  } catch (err) {
+    logger.warn({ error: errMsg(err) }, 'Failed to track operations (non-blocking)');
+  }
+
+  logger.info({
+    taskId,
+    operationCount: contentPlan.operations.length,
+    trackedOps: trackedOps.length,
+  }, 'ContentPlan parsed and tracked');
+
+  // 4d. Optional plan approval gate
+  if (process.env.REQUIRE_PLAN_APPROVAL === 'true') {
+    const planSummary = contentPlan.operations
+      .map((op, i) => `${i + 1}. [${op.operationType}] ${op.placement} (${op.targetPage})`)
+      .join('\n');
+
+    // Dynamic imports to avoid circular dependencies (established pattern)
+    const { sendButtonsToTim } = await import('../services/whatsapp.js');
+    const { updateConversationStatus } = await import('../db/conversations.js');
+
+    await sendButtonsToTim(
+      `Here's my plan:\n\n${planSummary}\n\nShall I proceed?`,
+      [
+        { id: 'confirm_yes', title: 'Yes, proceed' },
+        { id: 'confirm_no', title: 'No, cancel' },
+      ],
+      conversation.id,
+    );
+    updateConversationStatus(conversation.id, 'awaiting_plan_approval');
+
+    return { success: true, verdict: undefined, fallbacks: [], agentCosts, totalCost: sumCosts(agentCosts) };
+  }
+
   // 5. Execute
   emitActivity(taskId, 'executor', 'started');
   let executorOutput = '';
   try {
     const input = [
       `Site: ${task.siteId}`,
-      `\n## Plan\n${plan}`,
+      `Target page: ${task.targetPage ?? 'home'}`,
+      `\n## Plan (ContentPlan JSON)\n\`\`\`json\n${JSON.stringify(contentPlan, null, 2)}\n\`\`\``,
     ].join('\n');
     const result = await runAgent(agentConfig('executor'), input, {
       timeout: 300_000,
@@ -243,7 +300,7 @@ export async function orchestrateTask(
       `Task: ${task.description}`,
       `Site: ${task.siteId}`,
       `Target page: ${task.targetPage ?? 'home'}`,
-      `\n## ContentPlan\n${plan}`,
+      `\n## ContentPlan\n\`\`\`json\n${JSON.stringify(contentPlan, null, 2)}\n\`\`\``,
       `\n## Executor Result\n${executorOutput}`,
     ].join('\n');
     const result = await runAgent(agentConfig('supervisor'), input, {
