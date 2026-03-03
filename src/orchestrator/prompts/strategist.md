@@ -182,39 +182,41 @@ Required ContentSpec fields:
 
 ## Output Format
 
-```json
+**Output ONLY valid JSON. No markdown fences, no explanation, no commentary — just a raw ContentPlan JSON object.**
+
+### ContentPlan Schema
+
+```typescript
 {
-  "summary": "Human-readable summary for Tim's approval message",
-  "operations": [
-    {
-      "taskId": "task-123",
-      "siteId": "my-site",
-      "targetPage": "about",
-      "operationType": "add_section",
-      "placement": "below section 2 (the current text block)",
-      "content": {
-        "contentStrategy": "template",
-        "templateCategory": "Team",
-        "templateIndex": 0,
-        "replacements": {
-          "texts": [
-            { "searchText": "Meet the Team", "newText": "Our Team" },
-            { "searchText": "Full Name", "newText": "Jane Smith" },
-            { "searchText": "Job Title", "newText": "Lead Designer" }
-          ],
-          "removeBlocks": ["Learn More"]
-        },
-        "sectionTheme": "light"
-      },
-      "editorInstruction": "Add a Team Grid template section below the existing text section on the about page. Replace placeholder names and titles with the team data. Remove the Learn More button."
-    }
-  ],
-  "sources": ["https://example.com/about"],
-  "estimatedMinutes": 2
+  summary: string;           // Human-readable summary for Tim's WhatsApp approval
+  operations: ContentOperation[];  // Ordered list of operations to execute
+  sources: string[];         // Research source URLs cited
+  estimatedMinutes: number;  // Rough execution time estimate
+}
+```
+
+### ContentOperation Schema
+
+```typescript
+{
+  taskId: string;            // Which task this belongs to (from input)
+  siteId: string;            // Site subdomain (from input)
+  targetPage: string;        // Page slug (e.g., "home", "about", "menus")
+  operationType: string;     // One of the 23 operation types listed above
+  placement: string;         // Where on the page (e.g., "below section 2", "replace heading in section 0")
+  content: ContentSpec;      // The exact content specification
+  editorInstruction: string; // Step-by-step instruction for the executor agent
 }
 ```
 
 ### ContentSpec Fields Reference
+
+**Content strategy (for add_section):**
+- `contentStrategy` — `"template"` | `"blank_api"` | `"manual"` (required for add_section)
+- `templateCategory` — category name from catalog (required for template strategy)
+- `templateIndex` — 0-based index within category (required for template strategy)
+- `replacements` — structured replacements for template sections (see below)
+- `apiBlocks` — array of block objects for blank_api strategy (see below)
 
 **Text editing:**
 - `heading` — heading text
@@ -249,21 +251,23 @@ Required ContentSpec fields:
 - `sectionDirection` — "up", "down"
 - `sectionOrder` — array of 0-based indices
 
-**Template strategy:**
-- `contentStrategy` — "template", "blank_api", "manual"
-- `templateCategory` — category name
-- `templateIndex` — 0-based index
-- `replacements` — `{ texts?, buttons?, images?, removeBlocks? }`
+**Template replacements:**
+- `replacements.texts` — `[{ searchText, newText }]`
+- `replacements.buttons` — `[{ searchText, newLabel?, url?, size?, style?, alignment?, variant? }]`
+- `replacements.images` — `[{ searchText, imagePath, altText? }]`
+- `replacements.removeBlocks` — `["button text or block text to remove"]`
 
-**Blank API strategy:**
-- `apiBlocks` — array of block objects:
-  - Text: `{ html: "<h2>Title</h2><p>Body</p>" }`
-  - Button: `{ type: "button", label: "Click", url: "/page" }`
-  - Image: `{ type: "image", imagePath: "storage/uploads/photo.jpg", altText: "..." }`
-  - Divider: `{ type: "divider" }`
-  - Video: `{ type: "video", videoUrl: "https://..." }`
+**API blocks (for blank_api strategy):**
+- Text: `{ html: "<h2>Title</h2><p>Body</p>" }`
+- Button: `{ type: "button", label: "Click", url: "/page" }`
+- Image: `{ type: "image", imagePath: "storage/uploads/photo.jpg", altText: "..." }`
+- Divider: `{ type: "divider" }`
+- Video: `{ type: "video", videoUrl: "https://..." }`
+- Quote: `{ type: "quote", quoteText: "...", attribution: "..." }`
+- Accordion: `{ type: "accordion", items: [{ title: "Q", description: "A" }] }`
 
 **Blog:**
+- `pageType` — `"page"` or `"blog"` (for create_page only)
 - `blogCollectionId` — collection ID (from navigation data)
 - `blogPostId` — post item ID (for updates)
 - `blogTitle`, `blogBody` (HTML), `blogTags`, `blogDraft`
@@ -273,12 +277,162 @@ Required ContentSpec fields:
 - `codeInjectionFooter` — footer HTML/JS
 - `cssCode` — full CSS string
 
+**Page metadata:**
+- `heading` — page navigation title (for update_page_metadata)
+
 **Duplication:**
 - `duplicateBlockSearchText` — text to find block to duplicate
 - `duplicateSectionSearch` — text or section index to duplicate
 
 **Swap:**
 - `swapBlock1SearchText`, `swapBlock2SearchText`
+
+### Example 1: Simple Text Edit
+
+```json
+{
+  "summary": "I'll update the homepage heading to say 'Welcome to Smith & Co' and change the subtitle.",
+  "operations": [
+    {
+      "taskId": "task-456",
+      "siteId": "smith-co",
+      "targetPage": "home",
+      "operationType": "modify_text",
+      "placement": "section 0, heading block",
+      "content": {
+        "heading": "Welcome to Smith & Co",
+        "bodyText": "Premium consulting services since 1985."
+      },
+      "editorInstruction": "Find the heading 'About Our Company' in section 0 and replace it with 'Welcome to Smith & Co'. Update the subtitle paragraph below it."
+    }
+  ],
+  "sources": [],
+  "estimatedMinutes": 1
+}
+```
+
+### Example 2: Add a Template Section
+
+```json
+{
+  "summary": "I'll add a Team section with 3 members below the About section on the about page.",
+  "operations": [
+    {
+      "taskId": "task-789",
+      "siteId": "acme-design",
+      "targetPage": "about",
+      "operationType": "add_section",
+      "placement": "below section 2 (the existing About text)",
+      "content": {
+        "contentStrategy": "template",
+        "templateCategory": "Team",
+        "templateIndex": 0,
+        "replacements": {
+          "texts": [
+            { "searchText": "Meet the Team", "newText": "Our Team" },
+            { "searchText": "Full Name", "newText": "Jane Smith" },
+            { "searchText": "Job Title", "newText": "Lead Designer" },
+            { "searchText": "Write a description for this team member", "newText": "Jane brings 10 years of branding expertise." }
+          ],
+          "removeBlocks": ["Learn More"]
+        },
+        "sectionTheme": "Light"
+      },
+      "editorInstruction": "Add a Team Grid template from the Team category (index 0) below the current About text section. Replace all placeholder text with the team member data. Remove the Learn More button."
+    }
+  ],
+  "sources": [],
+  "estimatedMinutes": 2
+}
+```
+
+### Example 3: Create a Blog Post
+
+```json
+{
+  "summary": "I'll create a new blog post about the spring menu launch on the existing blog.",
+  "operations": [
+    {
+      "taskId": "task-101",
+      "siteId": "cafe-noir",
+      "targetPage": "blog",
+      "operationType": "create_blog_post",
+      "placement": "new post in blog collection",
+      "content": {
+        "blogCollectionId": "6421a3b2e4b0f1234567890a",
+        "blogTitle": "Introducing Our Spring 2026 Menu",
+        "blogBody": "<h2>Fresh Flavours for the Season</h2><p>We're excited to unveil our new spring menu, featuring locally sourced ingredients and lighter dishes perfect for warmer days.</p><p>Highlights include our new herb-crusted salmon, spring vegetable risotto, and elderflower panna cotta.</p>",
+        "blogTags": ["menu", "spring", "seasonal"],
+        "blogDraft": false
+      },
+      "editorInstruction": "Create a new blog post in the blog collection. Set the title, body HTML, and tags as specified. Publish immediately (not draft)."
+    }
+  ],
+  "sources": ["https://cafenoir.com/menus"],
+  "estimatedMinutes": 1
+}
+```
+
+### Example 4: New Page with Multiple Sections (blank_api)
+
+```json
+{
+  "summary": "I'll create a new Services page with an intro section and a list of 4 services.",
+  "operations": [
+    {
+      "taskId": "task-202",
+      "siteId": "bright-studio",
+      "targetPage": "services",
+      "operationType": "create_page",
+      "placement": "new page in navigation",
+      "content": {
+        "heading": "Services"
+      },
+      "editorInstruction": "Create a new page called 'Services' using the Blank template."
+    },
+    {
+      "taskId": "task-202",
+      "siteId": "bright-studio",
+      "targetPage": "services",
+      "operationType": "add_section",
+      "placement": "first section on new page",
+      "content": {
+        "contentStrategy": "template",
+        "templateCategory": "Intro",
+        "templateIndex": 1,
+        "replacements": {
+          "texts": [
+            { "searchText": "Add a main title", "newText": "What We Do" },
+            { "searchText": "Add a subtitle or brief description", "newText": "We help brands stand out through strategy, design, and digital experiences." }
+          ]
+        },
+        "sectionTheme": "Dark"
+      },
+      "editorInstruction": "Add a Centered Text intro template (Intro category, index 1) as the first section. Replace placeholder heading and subtitle."
+    },
+    {
+      "taskId": "task-202",
+      "siteId": "bright-studio",
+      "targetPage": "services",
+      "operationType": "add_section",
+      "placement": "below the intro section",
+      "content": {
+        "contentStrategy": "blank_api",
+        "apiBlocks": [
+          { "html": "<h2>Brand Strategy</h2><p>We define your positioning, messaging, and visual identity to connect with your target audience.</p>" },
+          { "html": "<h2>Web Design</h2><p>Custom Squarespace websites that look stunning and convert visitors into customers.</p>" },
+          { "html": "<h2>Content Creation</h2><p>Photography, copywriting, and social media content that tells your brand story.</p>" },
+          { "html": "<h2>Digital Marketing</h2><p>SEO, email campaigns, and paid advertising to grow your online presence.</p>" }
+        ],
+        "sectionTheme": "Light"
+      },
+      "editorInstruction": "Add a blank section below the intro. Populate with 4 text blocks describing each service via the Content Save API."
+    }
+  ],
+  "sources": ["https://brightstudio.com"],
+  "estimatedMinutes": 3
+}
+```
 
 ## Critical Rules
 
