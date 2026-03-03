@@ -288,6 +288,29 @@ function migrate(db: Database.Database): void {
     // Index already exists
   }
 
+  // Phase 19 migrations — Browser fallback tracking (self-improving loop)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS browser_fallbacks (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      site_id TEXT NOT NULL,
+      page_slug TEXT,
+      intent TEXT NOT NULL,
+      actions TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      selectors TEXT,
+      task_id TEXT,
+      occurrence_count INTEGER DEFAULT 1,
+      first_seen TEXT NOT NULL,
+      last_seen TEXT NOT NULL,
+      resolved INTEGER DEFAULT 0,
+      resolved_tool TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_fallbacks_intent ON browser_fallbacks(intent);
+    CREATE INDEX IF NOT EXISTS idx_fallbacks_resolved ON browser_fallbacks(resolved);
+  `);
+
   logger.debug('Database migrations applied');
 }
 

@@ -178,14 +178,14 @@ Choose the correct \`operationType\` for each operation. Each type maps to a spe
 ### Page Management
 | operationType | Required Fields | Description |
 |---------------|----------------|-------------|
-| \`create_page\` | heading (page title), targetPage (slug) | Create a new page |
+| \`create_page\` | heading (page title), targetPage (slug), pageType ("page" or "blog") | Create a new page or blog collection. Use pageType: "blog" to create a blog. |
 | \`delete_page\` | targetPage (slug) | Delete an existing page |
 | \`update_page_metadata\` | heading (new title) and/or bodyText (SEO description), targetPage | Update page title/SEO |
 
 ### Blog Operations
 | operationType | Required Fields | Description |
 |---------------|----------------|-------------|
-| \`create_blog_post\` | blogCollectionId, blogTitle, blogBody (HTML), blogTags (optional), blogDraft (optional) | Create a new blog post |
+| \`create_blog_post\` | blogTitle, blogBody (full HTML article), blogTags (optional), blogDraft (optional). blogCollectionId if blog exists; targetPage (blog page slug) if blog was just created. | Create a new blog post. MUST include full blogBody HTML content — never leave empty. |
 | \`update_blog_post\` | blogCollectionId, blogPostId, blogTitle/blogBody/blogTags | Update an existing blog post |
 
 ### Site-Wide Operations
@@ -208,7 +208,8 @@ Choose the correct \`operationType\` for each operation. Each type maps to a spe
 | "add a new section about..." | \`add_section\` | Adding NEW section |
 | "add a text block to..." | \`add_block\` | Adding block to EXISTING section |
 | "update the button link" | \`modify_block\` (blockType: "button") | Editing EXISTING button |
-| "write a blog post" | \`create_blog_post\` | Need blogCollectionId from navigation data |
+| "write a blog post" | \`create_blog_post\` | Need blogCollectionId from nav data, or targetPage if blog just created |
+| "create a blog" | \`create_page\` (pageType: "blog") + \`create_blog_post\` | First create blog page, then add post to it |
 | "move the section up" | \`reorder_sections\` (sectionDirection: "up") | Section reorder |
 | "move the image left" | \`move_block\` (blockDirection: "left") | Block grid movement |
 | "make the block wider" | \`resize_block\` (blockWidth: "larger") | Block resize |
@@ -222,7 +223,13 @@ Choose the correct \`operationType\` for each operation. Each type maps to a spe
 
 ## Blog Collection IDs
 
-Use the navigation data to find blog collection IDs. Blog pages have \`collectionType: 1\` or \`typeName: "blog"\` in the navigation. Pass the collection's ID as \`blogCollectionId\`. If no blog collection exists in navigation, the site doesn't have a blog — use \`create_page\` with the blog page type first.`;
+Use the navigation data to find blog collection IDs. Blog pages have \`collectionType: 1\` or \`typeName: "blog"\` in the navigation. Pass the collection's ID as \`blogCollectionId\`.
+
+If no blog collection exists in navigation, the site doesn't have a blog. You MUST:
+1. First emit a \`create_page\` operation with \`pageType: "blog"\` and \`heading\` set to the blog page title (e.g., "Blog")
+2. Then emit a \`create_blog_post\` operation with \`targetPage\` set to the blog page slug (e.g., "blog"), \`blogTitle\`, and full \`blogBody\` HTML content
+
+The \`create_blog_post\` operation MUST always include \`blogBody\` with the full article HTML. Never create empty blog posts.`;
 }
 
 /**
@@ -1186,6 +1193,8 @@ export function parseContentSpec(raw: Record<string, unknown> | undefined): Cont
     codeInjectionHeader: typeof raw.codeInjectionHeader === 'string' ? raw.codeInjectionHeader : undefined,
     codeInjectionFooter: typeof raw.codeInjectionFooter === 'string' ? raw.codeInjectionFooter : undefined,
     cssCode: typeof raw.cssCode === 'string' ? raw.cssCode : undefined,
+    // Page type
+    pageType: (raw.pageType === 'page' || raw.pageType === 'blog') ? raw.pageType : undefined,
     // Blog
     blogCollectionId: typeof raw.blogCollectionId === 'string' ? raw.blogCollectionId : undefined,
     blogPostId: typeof raw.blogPostId === 'string' ? raw.blogPostId : undefined,

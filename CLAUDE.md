@@ -10,7 +10,7 @@ AI agent that edits Squarespace websites based on forwarded client emails and Wh
 npm run dev          # Start dev server (tsx watch)
 npm run build        # TypeScript compile
 npm run start        # Run compiled JS (node dist/src/index.js)
-npm run test         # vitest run (~1738 tests, 56 files)
+npm run test         # vitest run (~1967 tests, 69 files)
 npm run test:unit    # Parse agent action tests only
 npm run cli          # CLI tool (tsx src/cli.ts)
 npm run setup-gmail  # Gmail OAuth setup
@@ -21,7 +21,7 @@ npm run start:all    # Server + ngrok tunnel
 
 Entry point: `src/index.ts` — starts Fastify server + Gmail polling loop (60s interval).
 
-### MCP Autonomous Agents Architecture (Planned)
+### MCP Autonomous Agents Architecture (Implemented — Phase 2)
 
 Design doc: `docs/plans/2026-03-02-mcp-autonomous-agents-design.md`
 
@@ -34,6 +34,9 @@ Replaces direct Anthropic SDK calls + claude-code-proxy with:
 Preservation: `USE_MCP_AGENTS` env flag. Old path stays intact. Tag: `v1-direct-api`.
 Agent prompts built from existing skill files (`.claude/skills/squarespace-*.md`).
 ContentSaveClient is shared foundation — called by MCP tools (new) or directly (old).
+
+**MCP setup**: `mcp-config.json` points to `dist/src/mcp-server/index.js` (compiled JS). Must run `npx tsc --noCheck` before enabling MCP agents (type errors in other files block normal `npm run build`).
+**Gate location**: `USE_MCP_AGENTS` gate is in `executeTasks()` — runs AFTER plan approval. Old planning pipeline (research → site analysis → content strategist) still runs first.
 
 ### Core Flow
 
@@ -59,6 +62,15 @@ src/
   routes/           # Fastify routes (dashboard, webhooks, screenshots, health)
   services/         # Business logic (whatsapp, gmail, email-processor, conversation-handler, file-manager)
     conversation/   # Conversation sub-modules (message-handlers, execution, planning, helpers)
+  mcp-server/       # MCP server — 37 tools across 7 modules (text, section, blocks, pages, site, content, screenshot)
+    tools/          # Tool modules (registerXxxTools pattern)
+    session.ts      # Client cache + resolvePageIds (shared by all tools)
+    index.ts        # Tool registration entry point
+  orchestrator/     # MCP agent pipeline
+    orchestrator.ts # 6-stage: classify → research → analyze → strategize → execute → supervise
+    cli-runner.ts   # Claude CLI spawner (stream-json NDJSON)
+    fallback-tracker.ts # Browser fallback logging to SQLite
+    prompts/        # 6 agent prompts (executor, supervisor, classifier, researcher, analyst, strategist)
   utils/            # Logger (pino), screenshot, errors, retry, anthropic-client
 scripts/            # Dev/debug scripts
 data/               # Runtime SQLite database (data/sqhelper.db)
@@ -119,6 +131,10 @@ Support files: `handler-utils.ts` (shared utils), `parse-action.ts` (JSON parser
 `addSection` and `addSectionFromTemplate` support `templateIndex` (0-based) for positional selection in the template grid, which is more reliable than text-based matching. Text-based matching (`:has-text()`) is the fallback.
 
 Post-add verification detects wrong templates (e.g., product/store blocks on non-product sections) and fails fast.
+
+**`copyTemplateSection` API orphans sections**: `POST /api/content/copy/section` creates the section on the **site** but does NOT attach it to any **page**. `tryCopyTemplateSectionApi` in `handler-utils.ts` follows up with GET page sections → append → PUT to attach.
+
+**Blank pages have 0 sections**: After `createPage` with `Blank` template, page has no section infrastructure. Two-pass adds a blank section automatically after page creation to bootstrap. Save "auto-saved" is unreliable on new pages — two-pass verifies via API, falls back to Cmd+S then navigate-away-and-back.
 
 ### Page Structure for Content Strategist
 

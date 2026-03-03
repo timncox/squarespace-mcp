@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "squarespace": {
+      "command": "node",
+      "args": ["dist/src/mcp-server/index.js"],
+      "env": {
+        "SESSION_DIR": "./storage/auth",
+        "SITES_CONFIG": "./config/sites.json",
+        "DB_PATH": "./data/sqhelper.db"
+      }
+    }
+  }
+}

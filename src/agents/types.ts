@@ -170,6 +170,8 @@ export interface ContentSpec {
   codeInjectionFooter?: string;
   /** Custom CSS code */
   cssCode?: string;
+  /** Page type for create_page: 'page' (default) or 'blog' (creates a blog collection) */
+  pageType?: 'page' | 'blog';
   /** Blog collection ID for blog operations */
   blogCollectionId?: string;
   /** Blog post item ID (for updates) */

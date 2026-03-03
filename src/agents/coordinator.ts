@@ -172,6 +172,7 @@ export async function runContentPipeline(
   let siteAnalysis: SiteAnalysis | undefined;
   let pageStructures: Record<string, PageStructure> | undefined;
   let discoveredTemplates: TemplateDiscoveryResult | undefined;
+  let navigationData: NavigationData | undefined;
   try {
     const browserManager = getBrowserManager({ headless: true });
     await ensureLoggedIn(browserManager);
@@ -299,7 +300,6 @@ export async function runContentPipeline(
     }
 
     // ── Step 2d: Navigation data (pure API call, no browser needed) ──
-    let navigationData: NavigationData | undefined;
     try {
       if (subdomain) {
         const { createContentSaveClient } = await import('../services/content-save.js');

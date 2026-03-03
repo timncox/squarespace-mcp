@@ -2550,6 +2550,7 @@ async function executeTwoPassPlan(
             action: 'createPage',
             title: pageName,
             template: 'Blank',
+            pageType: op.content.pageType ?? 'page',
           });
 
           if (createResult.success) {
@@ -2563,7 +2564,23 @@ async function executeTwoPassPlan(
               logger.warn('Two-pass: could not enter edit mode after page creation');
             }
 
-            // Re-measure section count — we're now on a fresh page (usually 0 sections)
+            // Blank pages start with 0 sections. Add a blank section so the
+            // editor has a section container — subsequent template section adds
+            // and content fills need at least one section to anchor to.
+            try {
+              const { handleAddSection } = await import('../../automation/actions/section-management-handlers.js');
+              const blankResult = await handleAddSection(page, { action: 'addSection' });
+              if (blankResult.success) {
+                logger.info('Two-pass: added initial blank section to new page');
+                await page.waitForTimeout(1500);
+              } else {
+                logger.warn({ error: blankResult.message }, 'Two-pass: failed to add initial blank section');
+              }
+            } catch (err) {
+              logger.warn({ error: errMsg(err) }, 'Two-pass: error adding initial blank section');
+            }
+
+            // Re-measure section count — we're now on a fresh page
             const newSiteFrame = page.frame({ name: 'sqs-site-frame' });
             if (newSiteFrame) {
               sectionCountBefore = await newSiteFrame.locator('.page-section').count().catch(() => 0);
@@ -2615,9 +2632,9 @@ async function executeTwoPassPlan(
           const blogResult = await handleCreateBlogPost(page, {
             action: 'createBlogPost',
             blogPageSlug: op.targetPage ?? op.content.heading ?? '',
-            title: op.content.heading ?? 'New Post',
-            content: op.content.bodyText,
-            draft: false,
+            title: op.content.blogTitle ?? op.content.heading ?? 'New Post',
+            content: op.content.blogBody ?? op.content.bodyText,
+            draft: op.content.blogDraft ?? false,
           });
 
           if (blogResult.success) {
@@ -2657,6 +2674,54 @@ async function executeTwoPassPlan(
     const saveResult = await saveChanges(page);
     logger.info({ message: saveResult.message }, 'Two-pass: editor save result');
     await page.waitForTimeout(2000); // Let Squarespace fully persist
+
+    // Verify sections actually persisted — the Save button may report
+    // "auto-saved" on newly created pages even when sections aren't committed.
+    // If sections are missing, try keyboard shortcut save as a fallback.
+    if (pass1Succeeded > 0 && saveResult.message?.includes('auto-saved')) {
+      const verifySubdomain = page.url().match(/https?:\/\/([a-z0-9-]+)\.squarespace\.com/i)?.[1];
+      const verifySiteFrame = page.frame({ name: 'sqs-site-frame' });
+      const verifyPsId = verifySiteFrame
+        ? await verifySiteFrame.evaluate(() => {
+            const article = document.querySelector('article[data-page-sections]');
+            return article?.getAttribute('data-page-sections') ?? null;
+          }).catch(() => null)
+        : null;
+
+      if (verifySubdomain && verifyPsId) {
+        try {
+          const verifyClient = createContentSaveClient(verifySubdomain);
+          const verifyData = await verifyClient.getPageSections(verifyPsId);
+          if (verifyData.sections.length === 0 && pass1Succeeded > 0) {
+            logger.warn('Two-pass: save reported auto-saved but API shows 0 sections — trying Cmd+S');
+            const isMac = process.platform === 'darwin';
+            await page.keyboard.press(isMac ? 'Meta+s' : 'Control+s');
+            await page.waitForTimeout(3000);
+
+            // Re-verify
+            const retryData = await verifyClient.getPageSections(verifyPsId);
+            logger.info(
+              { sectionsAfterRetry: retryData.sections.length },
+              'Two-pass: section count after keyboard save',
+            );
+
+            // If still 0, navigate away and back to force server sync
+            if (retryData.sections.length === 0) {
+              logger.warn('Two-pass: keyboard save also shows 0 sections — navigating away to force sync');
+              const currentUrl = page.url();
+              await page.goto(currentUrl.replace(/\/config\/.*/, '/config/pages'), { waitUntil: 'domcontentloaded' });
+              await page.waitForTimeout(2000);
+              await page.goto(currentUrl, { waitUntil: 'domcontentloaded' });
+              await page.waitForTimeout(3000);
+            }
+          } else {
+            logger.info({ sections: verifyData.sections.length }, 'Two-pass: save verified — sections present');
+          }
+        } catch (err) {
+          logger.warn({ error: errMsg(err) }, 'Two-pass: save verification failed');
+        }
+      }
+    }
 
     // Re-enter edit mode if save exited it
     if (saveResult.message?.includes('Done')) {

@@ -144,10 +144,12 @@ function tryPreLlmClassification(task: Task): SimpleEditClassification | null {
   // This runs before the complexity gate, bypassing the /\bwrite\b/ COMPLEX_PATTERN.
   // Requires an explicit title ("titled X" or "called X"). Generative-only requests
   // ("write something about...") will not match and fall through to full complexity check.
+  // Skip if the description also mentions creating a blog PAGE (needs full pipeline).
+  const mentionsBlogPageCreation = /\b(?:create|add|set\s*up|make)\s+(?:a\s+)?(?:new\s+)?blog\s+page\b/i.test(task.description ?? '');
   const blogPostTitleMatch = task.description?.match(
     /\bblog\s+post\b.+\b(?:titled?|called|named?)\s+["']?(.+?)["']?\s*(?:,|$|\.|\bwith\b|\babout\b)/i,
   );
-  if (blogPostTitleMatch) {
+  if (blogPostTitleMatch && !mentionsBlogPageCreation) {
     const isDraft =
       /\b(?:draft|don'?t\s+publish|save\s+as\s+draft|not\s+live)\b/i.test(task.description ?? '') ||
       !/\b(?:publish|live|go\s+live)\b/i.test(task.description ?? '');

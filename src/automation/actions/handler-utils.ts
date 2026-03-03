@@ -1088,6 +1088,12 @@ export async function tryCopyTemplateSectionApi(
   categoryName: string,
   templateIndex: number,
 ): Promise<{ result: ActionResult; sectionId: string } | null> {
+  // Extract full page context — we need pageSectionsId + collectionId to attach
+  // the copied section to the page (copyTemplateSection only creates the section
+  // on the site; it doesn't add it to any page's sections array).
+  const ctx = await extractApiContext(page, 'tryCopyTemplateSectionApi');
+  if (!ctx) return null;
+
   const subdomain = extractSubdomain(page);
   if (!subdomain) {
     logger.debug('tryCopyTemplateSectionApi: could not extract subdomain from URL');
@@ -1098,15 +1104,38 @@ export async function tryCopyTemplateSectionApi(
     const { copyTemplateSectionFromCatalog } = await import('../../services/section-catalog.js');
     const copyResult = await copyTemplateSectionFromCatalog(subdomain, categoryName, templateIndex);
 
-    if (copyResult?.success && copyResult.sectionId) {
+    if (copyResult?.success && copyResult.sectionId && copyResult.sectionData) {
       logger.info(
         { sectionId: copyResult.sectionId, categoryName, templateIndex },
-        'Copy Template Section API: section copied successfully',
+        'Copy Template Section API: section copied, now attaching to page',
       );
+
+      // Attach the copied section to the current page's sections array.
+      // Without this, the section exists on the site but isn't part of any page.
+      try {
+        const pageData = await ctx.client.getPageSections(ctx.pageSectionsId);
+        const updatedSections = [...pageData.sections, copyResult.sectionData as import('../../services/content-save-types.js').PageSection];
+        const saveResult = await ctx.client.savePageSections(ctx.pageSectionsId, ctx.collectionId, updatedSections);
+
+        if (!saveResult.success) {
+          logger.warn({ error: saveResult.error }, 'Copy Template Section API: failed to attach section to page');
+          // Section was copied but not attached — fall through to UI
+          return null;
+        }
+
+        logger.info(
+          { sectionId: copyResult.sectionId, totalSections: updatedSections.length },
+          'Copy Template Section API: section attached to page',
+        );
+      } catch (attachErr) {
+        logger.warn({ error: errMsg(attachErr) }, 'Copy Template Section API: attach failed');
+        return null;
+      }
+
       return {
         result: {
           success: true,
-          message: `addSection: Copied template section via API (category: ${categoryName}, index: ${templateIndex}, section ${copyResult.sectionId}).`,
+          message: `addSection: Copied template section via API and attached to page (category: ${categoryName}, index: ${templateIndex}, section ${copyResult.sectionId}).`,
         },
         sectionId: copyResult.sectionId,
       };

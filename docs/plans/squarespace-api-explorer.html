@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Squarespace Internal API Explorer</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0d0f1a;--surface:#141728;--surface2:#1e2235;--surface3:#252a42;
+  --border:#2d3250;--border2:#3d4470;
+  --text:#e2e8f0;--muted:#7a849a;--dim:#4a5268;
+  --accent:#7c6af7;--accent2:#4ecdc4;--green:#51cf66;--orange:#ffa94d;
+  --red:#ff6b6b;--yellow:#ffd43b;--purple:#da77f2;--pink:#f783ac;--lime:#a9e34b;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:13px;line-height:1.5;color:var(--text);background:var(--bg);
+}
+body{height:100vh;display:flex;flex-direction:column;overflow:hidden}
+code,pre,.mono{font-family:'SF Mono','Fira Code',monospace;font-size:12px}
+
+/* Header */
+header{background:var(--surface);border-bottom:1px solid var(--border);padding:12px 16px 0;flex-shrink:0}
+.title-row{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.badge{background:var(--accent);color:#fff;font-size:10px;font-weight:700;padding:2px 7px;border-radius:10px;letter-spacing:.5px;text-transform:uppercase}
+h1{font-size:15px;font-weight:700;color:var(--text)}
+.subtitle{font-size:11px;color:var(--muted)}
+.presets{margin-left:auto;display:flex;gap:6px;align-items:center}
+.preset-label{font-size:11px;color:var(--muted)}
+.preset-btn{background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:3px 9px;border-radius:12px;cursor:pointer;font-size:11px;transition:all .15s}
+.preset-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--surface3)}
+nav.tabs{display:flex;gap:0}
+.tab{background:none;border:none;color:var(--muted);padding:8px 14px;cursor:pointer;font-size:12px;font-weight:500;border-bottom:2px solid transparent;transition:all .15s;position:relative;top:1px}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* Main workspace */
+.workspace{display:flex;flex:1;overflow:hidden}
+aside.sidebar{width:220px;flex-shrink:0;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sidebar.hidden{display:none}
+.filter-wrap{padding:10px;border-bottom:1px solid var(--border)}
+.filter-wrap input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-size:12px;outline:none}
+.filter-wrap input:focus{border-color:var(--accent)}
+.filter-wrap input::placeholder{color:var(--dim)}
+.item-list{flex:1;overflow-y:auto;padding:6px}
+.item-list::-webkit-scrollbar{width:4px}
+.item-list::-webkit-scrollbar-track{background:transparent}
+.item-list::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+.group-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;padding:8px 8px 4px}
+.list-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;cursor:pointer;transition:background .1s}
+.list-item:hover{background:var(--surface2)}
+.list-item.active{background:var(--surface3);border-left:2px solid var(--accent)}
+.list-item.active .item-name{color:var(--accent)}
+.item-badge{width:32px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
+.item-name{font-size:12px;font-weight:500;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item-meta{font-size:10px;color:var(--muted)}
+
+/* Detail panel */
+main.detail-panel{flex:1;overflow-y:auto;padding:20px;background:var(--bg)}
+main.detail-panel::-webkit-scrollbar{width:6px}
+main.detail-panel::-webkit-scrollbar-track{background:transparent}
+main.detail-panel::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px}
+.detail-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:18px}
+.detail-icon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;flex-shrink:0}
+.detail-title{font-size:18px;font-weight:700}
+.detail-type{font-size:12px;color:var(--muted);margin-top:2px}
+.detail-desc{color:var(--muted);font-size:13px;line-height:1.6;margin-bottom:18px}
+.section-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;margin-top:18px}
+.code-block{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:12px;line-height:1.6;color:#c9d1e0}
+.code-block .key{color:#7c6af7}.code-block .str{color:#51cf66}.code-block .num{color:#ffa94d}.code-block .cmt{color:#4a5268}
+.methods-grid{display:flex;flex-direction:column;gap:6px}
+.method-chip{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:12px;display:flex;align-items:center;gap:8px}
+.method-chip .method-name{color:var(--accent2);font-weight:600;font-family:'SF Mono','Fira Code',monospace}
+.method-chip .method-desc{color:var(--muted);font-size:11px}
+.method-chip .fp-tag{background:#51cf6620;color:#51cf66;font-size:10px;padding:1px 5px;border-radius:4px;font-weight:600;margin-left:auto;white-space:nowrap}
+.gotcha-list{display:flex;flex-direction:column;gap:6px}
+.gotcha{background:#ff6b6b12;border:1px solid #ff6b6b30;border-radius:6px;padding:8px 12px;font-size:12px;color:#ff9999;line-height:1.5}
+.gotcha::before{content:'⚠ ';opacity:.7}
+.find-chip{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;color:var(--text);display:inline-flex;align-items:center;gap:6px}
+.find-chip::before{content:'🔍';font-size:11px}
+.tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.tag{padding:3px 9px;border-radius:12px;font-size:11px;font-weight:600;background:var(--surface2);border:1px solid var(--border)}
+.info-row{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+.info-chip{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:12px;display:flex;align-items:center;gap:6px}
+.info-chip .ic-label{color:var(--muted)}
+.info-chip .ic-val{font-weight:600;font-family:'SF Mono','Fira Code',monospace}
+.fast-path-note{background:#51cf6612;border:1px solid #51cf6630;border-radius:6px;padding:8px 12px;font-size:12px;color:#69db7c;margin-top:6px}
+.fast-path-note::before{content:'⚡ Fast path: '}
+
+/* Endpoint styles */
+.ep-method{padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;font-family:monospace}
+.ep-method.GET{background:#51cf6620;color:#51cf66}
+.ep-method.PUT{background:#ffa94d20;color:#ffa94d}
+.ep-method.POST{background:#7c6af720;color:#7c6af7}
+.ep-method.DELETE{background:#ff6b6b20;color:#ff6b6b}
+.ep-url{font-family:'SF Mono','Fira Code',monospace;font-size:12px;color:var(--accent2)}
+.ep-full-url{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 12px;font-family:monospace;font-size:11px;color:var(--text);word-break:break-all;line-height:1.5}
+.note-list{display:flex;flex-direction:column;gap:5px}
+.note{background:var(--surface2);border-radius:5px;padding:6px 10px;font-size:12px;color:var(--muted);line-height:1.5}
+.note::before{content:'→ '}
+
+/* Grid visualizer */
+.grid-full{padding:24px;max-width:900px;margin:0 auto}
+.grid-controls{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:24px}
+.grid-control-group{flex:1;min-width:150px}
+.grid-control-group label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.5px}
+.grid-control-group input[type=range]{width:100%;accent-color:var(--accent)}
+.grid-control-group .val{font-family:monospace;font-size:13px;font-weight:600;color:var(--accent)}
+.grid-viz{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:16px}
+.grid-viz-label{font-size:11px;color:var(--muted);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px}
+.grid-row{display:grid;grid-template-columns:repeat(24,1fr);gap:2px;margin-bottom:2px}
+.grid-cell{height:16px;border-radius:2px;background:var(--surface2)}
+.grid-cell.active{background:var(--accent)}
+.grid-cell.header{height:12px;display:flex;align-items:center;justify-content:center;font-size:8px;color:var(--dim)}
+.grid-stats{display:flex;gap:16px;flex-wrap:wrap}
+.grid-stat{background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:8px 14px;text-align:center}
+.grid-stat .gs-val{font-size:20px;font-weight:700;font-family:monospace;color:var(--accent)}
+.grid-stat .gs-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.grid-presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.grid-preset-btn{background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:12px;cursor:pointer;font-size:11px;transition:all .15s}
+.grid-preset-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* Execution flow */
+.exec-full{padding:24px;max-width:800px;margin:0 auto}
+.exec-title{font-size:16px;font-weight:700;margin-bottom:4px}
+.exec-sub{font-size:12px;color:var(--muted);margin-bottom:24px}
+.flow-row{display:flex;gap:12px;align-items:stretch;margin-bottom:24px}
+.flow-node{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px}
+.flow-node.active-path{border-color:var(--accent);background:#7c6af710}
+.flow-node.disabled{opacity:.4}
+.fn-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.fn-badge{padding:3px 8px;border-radius:5px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px}
+.fn-title{font-size:13px;font-weight:700}
+.fn-criteria{font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:8px}
+.fn-note{font-size:11px;padding:5px 8px;border-radius:5px;background:var(--surface2);color:var(--muted)}
+.flow-arrow{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:18px;flex-shrink:0}
+.exec-stage{margin-bottom:20px}
+.exec-stage-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border)}
+.exec-select{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.exec-select-btn{background:var(--surface2);border:1px solid var(--border);color:var(--muted);padding:5px 12px;border-radius:8px;cursor:pointer;font-size:12px;transition:all .15s}
+.exec-select-btn:hover,.exec-select-btn.active{border-color:var(--accent);color:var(--accent);background:var(--surface3)}
+
+/* Prompt bar */
+footer.prompt-bar{background:var(--surface);border-top:1px solid var(--border);padding:12px 16px;display:flex;align-items:flex-start;gap:12px;flex-shrink:0;min-height:70px;max-height:120px}
+.prompt-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;padding-top:2px;flex-shrink:0}
+.prompt-text{flex:1;font-size:12px;color:var(--text);line-height:1.6;overflow-y:auto}
+.copy-btn{background:var(--accent);color:#fff;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;flex-shrink:0;transition:opacity .15s}
+.copy-btn:hover{opacity:.85}
+.copy-btn.copied{background:var(--green)}
+.placeholder-msg{color:var(--dim);font-style:italic;font-size:12px;padding:4px 0}
+
+/* Method detail specific */
+.sig-block{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-family:monospace;font-size:12px;color:var(--accent2);margin-bottom:4px}
+</style>
+</head>
+<body>
+<header>
+  <div class="title-row">
+    <span class="badge">Internal APIs</span>
+    <h1>Squarespace API Explorer</h1>
+    <span class="subtitle">ContentSaveClient · MediaUpload · Commerce · Discovered Feb 2026</span>
+    <div class="presets">
+      <span class="preset-label">Presets:</span>
+      <button class="preset-btn" data-preset="menu">Menu Block</button>
+      <button class="preset-btn" data-preset="gallery">Gallery</button>
+      <button class="preset-btn" data-preset="patch">Patch Text</button>
+      <button class="preset-btn" data-preset="section">Add Section</button>
+      <button class="preset-btn" data-preset="upload">Image Upload</button>
+    </div>
+  </div>
+  <nav class="tabs">
+    <button class="tab active" data-tab="blocks">Block Types</button>
+    <button class="tab" data-tab="methods">Methods (40+)</button>
+    <button class="tab" data-tab="endpoints">Endpoints</button>
+    <button class="tab" data-tab="grid">Grid System</button>
+    <button class="tab" data-tab="execution">Execution Paths</button>
+  </nav>
+</header>
+
+<div class="workspace">
+  <aside class="sidebar" id="sidebar">
+    <div class="filter-wrap"><input type="text" id="filter" placeholder="Filter…"></div>
+    <div class="item-list" id="item-list"></div>
+  </aside>
+  <main class="detail-panel" id="detail-panel">
+    <p class="placeholder-msg">← Select an item to view details</p>
+  </main>
+</div>
+
+<footer class="prompt-bar">
+  <span class="prompt-label">Prompt</span>
+  <div class="prompt-text" id="prompt-text"><span class="placeholder-msg">Select a block type, method, or endpoint to generate a prompt.</span></div>
+  <button class="copy-btn" id="copy-btn">Copy</button>
+</footer>
+
+<script>
+// ── DATA ──────────────────────────────────────────────────────────────────────
+
+const BLOCK_TYPES = [
+  { id:'text', type:2, name:'Text Block', color:'#7c6af7', icon:'T', defaultGrid:'24×4',
+    description:'Rich HTML content block. Most common type — headings, paragraphs, formatted text, links.',
+    json:`{
+  "type": 2,
+  "value": {
+    "html": "<h2>Heading</h2><p>Paragraph text</p>"
+  }
+}`,
+    findBy:'Stripped HTML text content',
+    readMethods:['findBlock(sections, searchText)'],
+    writeMethods:['updateTextBlock(psId, colId, searchText, newHtml)','patchTextBlock(psId, colId, searchText, newText)','updateTextBlockHtml(psId, colId, searchText, rawHtml)'],
+    addMethods:['addTextBlock(psId, colId, sectionIdx, html, layout?)','fillLastTextBlockInSection(psId, colId, sectionIdx, html)'],
+    fastPath:'step 0 in handleEditTextBlock — API before UI (~100ms vs ~10s)',
+    gotchas:[
+      'UI editTextBlock is destructive — Select All destroys multi-line blocks. Use patchTextBlock() for surgical substring replacement.',
+      'Squarespace validates ALL blocks on PUT. Missing verticalAlignment/zIndex on any block → 400. addTextBlock() backfills automatically.',
+      'addTextBlock() may 500 for client-generated block IDs on new sections. Use UI fallback: add via UI, fill content via API.',
+    ], added:'Feb 21' },
+
+  { id:'menu', type:18, name:'Menu Block', color:'#4ecdc4', icon:'M', defaultGrid:'24×12',
+    description:'Restaurant/café menu with hierarchical structure: Tabs → Sections → Items. Type 18 in Fluid Engine.',
+    json:`{
+  "type": 18,
+  "value": {
+    "value": {
+      "menus": [ /* MenuTab[] */ ],
+      "raw": "plain text representation",
+      "menuStyle": 0,
+      "currencySymbol": "$"
+    }
+  }
+}`,
+    findBy:'raw text field + tab/section/item titles',
+    readMethods:['getMenuBlock(psId, searchText)','findMenuBlock(sections, searchText)'],
+    writeMethods:['updateMenuBlock(psId, colId, searchText, newMenus, options?)'],
+    addMethods:[],
+    fastPath:'tryMenuBlockApi() in handler-utils.ts — always preferred over 8-step UI automation',
+    gotchas:[
+      'raw field MUST be regenerated via serializeMenu() when menus[] changes — Squarespace uses raw for rendering.',
+      'UI editMenuBlock (select-all/replace) is fragile and destroys the entire menu on partial content. Always use API path.',
+      'Use mergeMenuStructured() for deterministic title-based merge. LLM merge (mergeMenuContent) is fallback for fuzzy cases.',
+      '{ preserveRaw: true } option skips raw regeneration — only for non-content structural updates.',
+    ], added:'Feb 23' },
+
+  { id:'code', type:23, name:'Code Block', color:'#51cf66', icon:'</>',defaultGrid:'24×6',
+    description:'Code display block with optional language for syntax highlighting.',
+    json:`{
+  "type": 23,
+  "value": {
+    "html": "<pre>const x = 42;</pre>",
+    "language": "javascript"
+  }
+}`,
+    findBy:'value.html text content',
+    readMethods:['findBlock(sections, searchText)'],
+    writeMethods:['updateCodeBlock(psId, colId, searchText, newCode, newLanguage?)'],
+    addMethods:['addCodeBlock(psId, colId, sectionIdx, code, language?)'],
+    fastPath:null, gotchas:[], added:'Feb 28' },
+
+  { id:'quote', type:44, name:'Quote Block', color:'#ffa94d', icon:'"', defaultGrid:'24×4',
+    description:'Pull quote block with optional attribution/source line.',
+    json:`{
+  "type": 44,
+  "value": {
+    "html": "<blockquote>The quote text.</blockquote>",
+    "source": "— Author Name"
+  }
+}`,
+    findBy:'value.html + value.source',
+    readMethods:['findBlock(sections, searchText)'],
+    writeMethods:['updateQuoteBlock(psId, colId, searchText, newQuote, newAttribution?)'],
+    addMethods:['addQuoteBlock(psId, colId, sectionIdx, quoteText, attribution?)'],
+    fastPath:null, gotchas:[], added:'Feb 28' },
+
+  { id:'button', type:46, name:'Button Block', color:'#ff6b6b', icon:'BTN', defaultGrid:'7×2',
+    description:'Call-to-action button with label and URL. Default: 7 cols × 2 rows.',
+    json:`{
+  "type": 46,
+  "value": {
+    "label": "Get Started",
+    "url": "/contact"
+  }
+}`,
+    findBy:'value.label text',
+    readMethods:['findBlock(sections, searchText)'],
+    writeMethods:['updateButtonBlock(psId, colId, searchText, updates)'],
+    addMethods:['addButtonBlock(psId, colId, sectionIdx, label, url, layout?)'],
+    fastPath:'standalone button tasks routed to blank_api fast path via apiBlocks — bypasses browser entirely',
+    gotchas:[
+      'Default grid: 7 columns wide, 2 rows tall — narrower than most blocks.',
+      "removeBlocks[] in ContentSpec.replacements is the correct way to remove template buttons (not buttons[].remove).",
+    ], added:'Feb 27' },
+
+  { id:'video', type:50, name:'Video Block', color:'#da77f2', icon:'▶', defaultGrid:'24×8',
+    description:'Embedded video block. Stores video URL plus optional title and description.',
+    json:`{
+  "type": 50,
+  "value": {
+    "url": "https://youtube.com/watch?v=...",
+    "title": "Video Title",
+    "description": "Optional description"
+  }
+}`,
+    findBy:'url + title + description',
+    readMethods:['findBlock(sections, searchText)'],
+    writeMethods:['updateVideoBlock(psId, colId, searchText, updates)'],
+    addMethods:['addVideoBlock(psId, colId, sectionIdx, videoUrl, options?)'],
+    fastPath:null, gotchas:[], added:'Feb 28' },
+
+  { id:'divider', type:52, name:'Divider Block', color:'#868e96', icon:'—', defaultGrid:'24×1',
+    description:'Structural separator — layout/visual only, no content. Cannot be searched by content.',
+    json:`{
+  "type": 52,
+  "value": {}
+}`,
+    findBy:'Not searchable — target by position or section index',
+    readMethods:[],
+    writeMethods:[],
+    addMethods:['addDividerBlock(psId, colId, sectionIdx, layout?)'],
+    fastPath:null,
+    gotchas:[
+      'No content — cannot use findBlock(). Must target by section index or grid position.',
+      'Default: 24 columns × 1 row (full-width thin line).',
+    ], added:'Feb 28' },
+
+  { id:'image', type:1337, name:'Image Block', color:'#ffd43b', icon:'🖼', defaultGrid:'12×8',
+    description:'Image block with asset URL and metadata. Type 1337 in Fluid Engine. Asset URL from media-api upload.',
+    json:`{
+  "type": 1337,
+  "value": {
+    "value": {
+      "assetUrl": "https://static.sqsp.com/...",
+      "title": "Caption text",
+      "description": "Body text below image",
+      "altText": "Accessible alt text",
+      "linkTo": "/page"
+    }
+  }
+}`,
+    findBy:'title + description + subtitle (not assetUrl)',
+    readMethods:['findBlock(sections, searchText)'],
+    writeMethods:['updateImageBlock(psId, colId, searchText, fields)'],
+    addMethods:['addImageBlock(psId, colId, sectionIdx, assetUrl, options?)','addImageBlockBatch(psId, colId, sectionIdx, images[])'],
+    fastPath:'tryImageBlockUpdateApi() in handler-utils.ts',
+    gotchas:[
+      'assetUrl must come from MediaUploadClient — upload image first, then use returned URL.',
+      'Gallery pages use multiple image blocks (addImageBlockBatch), NOT Squarespace gallery type 3/52.',
+      'Grid calc for galleries: 24 ÷ colCount per row (2→12ea, 3→8ea, 4→6ea).',
+      'updateImageBlock() verifies type is 1337 before modifying — guards against wrong block type.',
+      'findBlock() searches title/description/subtitle — set meaningful metadata for findability.',
+    ], added:'Feb 26' },
+
+  { id:'gallery', type:8, name:'Gallery (via Image Blocks)', color:'#ff922b', icon:'⊞', defaultGrid:'24×16',
+    description:'Galleries are NOT built with type 8. Use multiple Image Blocks (type 1337) in a grid layout via addImageBlockBatch().',
+    json:`// Build galleries with Image Blocks (type 1337):
+// addImageBlockBatch(psId, colId, sectionIdx, [
+//   { assetUrl, altText, title },
+//   { assetUrl, altText, title },
+// ])
+//
+// Grid per image = 24 ÷ colCount
+// 2-col → width 12ea
+// 3-col → width 8ea
+// 4-col → width 6ea`,
+    findBy:'Via individual image blocks',
+    readMethods:[],
+    writeMethods:[],
+    addMethods:['addImageBlockBatch(psId, colId, sectionIdx, images[])'],
+    fastPath:null,
+    gotchas:[
+      'DO NOT use type 8. Build galleries as multiple type 1337 image blocks.',
+      'addImageBlockBatch() does a single GET+PUT for all images — much more efficient than individual adds.',
+      'WhatsApp multi-image: 5s wait window, 10s max, groups by sender, first caption = task description.',
+    ], added:'Feb 26' },
+];
+
+const METHOD_GROUPS = [
+  { label:'Text', color:'#7c6af7', methods:[
+    { name:'updateTextBlock', sig:'(psId, colId, searchText, newHtml)', desc:'Replace entire text block HTML via read-modify-write.', fp:true, note:'Step 0 fast path in handleEditTextBlock.' },
+    { name:'patchTextBlock', sig:'(psId, colId, searchText, newText)', desc:'Surgical substring replacement within HTML, preserving surrounding content. Uses patchHtmlSegment() for block-level targeting.', fp:true },
+    { name:'addTextBlock', sig:'(psId, colId, sectionIdx, html, layout?)', desc:'Add new text block. Auto-generates block ID and grid position below existing blocks. Backfills verticalAlignment/zIndex on all existing blocks.', fp:false, note:'May 500 on new sections — UI+API fallback available.' },
+    { name:'updateTextBlockHtml', sig:'(psId, colId, searchText, rawHtml)', desc:'Replace HTML without formatHtml() processing — for pre-built HTML.', fp:false },
+    { name:'fillLastTextBlockInSection', sig:'(psId, colId, sectionIdx, html)', desc:'Fill the last text block in a section — used as fallback after UI adds blank block.', fp:false },
+  ]},
+  { label:'Button', color:'#ff6b6b', methods:[
+    { name:'addButtonBlock', sig:'(psId, colId, sectionIdx, label, url, layout?)', desc:'Add CTA button. Default: 7 cols × 2 rows.', fp:false },
+    { name:'updateButtonBlock', sig:'(psId, colId, searchText, updates)', desc:'Update button label and/or URL.', fp:false },
+  ]},
+  { label:'Image', color:'#ffd43b', methods:[
+    { name:'addImageBlock', sig:'(psId, colId, sectionIdx, assetUrl, options?)', desc:'Add single image block. Default: 12 cols × 8 rows.', fp:false },
+    { name:'addImageBlockBatch', sig:'(psId, colId, sectionIdx, images[])', desc:'Add multiple images in one GET+PUT. Use for gallery grids.', fp:false, note:'Single PUT for all images — efficient.' },
+    { name:'updateImageBlock', sig:'(psId, colId, searchText, fields)', desc:'Update metadata: title, description, subtitle, altText, linkTo. Verifies type 1337.', fp:true },
+  ]},
+  { label:'Menu', color:'#4ecdc4', methods:[
+    { name:'getMenuBlock', sig:'(psId, searchText)', desc:'Read current menus/menuStyle/currencySymbol from type 18 block.', fp:false },
+    { name:'findMenuBlock', sig:'(sections, searchText)', desc:'Find type 18 block in sections array — returns menuValue.', fp:false },
+    { name:'updateMenuBlock', sig:'(psId, colId, searchText, newMenus, options?)', desc:'Read-modify-write menu. Auto-regenerates raw via serializeMenu(). Use mergeMenuStructured() for title-based merge.', fp:true, note:'Always prefer over UI. { preserveRaw: true } skips raw regeneration.' },
+  ]},
+  { label:'Quote', color:'#ffa94d', methods:[
+    { name:'addQuoteBlock', sig:'(psId, colId, sectionIdx, quoteText, attribution?)', desc:'Add pull quote with optional attribution.', fp:false },
+    { name:'updateQuoteBlock', sig:'(psId, colId, searchText, newQuote, newAttribution?)', desc:'Update quote content and/or attribution.', fp:false },
+  ]},
+  { label:'Code', color:'#51cf66', methods:[
+    { name:'addCodeBlock', sig:'(psId, colId, sectionIdx, code, language?)', desc:'Add code display block.', fp:false },
+    { name:'updateCodeBlock', sig:'(psId, colId, searchText, newCode, newLanguage?)', desc:'Update code and optional language.', fp:false },
+  ]},
+  { label:'Divider', color:'#868e96', methods:[
+    { name:'addDividerBlock', sig:'(psId, colId, sectionIdx, layout?)', desc:'Add structural divider. No content — structural only. Default: 24×1.', fp:false },
+  ]},
+  { label:'Video', color:'#da77f2', methods:[
+    { name:'addVideoBlock', sig:'(psId, colId, sectionIdx, videoUrl, options?)', desc:'Add video embed block.', fp:false },
+    { name:'updateVideoBlock', sig:'(psId, colId, searchText, updates)', desc:'Update video URL, title, and/or description.', fp:false },
+  ]},
+  { label:'Block Mgmt', color:'#a9e34b', methods:[
+    { name:'findBlock', sig:'(sections, searchText)', desc:'Generalized finder across ALL block types. Searches: text HTML, image metadata, menu raw/tabs, button label, code/quote HTML. Returns block + gridContent + section.', fp:false },
+    { name:'removeBlock', sig:'(psId, colId, searchText)', desc:'Splice block from gridContents array.', fp:true },
+    { name:'moveBlock', sig:'(psId, colId, searchText, direction, gridSteps?)', desc:'Shift desktop grid coordinates. Default step = block own width/height. Clamps to boundaries.', fp:true },
+    { name:'resizeBlock', sig:'(psId, colId, searchText, width?, height?)', desc:'Adjust end coordinates. Width: "smaller" (-2), "larger" (+2), "full" (24). Height: "shorter" (-1), "taller" (+1). Min 1.', fp:true },
+    { name:'swapBlocks', sig:'(psId, colId, searchText1, searchText2)', desc:'Exchange two blocks full layout objects (desktop + mobile + zIndex) in one GET+PUT.', fp:false },
+    { name:'duplicateBlock', sig:'(psId, colId, searchText)', desc:'Duplicate block within same section.', fp:false },
+  ]},
+  { label:'Section Ops', color:'#66d9e8', methods:[
+    { name:'addBlankSection', sig:'(psId, colId, position?)', desc:'Add blank section via API. Safe in API-only pipeline — no editor to wipe it. Returns 500/crumbFail if auth issues.', fp:false, note:'CRITICAL: API-added sections get wiped if browser editor saves later.' },
+    { name:'copyTemplateSection', sig:'(psId, colId, templateId, position?)', desc:'Add section from template catalog.', fp:false },
+    { name:'getSectionCatalog', sig:'(psId)', desc:'Fetch available section templates.', fp:false },
+    { name:'editSectionStyle', sig:'(psId, colId, sectionIdx, style)', desc:'Apply styling: sectionPadding, blockSpacing, sectionTheme.', fp:false },
+    { name:'moveSection', sig:'(psId, colId, searchText, direction)', desc:'Reorder sections array. Boundary-safe — returns success at edges (no-op).', fp:true },
+    { name:'duplicateSection', sig:'(psId, colId, sectionIdx)', desc:'Duplicate section at given index.', fp:false },
+    { name:'reorderSections', sig:'(psId, colId, newOrder[])', desc:'Reorder all sections by providing new index array.', fp:false },
+    { name:'verifySectionAdded', sig:'(psId, expectedCount)', desc:'Re-fetch and confirm section count. Use after addBlankSection/copyTemplateSection.', fp:false },
+  ]},
+  { label:'Page Mgmt', color:'#e599f7', methods:[
+    { name:'createPageViaApi', sig:'(options)', desc:'Try 3 endpoints to create a page — never throws. Falls back gracefully.', fp:false },
+    { name:'deletePageViaApi', sig:'(collectionId)', desc:'DELETE /api/collections/{id}', fp:false },
+    { name:'updatePageMetadata', sig:'(collectionId, updates)', desc:'Update title, urlId, description, seoTitle, seoDescription, navigationTitle, enabled.', fp:false },
+    { name:'listCollections', sig:'()', desc:'GET /api/commondata/GetCollections/ — all pages with IDs.', fp:false },
+    { name:'getPageMetadata', sig:'(collectionId)', desc:'Get metadata for a specific collection/page.', fp:false },
+    { name:'getCollectionItems', sig:'(collectionId)', desc:'Items within a collection (blog posts, products, etc.).', fp:false },
+    { name:'createBlogPost', sig:'(collectionId, options)', desc:'POST /api/content-collections/{id}/content-items', fp:false },
+  ]},
+  { label:'Footer / CSS', color:'#ff8787', methods:[
+    { name:'getHeaderFooter', sig:'()', desc:'GET /api/site-header-footer — full header+footer config.', fp:false },
+    { name:'getFooterSections', sig:'()', desc:'Extract footer.sections from header-footer config.', fp:false },
+    { name:'saveHeaderFooter', sig:'(config)', desc:'PUT /api/site-header-footer — full config replace.', fp:false, note:'Footer sections are embedded — use this, not savePageSections.' },
+    { name:'patchFooterTextBlock', sig:'(searchText, newText)', desc:'Surgical substring replacement in footer text blocks.', fp:false },
+    { name:'updateFooterTextBlock', sig:'(searchText, newText)', desc:'Full block replacement in footer.', fp:false },
+    { name:'saveCustomCSS', sig:'(css)', desc:'POST /api/config/SaveInjectionSettings — custom CSS/JS injection.', fp:false },
+    { name:'getCustomCSS', sig:'()', desc:'Fetch current custom CSS injection config.', fp:false },
+  ]},
+  { label:'Static / Utility', color:'#adb5bd', methods:[
+    { name:'checkSessionHealth', sig:'(sessionPath?)', desc:'Static: session file age, staleness (>24h), crumb presence. No client instance needed.', fp:false },
+    { name:'buildRichHtml', sig:'(elements[])', desc:'Static: build Squarespace-compatible HTML from structured elements (headings, paragraphs, lists, links, bold/italic).', fp:false },
+    { name:'getPageIds', sig:'(slug)', desc:'Resolve page slug → collectionId via GetCollections API.', fp:false },
+    { name:'savePageSections', sig:'(psId, colId, sections)', desc:'Raw PUT of entire sections array. Internal method used by all write methods.', fp:false },
+    { name:'getPageSections', sig:'(psId)', desc:'GET /api/page-sections/{psId} — fetch current sections JSON (~95ms).', fp:false },
+  ]},
+];
+
+const ENDPOINTS = [
+  { id:'read-sections', method:'GET', label:'Read Page Sections',
+    url:'/api/page-sections/{pageSectionsId}',
+    short:'/api/page-sections/{psId}',
+    color:'#51cf66',
+    desc:'Fetch all sections and blocks for a page. Fast (~95ms). No authentication body required.',
+    auth:'Session cookies (SS_SESSION_ID, etc.)',
+    response:'{ sections: [ /* full sections with blocks */ ] }',
+    notes:['Returns 401 on private/trial sites if not authenticated.','pageSectionsId comes from article[data-page-sections] DOM attribute in the editor iframe.','GET does NOT need /collection/ suffix — only PUT does.'] },
+
+  { id:'save-sections', method:'PUT', label:'Save Page Sections',
+    url:'/api/page-sections/{pageSectionsId}/collection/{collectionId}?crumb={crumb}',
+    short:'/api/page-sections/{psId}/collection/{colId}?crumb=',
+    color:'#ffa94d',
+    desc:'Save ALL sections for a page. ~500ms round-trip. Must send entire sections array — partial updates overwrite everything.',
+    auth:'Session cookies + site-specific crumb CSRF token as query param',
+    body:'{ sections: [ /* ALL sections with ALL blocks */ ] }',
+    response:'HTTP 200 even on crumb failure — must check body for crumbFail: true',
+    notes:[
+      'CRITICAL: crumb must be from the target site (e.g., grey-yellow-hbxc) — account.squarespace.com crumb is NOT valid.',
+      'Missing verticalAlignment/zIndex on ANY block in the payload → 400 error.',
+      'API-added sections get wiped if browser editor saves later — only safe in API-only pipeline.',
+    ] },
+
+  { id:'get-collections', method:'GET', label:'List Collections',
+    url:'/api/commondata/GetCollections/',
+    short:'/api/commondata/GetCollections/',
+    color:'#51cf66',
+    desc:'List all pages/collections for the site with their IDs. Used to resolve page slugs → collectionId and pageSectionsId.',
+    auth:'Session cookies',
+    response:'{ collections: [{ id, urlId, title, type, pageSectionsId }] }',
+    notes:['Used by getPageIds(slug) to build the page ID cache.'] },
+
+  { id:'save-header-footer', method:'PUT', label:'Save Header/Footer',
+    url:'/api/site-header-footer',
+    short:'/api/site-header-footer',
+    color:'#ffa94d',
+    desc:'Save full site header + footer configuration. Footer sections are embedded here — there is no separate pageSectionsId for footer.',
+    auth:'Session cookies + crumb',
+    body:'{ header: { ... }, footer: { sections: [ ... ] } }',
+    notes:['Must GET first, modify in memory, then PUT the entire config.','patchFooterTextBlock fails with "pageSectionsId not available" when sections are embedded.'] },
+
+  { id:'save-css', method:'POST', label:'Save Custom CSS',
+    url:'/api/config/SaveInjectionSettings?crumb={crumb}',
+    short:'/api/config/SaveInjectionSettings',
+    color:'#7c6af7',
+    desc:'Save custom CSS or JavaScript code injection. Discovered earlier than other internal endpoints.',
+    auth:'Session cookies + crumb as query param',
+    body:'{ cssIncludes: [...], jsIncludes: [...] }',
+    notes:[] },
+
+  { id:'delete-page', method:'DELETE', label:'Delete Page',
+    url:'/api/collections/{collectionId}',
+    short:'/api/collections/{id}',
+    color:'#ff6b6b',
+    desc:'Delete a page or collection by its collectionId.',
+    auth:'Session cookies + crumb',
+    notes:['collectionId from GetCollections.','Irreversible — no confirmation step via API.'] },
+
+  { id:'update-page', method:'PUT', label:'Update Page Metadata',
+    url:'/api/collections/{collectionId}',
+    short:'/api/collections/{id}',
+    color:'#ffa94d',
+    desc:'Update page metadata: title, urlId, description, seoTitle, seoDescription, navigationTitle, enabled.',
+    auth:'Session cookies + crumb',
+    body:'{ title, urlId, description, seoTitle, seoDescription }',
+    notes:[] },
+
+  { id:'create-blog-post', method:'POST', label:'Create Blog Post',
+    url:'/api/content-collections/{collectionId}/content-items',
+    short:'/api/content-collections/{id}/content-items',
+    color:'#7c6af7',
+    desc:'Create a blog post within a blog collection.',
+    auth:'Session cookies + crumb',
+    body:'{ title, body, tags, ... }',
+    notes:[] },
+
+  { id:'media-auth', method:'POST', label:'Media API Auth',
+    url:'https://media-api.squarespace.com/user/authorize',
+    short:'media-api.sqsp.com/user/authorize',
+    color:'#da77f2',
+    desc:'Authorize media API session. Must call before uploading. 204 response sets media session cookies.',
+    auth:'Editor session cookies (text/plain body, ~259 bytes)',
+    response:'204 No Content (sets media-api session cookies)',
+    notes:['Use globalCookieHeader (.squarespace.com domain) — not siteCookieHeader.','libraryId = site ID (e.g., 69934978b23b0453e46b6508).','x-library-id header required on all subsequent media-api requests.'] },
+
+  { id:'media-upload', method:'POST', label:'Upload Image',
+    url:'https://media-api.squarespace.com/uploads/image',
+    short:'media-api.sqsp.com/uploads/image',
+    color:'#da77f2',
+    desc:'Upload image to Squarespace media library. Returns jobId for async polling. Tested: 268KB PNG in ~2.7s total.',
+    auth:'Session cookies + x-library-id header',
+    body:'multipart/form-data with image file',
+    response:'202 { jobId: "...", checkStatusAfterMs: 1000 }',
+    notes:['Service Worker normally intercepts — block with serviceWorkers: "block" in Playwright context.','Minimal 1×1 PNG fails with ImageUnableToProcess — needs real image.','Accepted: image/jpeg, image/png, image/gif, image/webp.'] },
+
+  { id:'media-poll', method:'GET', label:'Poll Upload Status',
+    url:'https://media-api.squarespace.com/jobs/image/status?job-list={jobId}',
+    short:'media-api.sqsp.com/jobs/image/status',
+    color:'#da77f2',
+    desc:'Poll image upload job status. Poll until isSuccess is true or false.',
+    auth:'Session cookies',
+    response:'[{ id, libraryId, status: 4, isSuccess: true }]',
+    notes:['status: 4 = complete.','Poll with checkStatusAfterMs delay from upload response.'] },
+
+  { id:'page-json', method:'GET', label:'Page JSON (Unofficial)',
+    url:'{pageUrl}?format=json-pretty',
+    short:'?format=json-pretty',
+    color:'#868e96',
+    desc:'Read full page JSON via unofficial URL parameter. Returns 401 on private/trial sites. Useful for read-only verification on public sites.',
+    auth:'None (public pages only)',
+    response:'Full page data including sections, blocks, SEO, navigation',
+    notes:['Returns 401 on private/trial sites — use authenticated /api/page-sections/ instead.','Stable unofficial endpoint — has not changed across versions.'] },
+];
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+
+const state = {
+  tab: 'blocks',
+  selectedId: null,
+  filter: '',
+  // grid state
+  gridStartX: 1, gridEndX: 13, gridStartY: 0, gridEndY: 8,
+  // execution state
+  execStrategy: 'blank_api',
+};
+
+// ── RENDERING ─────────────────────────────────────────────────────────────────
+
+function renderList() {
+  const sidebar = document.getElementById('sidebar');
+  const list = document.getElementById('item-list');
+  const filter = state.filter.toLowerCase();
+
+  if (state.tab === 'grid' || state.tab === 'execution') {
+    sidebar.classList.add('hidden');
+    return;
+  }
+  sidebar.classList.remove('hidden');
+  list.innerHTML = '';
+
+  if (state.tab === 'blocks') {
+    const items = BLOCK_TYPES.filter(b => !filter || b.name.toLowerCase().includes(filter) || String(b.type).includes(filter));
+    items.forEach(b => {
+      const li = document.createElement('div');
+      li.className = 'list-item' + (state.selectedId === b.id ? ' active' : '');
+      li.innerHTML = `<span class="item-badge" style="background:${b.color}20;color:${b.color}">${b.icon}</span>
+        <span class="item-name">${b.name}</span>
+        <span class="item-meta" style="color:${b.color}">type ${b.type}</span>`;
+      li.onclick = () => { state.selectedId = b.id; updateAll(); };
+      list.appendChild(li);
+    });
+  }
+
+  if (state.tab === 'methods') {
+    METHOD_GROUPS.forEach(g => {
+      const filtered = g.methods.filter(m => !filter || m.name.toLowerCase().includes(filter) || m.desc.toLowerCase().includes(filter));
+      if (!filtered.length) return;
+      const label = document.createElement('div');
+      label.className = 'group-label';
+      label.style.color = g.color;
+      label.textContent = g.label;
+      list.appendChild(label);
+      filtered.forEach(m => {
+        const li = document.createElement('div');
+        li.className = 'list-item' + (state.selectedId === m.name ? ' active' : '');
+        li.innerHTML = `<span class="item-badge" style="background:${g.color}20;color:${g.color};font-size:9px;width:28px">${g.label.slice(0,3)}</span>
+          <span class="item-name mono" style="font-size:11px">${m.name}</span>
+          ${m.fp ? '<span style="color:#51cf66;font-size:10px">⚡</span>' : ''}`;
+        li.onclick = () => { state.selectedId = m.name; updateAll(); };
+        list.appendChild(li);
+      });
+    });
+  }
+
+  if (state.tab === 'endpoints') {
+    const items = ENDPOINTS.filter(e => !filter || e.label.toLowerCase().includes(filter) || e.url.toLowerCase().includes(filter));
+    items.forEach(e => {
+      const li = document.createElement('div');
+      li.className = 'list-item' + (state.selectedId === e.id ? ' active' : '');
+      li.innerHTML = `<span class="ep-method ${e.method}" style="width:52px;justify-content:center">${e.method}</span>
+        <span class="item-name" style="font-size:11px">${e.label}</span>`;
+      li.onclick = () => { state.selectedId = e.id; updateAll(); };
+      list.appendChild(li);
+    });
+  }
+}
+
+function renderDetail() {
+  const panel = document.getElementById('detail-panel');
+
+  if (state.tab === 'grid') { renderGrid(panel); return; }
+  if (state.tab === 'execution') { renderExecution(panel); return; }
+  if (!state.selectedId) { panel.innerHTML = '<p class="placeholder-msg" style="padding:20px">← Select an item to view details</p>'; return; }
+
+  if (state.tab === 'blocks') {
+    const b = BLOCK_TYPES.find(x => x.id === state.selectedId);
+    if (!b) return;
+    const allMethods = [...(b.readMethods||[]), ...(b.writeMethods||[]), ...(b.addMethods||[])];
+    panel.innerHTML = `
+      <div class="detail-header">
+        <div class="detail-icon" style="background:${b.color}20;color:${b.color}">${b.icon}</div>
+        <div>
+          <div class="detail-title">${b.name}</div>
+          <div class="detail-type">type ${b.type} · default ${b.defaultGrid} · discovered ${b.added}</div>
+        </div>
+      </div>
+      <div class="detail-desc">${b.description}</div>
+
+      <div class="info-row">
+        <div class="info-chip"><span class="ic-label">Type ID</span><span class="ic-val">${b.type}</span></div>
+        <div class="info-chip"><span class="ic-label">Grid</span><span class="ic-val">${b.defaultGrid}</span></div>
+        <div class="info-chip"><span class="ic-label">Find by</span><span class="ic-val" style="font-size:11px">${b.findBy.split(' (')[0]}</span></div>
+      </div>
+
+      <div class="section-title">JSON Structure</div>
+      <pre class="code-block">${b.json}</pre>
+
+      ${b.fastPath ? `<div class="fast-path-note">${b.fastPath}</div>` : ''}
+
+      ${allMethods.length ? `
+      <div class="section-title">Available Methods</div>
+      <div class="methods-grid">
+        ${(b.readMethods||[]).map(m => `<div class="method-chip" style="border-left:3px solid #51cf66"><span class="method-name">${m.split('(')[0]}</span><span class="method-desc">${m.slice(m.indexOf('('))}</span><span class="fp-tag">READ</span></div>`).join('')}
+        ${(b.writeMethods||[]).map(m => `<div class="method-chip" style="border-left:3px solid #ffa94d"><span class="method-name">${m.split('(')[0]}</span><span class="method-desc">${m.slice(m.indexOf('('))}</span><span class="fp-tag">WRITE</span></div>`).join('')}
+        ${(b.addMethods||[]).map(m => `<div class="method-chip" style="border-left:3px solid ${b.color}"><span class="method-name">${m.split('(')[0]}</span><span class="method-desc">${m.slice(m.indexOf('('))}</span><span class="fp-tag">ADD</span></div>`).join('')}
+      </div>` : ''}
+
+      ${b.gotchas.length ? `
+      <div class="section-title">⚠ Gotchas</div>
+      <div class="gotcha-list">${b.gotchas.map(g => `<div class="gotcha">${g}</div>`).join('')}</div>` : ''}
+    `;
+  }
+
+  if (state.tab === 'methods') {
+    let m = null, g = null;
+    for (const grp of METHOD_GROUPS) {
+      const found = grp.methods.find(x => x.name === state.selectedId);
+      if (found) { m = found; g = grp; break; }
+    }
+    if (!m) return;
+    panel.innerHTML = `
+      <div class="detail-header">
+        <div class="detail-icon" style="background:${g.color}20;color:${g.color};font-size:12px;font-family:monospace">${g.label.slice(0,3)}</div>
+        <div>
+          <div class="detail-title mono">${m.name}</div>
+          <div class="detail-type">${g.label} · ${m.fp ? '⚡ Fast path available' : 'API call'}</div>
+        </div>
+      </div>
+
+      <div class="section-title">Signature</div>
+      <div class="sig-block">ContentSaveClient.${m.name}${m.sig}</div>
+      ${m.fp ? `<div class="fast-path-note">${m.note || 'This method is used as a step-0 fast path before UI automation.'}</div>` : ''}
+
+      <div class="section-title">Description</div>
+      <div class="detail-desc">${m.desc}</div>
+
+      ${m.note && !m.fp ? `
+      <div class="section-title">Notes</div>
+      <div class="note-list"><div class="note">${m.note}</div></div>` : ''}
+    `;
+  }
+
+  if (state.tab === 'endpoints') {
+    const e = ENDPOINTS.find(x => x.id === state.selectedId);
+    if (!e) return;
+    panel.innerHTML = `
+      <div class="detail-header">
+        <div class="detail-icon" style="background:${e.color}20;color:${e.color};font-size:11px;font-family:monospace">${e.method}</div>
+        <div>
+          <div class="detail-title">${e.label}</div>
+          <div class="detail-type">${e.short}</div>
+        </div>
+      </div>
+      <div class="detail-desc">${e.desc}</div>
+
+      <div class="section-title">Full URL</div>
+      <div class="ep-full-url"><span class="ep-method ${e.method}">${e.method}</span>  ${e.url}</div>
+
+      <div class="section-title">Authentication</div>
+      <div class="note-list"><div class="note">${e.auth}</div></div>
+
+      ${e.body ? `
+      <div class="section-title">Request Body</div>
+      <pre class="code-block">${e.body}</pre>` : ''}
+
+      ${e.response ? `
+      <div class="section-title">Response</div>
+      <pre class="code-block">${e.response}</pre>` : ''}
+
+      ${e.notes && e.notes.length ? `
+      <div class="section-title">Notes</div>
+      <div class="note-list">${e.notes.map(n => `<div class="note">${n}</div>`).join('')}</div>` : ''}
+    `;
+  }
+}
+
+function renderGrid(panel) {
+  const rows = 12;
+  const { gridStartX:sx, gridEndX:ex, gridStartY:sy, gridEndY:ey } = state;
+  const w = ex - sx; const h = ey - sy;
+
+  let gridHTML = '';
+  // Header row (column numbers)
+  gridHTML += '<div class="grid-row">';
+  for (let c = 1; c <= 24; c++) {
+    gridHTML += `<div class="grid-cell header" style="height:14px;font-size:8px;color:${c===sx||c===ex-1?'var(--accent)':'var(--dim)'}">${c===sx||c===ex-1||c===1||c===12||c===24?c:''}</div>`;
+  }
+  gridHTML += '</div>';
+
+  for (let r = 0; r < rows; r++) {
+    gridHTML += '<div class="grid-row">';
+    for (let c = 1; c <= 24; c++) {
+      const inBlock = c >= sx && c < ex && r >= sy && r < ey;
+      const isEdge = (c === sx && r >= sy && r < ey) || (c === ex-1 && r >= sy && r < ey) || (r === sy && c >= sx && c < ex) || (r === ey-1 && c >= sx && c < ex);
+      const bg = inBlock ? (isEdge ? 'var(--accent)' : `${state.gridColor||'#7c6af7'}60`) : 'var(--surface2)';
+      gridHTML += `<div class="grid-cell" style="background:${bg}"></div>`;
+    }
+    gridHTML += '</div>';
+  }
+
+  const GRID_PRESETS = [
+    { label:'Full-width text', sx:1, ex:25, sy:0, ey:4 },
+    { label:'Text block', sx:1, ex:17, sy:0, ey:6 },
+    { label:'Image (default)', sx:1, ex:13, sy:0, ey:8 },
+    { label:'Button', sx:1, ex:8, sy:0, ey:2 },
+    { label:'Divider', sx:1, ex:25, sy:0, ey:1 },
+    { label:'2-col image', sx:1, ex:13, sy:0, ey:8 },
+    { label:'3-col image', sx:1, ex:9, sy:0, ey:8 },
+  ];
+
+  panel.innerHTML = `
+    <div class="grid-full">
+      <div class="detail-title" style="margin-bottom:4px">Fluid Engine Grid System</div>
+      <div class="detail-desc" style="margin-bottom:16px">24 columns, start inclusive / end exclusive. Desktop only — mobile auto-reflows. X: 1–24, Y: 0+.</div>
+
+      <div class="grid-presets">
+        ${GRID_PRESETS.map(p => `<button class="grid-preset-btn" data-gpreset='${JSON.stringify(p)}'>${p.label}</button>`).join('')}
+      </div>
+
+      <div class="grid-controls">
+        <div class="grid-control-group">
+          <label>Start X (inclusive) <span class="val" id="gsx-val">${sx}</span></label>
+          <input type="range" id="gsx" min="1" max="24" value="${sx}">
+        </div>
+        <div class="grid-control-group">
+          <label>End X (exclusive) <span class="val" id="gex-val">${ex}</span></label>
+          <input type="range" id="gex" min="2" max="25" value="${ex}">
+        </div>
+        <div class="grid-control-group">
+          <label>Start Y (row) <span class="val" id="gsy-val">${sy}</span></label>
+          <input type="range" id="gsy" min="0" max="11" value="${sy}">
+        </div>
+        <div class="grid-control-group">
+          <label>End Y (exclusive) <span class="val" id="gey-val">${ey}</span></label>
+          <input type="range" id="gey" min="1" max="12" value="${ey}">
+        </div>
+      </div>
+
+      <div class="grid-viz">
+        <div class="grid-viz-label">Visual Placement (${rows} rows shown)</div>
+        ${gridHTML}
+      </div>
+
+      <div class="grid-stats">
+        <div class="grid-stat"><div class="gs-val">${w}</div><div class="gs-label">Width (cols)</div></div>
+        <div class="grid-stat"><div class="gs-val">${h}</div><div class="gs-label">Height (rows)</div></div>
+        <div class="grid-stat"><div class="gs-val">${Math.round(w/24*100)}%</div><div class="gs-label">% of width</div></div>
+        <div class="grid-stat"><div class="gs-val">${sx}–${ex-1}</div><div class="gs-label">Column range</div></div>
+        <div class="grid-stat"><div class="gs-val">{ start: ${sx}, end: ${ex} }</div><div class="gs-label">API format (desktop)</div></div>
+      </div>
+    </div>`;
+
+  // Bind grid controls
+  ['gsx','gex','gsy','gey'].forEach(id => {
+    document.getElementById(id).addEventListener('input', e => {
+      const val = parseInt(e.target.value);
+      if (id==='gsx') { state.gridStartX = Math.min(val, state.gridEndX-1); }
+      if (id==='gex') { state.gridEndX = Math.max(val, state.gridStartX+1); }
+      if (id==='gsy') { state.gridStartY = Math.min(val, state.gridEndY-1); }
+      if (id==='gey') { state.gridEndY = Math.max(val, state.gridStartY+1); }
+      updateAll();
+    });
+  });
+  panel.querySelectorAll('.grid-preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = JSON.parse(btn.dataset.gpreset);
+      state.gridStartX=p.sx; state.gridEndX=p.ex; state.gridStartY=p.sy; state.gridEndY=p.ey;
+      updateAll();
+    });
+  });
+}
+
+function renderExecution(panel) {
+  const strategies = [
+    { id:'blank_api', label:'blank_api', color:'#7c6af7', active:true,
+      title:'Blank + API (Default)', badge:'DEFAULT',
+      criteria:'Text-heavy content · CV/portfolio · 3+ text blocks · Testimonials · Long-form',
+      steps:['addBlankSection() via API','saveChanges() to persist','addTextBlock() for each apiBlock','Fallback: UI add → fillLastTextBlockInSection()'],
+      note:'blank_api is now mandatory — template strategy disabled. Only manual for custom layouts.' },
+    { id:'manual', label:'manual', color:'#4ecdc4', active:false,
+      title:'Manual / Browser Agent', badge:'BROWSER',
+      criteria:'Custom layouts · Interactive elements · Code/embed blocks · Complex multi-step sequences',
+      steps:['Full browser agent control','Screenshot → Claude → action loop','Up to 40 steps per batch (3 ops/batch)','Supervisor verifies result'],
+      note:'Used for anything blank_api cannot handle. Template strategy was disabled Feb 28.' },
+    { id:'template', label:'template', color:'#868e96', active:false,
+      title:'Template (Disabled)', badge:'DISABLED',
+      criteria:'Was: standard About/Contact/Team sections via template catalog',
+      steps:['[Disabled] addSectionFromTemplate()','[Disabled] Save + replace placeholders','[Disabled] Apply section styling'],
+      note:'Template execution code preserved in execution.ts but unreachable from LLM. Easy to re-enable.' },
+  ];
+
+  const sel = strategies.find(s => s.id === state.execStrategy);
+
+  panel.innerHTML = `
+    <div class="exec-full">
+      <div class="exec-title">API Execution Paths</div>
+      <div class="exec-sub">How the content strategist routes operations to execution strategies.</div>
+
+      <div class="exec-stage">
+        <div class="exec-stage-title">Choose Strategy</div>
+        <div class="exec-select">
+          ${strategies.map(s => `<button class="exec-select-btn${state.execStrategy===s.id?' active':''}" data-strat="${s.id}" style="${state.execStrategy===s.id?'border-color:'+s.color+';color:'+s.color:''}">${s.label}</button>`).join('')}
+        </div>
+      </div>
+
+      <div class="flow-row">
+        ${strategies.map(s => `
+          <div class="flow-node${s.id===state.execStrategy?' active-path':''}${s.id==='template'?' disabled':''}">
+            <div class="fn-header">
+              <span class="fn-badge" style="background:${s.color}20;color:${s.color}">${s.badge}</span>
+              <span class="fn-title">${s.title}</span>
+            </div>
+            <div class="fn-criteria" style="margin-bottom:8px"><strong style="color:var(--muted);font-size:10px">WHEN: </strong>${s.criteria}</div>
+            <div style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px">
+              ${s.steps.map((step,i) => `<div style="font-size:11px;color:${s.id===state.execStrategy?'var(--text)':'var(--muted)'}"><span style="color:${s.color};margin-right:6px">${i+1}.</span>${step}</div>`).join('')}
+            </div>
+            <div class="fn-note">${s.note}</div>
+          </div>`).join('<div class="flow-arrow">→</div>')}
+      </div>
+
+      <div class="exec-stage" style="margin-top:24px">
+        <div class="exec-stage-title">Execution Gate Order (in execution.ts)</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${[
+            ['1','Two-pass check','Plans with page creation or 3+ section adds use two-pass (structural → content)','#7c6af7'],
+            ['2','API executor gate','classifyPlanForApi() → full_api/partial_api/browser_required. API executor runs first.','#4ecdc4'],
+            ['3','Simple edit fast path','14 edit types: text_update, image_replace, button_add, section_reorder, etc. Pre-LLM + Haiku classifier.','#51cf66'],
+            ['4','Batched execution','Plans ≥6 ops → batches of 3, 40 steps/batch. Saves editor state between batches.','#ffa94d'],
+            ['5','Browser agent fallback','Full browser agent with screenshot → Claude → action loop. Supervisor verifies.','#ff6b6b'],
+          ].map(([n,title,desc,c]) => `
+            <div style="display:flex;gap:10px;align-items:flex-start;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 12px">
+              <div style="width:22px;height:22px;border-radius:50%;background:${c}20;color:${c};font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${n}</div>
+              <div>
+                <div style="font-size:12px;font-weight:600;margin-bottom:2px">${title}</div>
+                <div style="font-size:11px;color:var(--muted)">${desc}</div>
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+
+  panel.querySelectorAll('.exec-select-btn').forEach(btn => {
+    btn.addEventListener('click', () => { state.execStrategy = btn.dataset.strat; updateAll(); });
+  });
+}
+
+function updatePrompt() {
+  const el = document.getElementById('prompt-text');
+  let text = '';
+
+  if (state.tab === 'blocks' && state.selectedId) {
+    const b = BLOCK_TYPES.find(x => x.id === state.selectedId);
+    if (b) {
+      const primaryWrite = b.writeMethods?.[0] || b.addMethods?.[0] || 'findBlock()';
+      const gotchaNote = b.gotchas[0] ? ` Note: ${b.gotchas[0]}` : '';
+      const fastNote = b.fastPath ? ` Fast path: ${b.fastPath}.` : '';
+      text = `Work with a Squarespace ${b.name} (type ${b.type}, default grid ${b.defaultGrid}). ${b.description} Find blocks using ${b.findBy}. Primary API method: ContentSaveClient.${primaryWrite.split('(')[0]}().${fastNote}${gotchaNote}`;
+    }
+  }
+
+  if (state.tab === 'methods' && state.selectedId) {
+    let m = null, g = null;
+    for (const grp of METHOD_GROUPS) {
+      const found = grp.methods.find(x => x.name === state.selectedId);
+      if (found) { m = found; g = grp; break; }
+    }
+    if (m) {
+      const fpNote = m.fp ? ' This is a step-0 fast path — tries API before UI automation.' : '';
+      const noteStr = m.note ? ` ${m.note}` : '';
+      text = `Call ContentSaveClient.${m.name}${m.sig} to ${m.desc}${fpNote}${noteStr}`;
+    }
+  }
+
+  if (state.tab === 'endpoints' && state.selectedId) {
+    const e = ENDPOINTS.find(x => x.id === state.selectedId);
+    if (e) {
+      const notesStr = e.notes?.length ? ` Key notes: ${e.notes[0]}` : '';
+      const authStr = e.auth ? ` Requires: ${e.auth}.` : '';
+      text = `${e.method} ${e.url} — ${e.desc}${authStr}${notesStr}`;
+    }
+  }
+
+  if (state.tab === 'grid') {
+    const { gridStartX:sx, gridEndX:ex, gridStartY:sy, gridEndY:ey } = state;
+    const w = ex - sx; const h = ey - sy;
+    text = `Place block at desktop grid columns ${sx}–${ex-1} (start: ${sx}, end: ${ex}, width: ${w} of 24 = ${Math.round(w/24*100)}%), rows ${sy}–${ey-1} (start: ${sy}, end: ${ey}, height: ${h} rows). Squarespace Fluid Engine uses 24-column desktop grid. start is inclusive, end is exclusive. Mobile auto-reflows — only modify desktop coordinates.`;
+  }
+
+  if (state.tab === 'execution') {
+    const strategies = { blank_api:'blank_api (text-heavy content, CV, 3+ text blocks) — addBlankSection() → save → addTextBlock() per block. Falls back to UI + fillLastTextBlockInSection() if API 500s.', manual:'manual execution (browser agent) — full screenshot → Claude → action loop, up to 40 steps per batch, supervisor verifies result. Use for custom layouts, interactive elements, complex multi-step sequences.', template:'template strategy — DISABLED as of Feb 28. Code preserved in execution.ts but LLM no longer selects it.' };
+    text = `Use the ${state.execStrategy} execution strategy: ${strategies[state.execStrategy]} The execution gate order is: two-pass check → API executor → simple edit fast path → batched execution → browser agent fallback.`;
+  }
+
+  el.textContent = text || '';
+  if (!text) el.innerHTML = '<span class="placeholder-msg">Select an item to generate a prompt.</span>';
+}
+
+function updateAll() {
+  renderList();
+  renderDetail();
+  updatePrompt();
+}
+
+// ── EVENTS ────────────────────────────────────────────────────────────────────
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    state.tab = tab.dataset.tab;
+    state.selectedId = null;
+    updateAll();
+  });
+});
+
+document.getElementById('filter').addEventListener('input', e => {
+  state.filter = e.target.value;
+  renderList();
+});
+
+document.getElementById('copy-btn').addEventListener('click', () => {
+  const text = document.getElementById('prompt-text').textContent;
+  if (!text || text.includes('Select an item')) return;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-btn');
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1500);
+  });
+});
+
+// Presets
+const PRESETS = {
+  menu: () => { state.tab='blocks'; state.selectedId='menu'; document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab==='blocks')); },
+  gallery: () => { state.tab='blocks'; state.selectedId='image'; document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab==='blocks')); },
+  patch: () => { state.tab='methods'; state.selectedId='patchTextBlock'; document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab==='methods')); },
+  section: () => { state.tab='methods'; state.selectedId='addBlankSection'; document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab==='methods')); },
+  upload: () => { state.tab='endpoints'; state.selectedId='media-upload'; document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab==='endpoints')); },
+};
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => { PRESETS[btn.dataset.preset]?.(); updateAll(); });
+});
+
+// Init
+updateAll();
+</script>
+</body>
+</html>
