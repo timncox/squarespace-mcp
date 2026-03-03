@@ -570,6 +570,10 @@ export interface BlogPostUpdateResult {
 export interface PageDeleteResult {
   success: boolean;
   collectionId?: string;
+  /** 'deleted' if DELETE API worked, 'hidden_from_nav' if fallback removed from navigation */
+  method?: 'deleted' | 'hidden_from_nav';
+  /** Human-readable note about what happened (especially for fallback) */
+  note?: string;
   error?: string;
 }
 

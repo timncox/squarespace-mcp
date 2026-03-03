@@ -83,10 +83,17 @@ export function registerPageTools(server: McpServer) {
         };
       }
 
+      const response: Record<string, unknown> = {
+        success: true,
+        collectionId: result.collectionId ?? collectionId,
+      };
+      if (result.method) response.method = result.method;
+      if (result.note) response.note = result.note;
+
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify({ success: true, collectionId: result.collectionId ?? collectionId }, null, 2),
+          text: JSON.stringify(response, null, 2),
         }],
       };
     } catch (err) {

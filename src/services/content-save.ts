@@ -7007,6 +7007,9 @@ export class ContentSaveClient {
       });
 
       if (response.status === 401) {
+        // Session expired — try nav-hiding fallback before giving up
+        const fallback = await this.tryHidePageFromNav(collectionId);
+        if (fallback) return fallback;
         return {
           success: false,
           collectionId,
@@ -7015,6 +7018,9 @@ export class ContentSaveClient {
       }
 
       if (!response.ok) {
+        // DELETE endpoint failed — try nav-hiding fallback
+        const fallback = await this.tryHidePageFromNav(collectionId);
+        if (fallback) return fallback;
         return {
           success: false,
           collectionId,
@@ -7032,6 +7038,9 @@ export class ContentSaveClient {
 
       if (data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
         const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
+        // Crumb failure — try nav-hiding fallback
+        const fallback = await this.tryHidePageFromNav(collectionId);
+        if (fallback) return fallback;
         return {
           success: false,
           collectionId,
@@ -7044,13 +7053,92 @@ export class ContentSaveClient {
       return {
         success: true,
         collectionId,
+        method: 'deleted',
       };
     } catch (err) {
+      // Network/timeout error — try nav-hiding fallback
+      const fallback = await this.tryHidePageFromNav(collectionId);
+      if (fallback) return fallback;
       return {
         success: false,
         collectionId,
         error: errMsg(err),
       };
+    }
+  }
+
+  /**
+   * Fallback for page deletion: remove page from navigation.
+   * The page still exists but is hidden from the site nav.
+   * Returns null if the fallback also fails.
+   */
+  private async tryHidePageFromNav(collectionId: string): Promise<PageDeleteResult | null> {
+    try {
+      logger.info({ collectionId }, 'deletePageViaApi: DELETE failed, trying nav-hiding fallback');
+
+      const navResult = await this.getNavigation();
+      if (!navResult.success || !navResult.data) {
+        logger.warn({ collectionId }, 'Nav-hiding fallback: could not fetch navigation');
+        return null;
+      }
+
+      const { mainNavigation } = navResult.data;
+      const pageInNav = mainNavigation.some(
+        (item) => item.collectionId === collectionId || item.id === collectionId,
+      );
+
+      if (!pageInNav) {
+        logger.info({ collectionId }, 'Nav-hiding fallback: page not in main navigation, nothing to hide');
+        return null;
+      }
+
+      // Filter out the page — use raw fetch to preserve all fields for updateNavigation
+      const rawNavUrl = this.buildApiUrl('/api/navigation');
+      const rawNavRes = await fetch(rawNavUrl, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!rawNavRes.ok) {
+        logger.warn({ collectionId, status: rawNavRes.status }, 'Nav-hiding fallback: raw nav fetch failed');
+        return null;
+      }
+
+      const rawNav = await rawNavRes.json() as Record<string, unknown>;
+      const rawMainNav = Array.isArray(rawNav.mainNavigation)
+        ? (rawNav.mainNavigation as Record<string, unknown>[])
+        : [];
+
+      const filtered = rawMainNav.filter(
+        (item) => item.collectionId !== collectionId && item.id !== collectionId,
+      );
+
+      if (filtered.length === rawMainNav.length) {
+        logger.info({ collectionId }, 'Nav-hiding fallback: page not found in raw mainNavigation');
+        return null;
+      }
+
+      const updateResult = await this.updateNavigation(
+        'mainNav',
+        filtered as unknown as UpdateNavigationItem[],
+      );
+
+      if (!updateResult.success) {
+        logger.warn({ collectionId, error: updateResult.error }, 'Nav-hiding fallback: updateNavigation failed');
+        return null;
+      }
+
+      logger.info({ collectionId }, 'deletePageViaApi: page hidden from navigation (fallback)');
+
+      return {
+        success: true,
+        collectionId,
+        method: 'hidden_from_nav',
+        note: 'Page could not be fully deleted via API. It has been removed from site navigation and is no longer visible to visitors, but the page data still exists in Squarespace.',
+      };
+    } catch (err) {
+      logger.warn({ collectionId, error: errMsg(err) }, 'Nav-hiding fallback failed');
+      return null;
     }
   }
 
