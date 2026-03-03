@@ -554,6 +554,7 @@ export interface BlogPostUpdateOptions {
   categories?: string[];
   urlId?: string;
   publishDate?: string; // ISO 8601 string → converted to publishOn (Unix ms)
+  coverImageUrl?: string; // Featured image / thumbnail URL (from sq_upload_image)
   draft?: boolean;
 }
 

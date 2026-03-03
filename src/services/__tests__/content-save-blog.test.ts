@@ -161,6 +161,23 @@ describe('updateBlogPost', () => {
     const body = JSON.parse(init.body as string);
     expect(body.publishOn).toBe(new Date('2026-01-15T10:00:00Z').getTime());
   });
+
+  it('sets coverImageUrl in PUT body', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true, status: 200,
+      json: async () => ({ id: 'item-123' }),
+      text: async () => '',
+    } as Response);
+
+    const client = makeClient();
+    await client.updateBlogPost('col-1', 'item-123', {
+      coverImageUrl: 'https://images.squarespace-cdn.com/content/v1/site/img.jpg',
+    });
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.coverImageUrl).toBe('https://images.squarespace-cdn.com/content/v1/site/img.jpg');
+  });
 });
 
 // ─── createBlogPost ───────────────────────────────────────────────────────

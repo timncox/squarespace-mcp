@@ -6821,6 +6821,7 @@ export class ContentSaveClient {
       excerpt?: string;
       draft?: boolean;
       publishDate?: string;
+      coverImageUrl?: string;
     },
   ): Promise<BlogPostCreateResult> {
     this.ensureCookies();
@@ -6887,13 +6888,14 @@ export class ContentSaveClient {
       logger.info({ collectionId, itemId: data.id, urlId: data.urlId }, 'createBlogPost: post created');
 
       // Follow-up: set fields the create endpoint doesn't accept
-      const needsUpdate = options?.body || options?.tags || options?.excerpt || options?.categories;
+      const needsUpdate = options?.body || options?.tags || options?.excerpt || options?.categories || options?.coverImageUrl;
       if (needsUpdate && data.id) {
         await this.updateBlogPost(collectionId, String(data.id), {
           ...(options.body ? { body: options.body } : {}),
           ...(options.tags ? { tags: options.tags } : {}),
           ...(options.excerpt ? { excerpt: options.excerpt } : {}),
           ...(options.categories ? { categories: options.categories } : {}),
+          ...(options.coverImageUrl ? { coverImageUrl: options.coverImageUrl } : {}),
         });
       }
 
@@ -6954,6 +6956,7 @@ export class ContentSaveClient {
         const ms = new Date(updates.publishDate).getTime();
         if (!isNaN(ms)) set('publishOn', ms, 'publishDate');
       }
+      set('coverImageUrl', updates.coverImageUrl);
       set('workflowState', updates.draft != null ? (updates.draft ? 4 : 1) : undefined, 'draft');
 
       if (updatedFields.length === 0) {

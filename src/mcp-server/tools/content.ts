@@ -29,9 +29,10 @@ export function registerContentTools(server: McpServer) {
       categories: z.array(z.string()).optional().describe('Post categories'),
       slug: z.string().optional().describe('Custom URL slug (e.g. "my-post-title")'),
       publishDate: z.string().optional().describe('Publish date as ISO 8601 string (e.g. "2026-01-15T10:00:00Z"). Defaults to now.'),
+      coverImageUrl: z.string().optional().describe('Featured image / thumbnail URL (use sq_upload_image to get URL first)'),
       draft: z.boolean().optional().default(true).describe('Create as draft (default true)'),
     },
-  }, async ({ siteId, collectionId, title, body, tags, excerpt, categories, slug, publishDate, draft }) => {
+  }, async ({ siteId, collectionId, title, body, tags, excerpt, categories, slug, publishDate, coverImageUrl, draft }) => {
     try {
       const client = getClient(siteId);
       const result = await client.createBlogPost(collectionId, title, {
@@ -41,6 +42,7 @@ export function registerContentTools(server: McpServer) {
         categories,
         slug,
         publishDate,
+        coverImageUrl,
         draft,
       });
 
@@ -80,9 +82,10 @@ export function registerContentTools(server: McpServer) {
       categories: z.array(z.string()).optional().describe('Post categories'),
       slug: z.string().optional().describe('Custom URL slug'),
       publishDate: z.string().optional().describe('Publish date as ISO 8601 string (e.g. "2026-01-15T10:00:00Z")'),
+      coverImageUrl: z.string().optional().describe('Featured image / thumbnail URL (use sq_upload_image to get URL first)'),
       draft: z.boolean().optional().describe('Set draft status (true=draft, false=published)'),
     },
-  }, async ({ siteId, collectionId, postId, title, body, tags, excerpt, categories, slug, publishDate, draft }) => {
+  }, async ({ siteId, collectionId, postId, title, body, tags, excerpt, categories, slug, publishDate, coverImageUrl, draft }) => {
     try {
       const client = getClient(siteId);
       const result = await client.updateBlogPost(collectionId, postId, {
@@ -93,6 +96,7 @@ export function registerContentTools(server: McpServer) {
         categories,
         urlId: slug,
         publishDate,
+        coverImageUrl,
         draft,
       });
 
