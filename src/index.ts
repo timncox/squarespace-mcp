@@ -13,7 +13,6 @@ import { getDb, closeDb } from './db/database.js';
 import { startServer } from './server.js';
 import { pollAndProcess } from './services/email-processor.js';
 import { notifyNewTasks } from './services/conversation-handler.js';
-import { shutdownBrowser } from './automation/browser-manager.js';
 import { ensureProxy, stopProxy } from './utils/proxy-manager.js';
 
 const POLL_INTERVAL_MS = 60_000; // Check Gmail every 60 seconds
@@ -221,10 +220,7 @@ function setupShutdownHandlers(app: Awaited<ReturnType<typeof startServer>>): vo
     // 2. Stop proxy if we spawned it
     stopProxy();
 
-    // 3. Close browser processes
-    await shutdownBrowser();
-
-    // 4. Close SQLite database (flushes WAL)
+    // 3. Close SQLite database (flushes WAL)
     try {
       closeDb();
     } catch (err) {

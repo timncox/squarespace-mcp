@@ -2,7 +2,11 @@ import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '../utils/logger.js';
 import { loadSitesConfig } from './task-extractor.js';
 import type { SitesConfig } from '../models/site-config.js';
-import type { DiscoveredSite } from '../automation/site-discovery.js';
+interface DiscoveredSite {
+  name: string;
+  subdomain: string;
+  adminUrl: string;
+}
 import { getAnthropicClient } from '../utils/anthropic-client.js';
 import { MODEL_SONNET } from '../config/models.js';
 import { getRelevantMemories } from '../db/memories.js';
