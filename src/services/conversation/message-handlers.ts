@@ -21,7 +21,7 @@ import { interpretWhatsAppRequest } from '../whatsapp-request-interpreter.js';
 import { getBrowserManager } from '../../automation/browser-manager.js';
 import { ensureLoggedIn } from '../../automation/squarespace-auth.js';
 import { taskNeedsContentPlanning, runPlanningPipeline, revisePlanFromFeedback } from './planning.js';
-import { executeTasks, executeTasksWithPlan } from './execution.js';
+import { executeTasks } from './execution.js';
 import { executionQueue } from '../execution-queue.js';
 import { formatDirectRequestTaskList } from './helpers.js';
 import type { Task } from '../../models/task.js';
@@ -352,91 +352,6 @@ export async function handleDirectRequest(msg: IncomingWhatsAppMessage & { image
   }
 }
 
-// ─── Simple Edit Fast Path ──────────────────────────────────────────────────
-
-/**
- * Attempt to classify and execute all tasks as simple edits via Content Save API.
- * Returns a summary string if ALL tasks succeed, or null to fall through to the
- * normal pipeline (planning → browser agent).
- */
-export async function trySimpleEditFastPath(
-  conversation: Conversation,
-  tasks: Task[],
-): Promise<string | null> {
-  // Only attempt for conversations without existing plans
-  if (conversation.contentPlan) return null;
-
-  // No tasks → nothing to do
-  if (tasks.length === 0) return null;
-
-  // Don't attempt if tasks have images (likely need browser agent)
-  if (tasks.some(t => t.referenceImagePath || (t.imagePaths && t.imagePaths.length > 0))) return null;
-
-  try {
-    const { classifySimpleEdit } = await import('../simple-edit-classifier.js');
-
-    // Classify all tasks
-    const classifications = await Promise.all(
-      tasks.map(t => classifySimpleEdit(t))
-    );
-
-    // Log full classification results for debugging
-    logger.info(
-      { classifications: classifications.map(c => ({ isSimpleEdit: c.isSimpleEdit, editType: c.editType, confidence: c.confidence, reason: c.reason })) },
-      'Simple edit fast path: classification results',
-    );
-
-    // ALL tasks must be simple edits with high confidence
-    if (!classifications.every(c => c.isSimpleEdit && c.confidence === 'high')) {
-      const reasons = classifications
-        .filter(c => !c.isSimpleEdit || c.confidence !== 'high')
-        .map(c => c.reason);
-      logger.info({ reasons }, 'Simple edit fast path: not all tasks qualify');
-      return null;
-    }
-
-    logger.info(
-      { taskCount: tasks.length, editTypes: classifications.map(c => c.editType) },
-      'Simple edit fast path: all tasks classified as simple — executing via API'
-    );
-
-    // Execute all tasks via API
-    const { executeSimpleEdit } = await import('../simple-edit-executor.js');
-    const results: string[] = [];
-
-    for (let i = 0; i < tasks.length; i++) {
-      const task = tasks[i];
-      const classification = classifications[i];
-
-      updateTaskStatus(task.id, 'executing');
-      logAction(task.id, 'simple_edit_start', `Fast path: ${classification.editType} on ${task.siteId}/${task.targetPage}`);
-
-      const result = await executeSimpleEdit(task, classification);
-
-      if (!result.success) {
-        // If any task fails, abort fast path — let normal pipeline handle everything
-        logger.warn(
-          { taskId: task.id, editType: result.editType, error: result.error },
-          'Simple edit fast path: execution failed — falling back to normal pipeline'
-        );
-        // Reset task statuses back to confirmed
-        for (const t of tasks) {
-          updateTaskStatus(t.id, 'confirmed');
-        }
-        return null;
-      }
-
-      results.push(`✓ ${result.summary} (${result.durationMs}ms)`);
-      logAction(task.id, 'simple_edit_done', result.summary);
-    }
-
-    return `⚡ Fast edit${tasks.length > 1 ? 's' : ''} complete:\n\n${results.join('\n')}`;
-  } catch (err) {
-    logger.warn({ error: errMsg(err) }, 'Simple edit fast path: error — falling back to normal pipeline');
-    return null;
-  }
-}
-
 // ─── Confirmation Handler ───────────────────────────────────────────────────
 
 export async function handleConfirmation(conversation: Conversation, msg: IncomingWhatsAppMessage): Promise<void> {
@@ -456,26 +371,7 @@ export async function handleConfirmation(conversation: Conversation, msg: Incomi
       }
     }
 
-    // Check if any tasks need content planning (creative/vague tasks).
-    // Pass the original message — the request interpreter may have stripped creative keywords.
     const tasks = conversation.taskIds.map((id) => getTask(id)).filter(Boolean) as Task[];
-
-    // === Simple Edit Fast Path ===
-    // Try to handle simple edits directly via Content Save API (~500ms each)
-    // instead of browser agent (~2-5 min each). Only for high-confidence classifications.
-    logger.info({ taskCount: tasks.length, convId: conversation.id }, 'Attempting simple edit fast path');
-    const simpleEditResult = await trySimpleEditFastPath(conversation, tasks);
-    if (simpleEditResult) {
-      // All tasks handled via API — skip browser agent entirely
-      updateConversationStatus(conversation.id, 'completed');
-      for (const taskId of conversation.taskIds) {
-        updateTaskStatus(taskId, 'done');
-      }
-      await sendToTim(simpleEditResult, conversation.id);
-      return;
-    }
-    // === End Simple Edit Fast Path ===
-
     const originalMsg = conversation.originalMessage;
     const needsPlanning = !skipPlanning && tasks.some((t) => taskNeedsContentPlanning(t, originalMsg));
 
@@ -791,7 +687,7 @@ async function approvePlan(conversation: Conversation): Promise<void> {
 
   // Enqueue for execution (per-site queue: different sites run in parallel)
   const siteId = getSiteIdForQueue(conversation);
-  executionQueue.enqueue(conversation.id, siteId, () => executeTasksWithPlan(conversation));
+  executionQueue.enqueue(conversation.id, siteId, () => executeTasks(conversation));
 }
 
 async function rejectPlan(conversation: Conversation): Promise<void> {

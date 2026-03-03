@@ -65,12 +65,6 @@ export async function executeTasks(conversation: Conversation): Promise<void> {
   logger.info({ total, completed, failed, conversationId: conversation.id }, 'All tasks finished');
 }
 
-/**
- * Legacy alias — plan approval now handled by orchestrator (REQUIRE_PLAN_APPROVAL env var).
- * Kept for backward compatibility with message-handlers.ts approvePlan().
- */
-export const executeTasksWithPlan = executeTasks;
-
 // ─── Multi-Site Expansion ────────────────────────────────────────────────────
 
 function expandMultiSiteTasks(taskIds: string[]): string[] {
