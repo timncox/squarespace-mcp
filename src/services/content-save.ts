@@ -56,6 +56,8 @@ export type {
   CopyTemplateSectionResult,
   AddGalleryImageResult,
   GalleryItem,
+  RemoveGalleryImageResult,
+  ReorderGalleryImagesResult,
   SectionCatalogEntry,
   SectionCatalogResponse,
   SectionStyleOptions,
@@ -167,6 +169,8 @@ import type {
   CopyTemplateSectionResult,
   AddGalleryImageResult,
   GalleryItem,
+  RemoveGalleryImageResult,
+  ReorderGalleryImagesResult,
   SectionCatalogEntry,
   SectionCatalogResponse,
   SectionStyleOptions,
@@ -8559,6 +8563,42 @@ export class ContentSaveClient {
       const itemId = (data as Record<string, unknown>).id as string | undefined;
 
       logger.info({ galleryCollectionId, itemId }, 'Gallery image added');
+      return { success: true, itemId };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Remove an image from a gallery collection.
+   *
+   * Endpoint: DELETE /api/content-items/{itemId}
+   * Discovered via Playwright traffic capture on gallery editor.
+   */
+  async removeGalleryImage(
+    galleryCollectionId: string,
+    itemId: string,
+  ): Promise<RemoveGalleryImageResult> {
+    try {
+      this.ensureCookies();
+
+      const path = `/api/content-items/${encodeURIComponent(itemId)}`;
+      const url = this.buildApiUrl(path, true);
+
+      logger.info({ galleryCollectionId, itemId }, 'Removing gallery image');
+
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `Failed to remove gallery image: ${response.status}. ${body}` };
+      }
+
+      logger.info({ galleryCollectionId, itemId }, 'Gallery image removed');
       return { success: true, itemId };
     } catch (err) {
       return { success: false, error: errMsg(err) };
