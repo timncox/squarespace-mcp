@@ -759,6 +759,15 @@ export interface EmbedBlockAddResult {
   error?: string;
 }
 
+/** Result of adding a menu block */
+export interface MenuBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionIndex?: number;
+  sectionId?: string;
+  error?: string;
+}
+
 /** Result of updating an embed block */
 export interface EmbedBlockUpdateResult {
   success: boolean;
