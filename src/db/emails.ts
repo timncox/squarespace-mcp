@@ -79,6 +79,21 @@ export function markEmailProcessed(id: string): void {
   db.prepare('UPDATE emails SET processed_at = ? WHERE id = ?').run(now, id);
 }
 
+export function listEmails(options?: { limit?: number; status?: 'processed' | 'unprocessed' | 'all' }): StoredEmail[] {
+  const db = getDb();
+  const limit = options?.limit ?? 20;
+  const status = options?.status ?? 'all';
+
+  let whereClause = '';
+  if (status === 'processed') whereClause = 'WHERE processed_at IS NOT NULL';
+  else if (status === 'unprocessed') whereClause = 'WHERE processed_at IS NULL';
+
+  const rows = db.prepare(
+    `SELECT * FROM emails ${whereClause} ORDER BY received_at DESC LIMIT ?`,
+  ).all(limit) as Record<string, unknown>[];
+  return rows.map(rowToEmail);
+}
+
 export function getUnprocessedEmails(): StoredEmail[] {
   const db = getDb();
   const rows = db.prepare(
