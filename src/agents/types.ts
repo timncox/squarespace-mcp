@@ -50,7 +50,8 @@ export interface ContentOperation {
     | 'edit_code_injection'
     | 'duplicate_block'
     | 'duplicate_section'
-    | 'swap_blocks';
+    | 'swap_blocks'
+    | 'update_divider';
   /** Where on the page (e.g., "below the hero section", "replace the current mountain image") */
   placement: string;
   /** The exact content to use */
