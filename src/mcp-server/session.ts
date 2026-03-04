@@ -85,6 +85,31 @@ function findSite(input: string): SiteConfig | undefined {
 // ── Public API ──────────────────────────────────────────────────────────────
 
 /**
+ * Get the public base URL for a site.
+ * Prefers customDomain (with https://), falls back to squarespace subdomain.
+ * Used for resolving relative URLs during link validation.
+ */
+export function getSiteBaseUrl(siteId: string): string {
+  const site = findSite(siteId);
+  if (!site) {
+    const config = loadSitesConfig();
+    const available = config.clients.map((c) => {
+      const subdomain = new URL(c.site.adminUrl).hostname.split('.')[0];
+      return `"${c.id}" (${c.name ?? subdomain})`;
+    }).join(', ');
+    throw new Error(`Unknown site: "${siteId}". Available: ${available}`);
+  }
+
+  if (site.site.customDomain) {
+    const domain = site.site.customDomain;
+    return domain.startsWith('http') ? domain : `https://${domain}`;
+  }
+
+  const subdomain = new URL(site.site.adminUrl).hostname.split('.')[0];
+  return `https://${subdomain}.squarespace.com`;
+}
+
+/**
  * Extract the Squarespace subdomain from a site identifier.
  * Accepts: site id, name, alias, or subdomain.
  * e.g., "smyth-tavern" | "Smyth Tavern" | "grey-yellow-hbxc" → "grey-yellow-hbxc"
