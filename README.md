@@ -1,45 +1,35 @@
 # Squarespace Helper
 
-AI agent that edits Squarespace websites based on forwarded client emails and WhatsApp messages. Clients email change requests, Tim confirms via WhatsApp or the web dashboard, and a multi-agent pipeline executes edits — via API when possible, browser automation when needed.
+AI agent that edits Squarespace websites based on forwarded client emails and WhatsApp messages. Clients email change requests, Tim confirms via WhatsApp or the web dashboard, and autonomous MCP agents execute edits via the Content Save API.
 
 ## How It Works
 
 ```
 Client emails request → Gmail poll → Claude extracts tasks
   → Tim confirms via WhatsApp/Dashboard
-  → Execution pipeline selects fastest path:
-      Simple edit (~1s) → API executor (~5-30s) → Browser agent (~60-180s)
-  → Supervisor verifies → Tim gets result
+  → MCP Orchestrator pipeline:
+      classify → research → analyze → strategize → [approve] → execute → supervise
+  → Tim gets result
 ```
 
-### Execution Priority
+### MCP Orchestrator Pipeline
 
-The system tries the fastest execution method first, falling back to slower ones:
+All task execution routes through a 6-stage autonomous agent pipeline:
 
-1. **Simple edit** (~1s) — Direct API call for single operations (text replace, button edit, CSS change, menu update, footer edit, SEO update, etc.). 14 edit types classified by Haiku LLM.
-2. **API executor** (~5-30s) — Multi-operation content plans executed entirely via Content Save API. No browser needed.
-3. **Two-pass** — Structural changes (pages + sections) first, then content fill via API. Used for plans with 3+ section additions.
-4. **Blank API** (~10s) — Add blank section via browser, populate with text/button/image blocks via API. Default strategy for all new section content.
-5. **Batched browser** (~120s) — 3 operations per batch with browser agent, API fast paths between batches.
-6. **Browser agent** (~60-180s) — Full Playwright automation for complex/custom layouts.
-
-### Agent Pipeline
-
-For complex content tasks, a multi-agent pipeline runs before editing:
-
-1. **Research Agent** — Web search (Brave API) + URL visits for context
-2. **Site Analyst** — Screenshots the target page, analyzes layout/style/brand
-3. **Content Strategist** — Drafts a ContentPlan with exact copy, placement, and API blocks (`blank_api` for sections, `manual` for custom layouts)
-4. **Browser Agent / API Executor** — Executes the plan
-5. **Supervisor** — Verifies via API snapshot comparison + screenshots, retries on failure
-6. **Learning Agent** — Extracts reusable patterns from execution
+1. **Classifier** — Categorizes the request type and complexity
+2. **Research Agent** — Web search (Brave API) + URL visits for context
+3. **Site Analyst** — Screenshots the target page, analyzes layout/style/brand
+4. **Content Strategist** — Drafts a structured ContentPlan with exact copy, placement, and operations
+5. **Executor** — Autonomous Claude CLI agent with ~62 MCP tools wrapping the Content Save API
+6. **Supervisor** — Per-operation verification with structured verdict, retries on failure
 
 ## Setup
 
 ### Prerequisites
 
 - Node.js 18+
-- Anthropic API key (Claude)
+- Anthropic API key (Claude) — for email/task extraction
+- Claude CLI (Claude Max auth) — for MCP agent execution
 - Gmail API OAuth credentials
 - WhatsApp Business API credentials (optional — dashboard works without it)
 - Brave Search API key (for research agent)
@@ -48,7 +38,6 @@ For complex content tasks, a multi-agent pipeline runs before editing:
 
 ```bash
 npm install
-npx playwright install chromium
 ```
 
 ### Environment
@@ -65,10 +54,10 @@ GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 GOOGLE_REDIRECT_URI=http://localhost:3000/auth/callback
 BRAVE_API_KEY=...
-SQUARESPACE_EMAIL=...
-SQUARESPACE_PASSWORD=...
-PORT=3000
+PORT=3001
 ```
+
+Site configuration via `sites.json` — each site needs Squarespace session cookies and optionally a Commerce API key.
 
 ### Gmail Setup
 
@@ -79,17 +68,27 @@ npm run setup-gmail
 ## Usage
 
 ```bash
-npm run dev          # Dev server (tsx watch, port 3000)
+npm run dev          # Dev server (tsx watch, port 3001)
 npm run build        # TypeScript compile
 npm run start        # Run compiled JS
 npm run start:all    # Server + ngrok tunnel (WhatsApp webhooks)
 npm run cli          # CLI tool for manual task submission
-npm run test         # Run test suite (~1590 tests)
+npm run test         # Run test suite (~1527 tests)
 ```
+
+### MCP Server
+
+The MCP server exposes ~62 tools for editing Squarespace sites. It can be used standalone with Claude Desktop or any MCP-compatible client:
+
+```bash
+npx tsc --noCheck    # Must compile before use
+```
+
+Configure in Claude Desktop's `claude_desktop_config.json` pointing to `dist/src/mcp-server/index.js`.
 
 ### Dashboard
 
-`http://localhost:3000/dashboard` — 5 tabs:
+`http://localhost:3001/dashboard` — 5 tabs:
 
 - **Tasks** — Task list with status filter, retry failed tasks
 - **Clients** — Client/site management
@@ -115,7 +114,7 @@ idle → awaiting_confirm → executing → completed
 | Runtime | Node.js + TypeScript (ES modules) |
 | Server | Fastify |
 | AI | Claude (Sonnet for reasoning, Haiku for classification) |
-| Browser | Playwright (Chromium) |
+| Agent Execution | Claude CLI with MCP tools |
 | Database | SQLite via better-sqlite3 |
 | Logging | Pino (structured JSON) |
 
@@ -124,85 +123,80 @@ idle → awaiting_confirm → executing → completed
 ```
 src/
   index.ts                       # Entry point: Fastify server + Gmail polling
-  agents/                        # Multi-agent content pipeline
-    coordinator.ts               # Pipeline orchestrator
-    research-agent.ts            # Web search + synthesis
-    content-strategist-agent.ts  # Content plan generation
-    supervisor-agent.ts          # Result verification + retry
-    types.ts                     # ContentPlan, ContentOperation, etc.
-  automation/                    # Browser agent (Playwright)
-    browser-agent.ts             # Core loop: screenshot → Claude → action → repeat
-    actions/                     # 6 specialized handler modules (48 action types, incl. blog post creation)
-  config/                        # Model IDs, layout presets, section templates
+  agents/                        # Shared agent types (ContentPlan, ContentOperation, etc.)
+  config/                        # Model IDs, section templates
   db/                            # SQLite schema + migrations + CRUD
   routes/                        # Fastify routes (dashboard, webhooks, health)
+  mcp-server/                    # MCP server — ~62 tools across 13 modules
+    tools/                       # Tool modules (text, section, blocks, pages, site,
+                                 #   content, screenshot, web-search, forms,
+                                 #   divider, links, gmail, commerce)
+    session.ts                   # Client cache + resolvePageIds
+    index.ts                     # Tool registration entry point
+  orchestrator/                  # MCP agent pipeline (the only execution path)
+    orchestrator.ts              # 6-stage pipeline with structured planning
+    cli-runner.ts                # Claude CLI spawner (stream-json NDJSON)
+    prompts/                     # 6 agent prompts
   services/
-    content-save.ts              # Squarespace Content Save API (75+ methods, ~8200 lines)
-    content-save-types.ts        # Type definitions (~900 lines)
-    api-executor.ts              # Multi-operation API executor (17 operation types)
-    template-registry.ts         # Template section registry (SQLite cache, 7-day TTL)
-    plan-classifier.ts           # Routes plans to API vs browser
-    simple-edit-classifier.ts    # Fast path classifier (14 edit types)
-    simple-edit-executor.ts      # Fast path dispatch
+    content-save.ts              # Squarespace Content Save API (86+ methods)
     page-id-resolver.ts          # Slug → page IDs with SQLite cache
-    content-validator.ts         # Post-operation validation
     menu-parser.ts               # Menu text ↔ structured JSON
+    menu-merger.ts               # Menu merge (LLM + deterministic)
     media-upload.ts              # Image upload to Squarespace
+    gmail.ts                     # Gmail API integration
+    whatsapp.ts                  # WhatsApp Cloud API
     conversation/                # Conversation sub-modules
 scripts/
-  sq.ts                          # Squarespace CLI (40 commands)
 data/                            # SQLite database (sqhelper.db)
-storage/                         # Runtime data (uploads/, screenshots/, auth/)
+storage/                         # Runtime data (uploads/, screenshots/)
 ```
 
 ## Content Save API
 
-The API client (`ContentSaveClient` in `src/services/content-save.ts`) provides 75+ methods for editing Squarespace pages without a browser. Uses a read-modify-write pattern: GET page sections → modify JSON in memory → PUT back.
+The API client (`ContentSaveClient` in `src/services/content-save.ts`) provides 86+ methods for editing Squarespace pages without a browser. Uses a read-modify-write pattern: GET page sections → modify JSON in memory → PUT back.
 
 ### Authentication
 
-- Session cookies exported from a Playwright browser session (`storage/auth/sqsp-session.json`)
+- Session cookies stored per-site in `sites.json`
 - Crumb token extracted from site-specific cookies
 - Sessions work 90+ hours, warn after 24h
 - Pre-flight check: `ContentSaveClient.checkSessionHealth()`
 
-### Block Types
+### MCP Tool Categories
 
-| Type | ID | Add | Update | Find By |
-|------|----|-----|--------|---------|
-| Text | 2 | `addTextBlock()` | `updateTextBlock()` / `patchTextBlock()` | Stripped HTML text |
-| Menu | 18 | — | `updateMenuBlock()` | Raw text, tab/section/item titles |
-| Code | 23 | `addCodeBlock()` | `updateCodeBlock()` | Code content |
-| Quote | 44 | `addQuoteBlock()` | `updateQuoteBlock()` | Quote text / attribution |
-| Button | 46 | `addButtonBlock()` | `updateButtonBlock()` | Label text |
-| Video | 50 | `addVideoBlock()` | `updateVideoBlock()` | Title / URL |
-| Divider | 52 | `addDividerBlock()` | `updateDividerBlock()` | — |
-| Image | 1337 | `addImageBlock()` / batch | `updateImageBlock()` | Title / description / alt text |
-
-### Other Operations
-
-- **Section**: add blank, copy template, move, duplicate, edit style (theme/height/width/alignment/divider), reorder
-- **Page**: create (blank or blog collection), delete, update metadata/SEO
-- **Blog**: create blog post with title, body, publish status
-- **Footer/CSS**: patch footer text, save custom CSS, code injection (header/footer scripts)
-- **Block management**: move, resize, swap, remove, duplicate
-- **Site-wide**: get navigation, get/update settings, site identity
+| Category | Tools | Examples |
+|----------|-------|---------|
+| Text | 3 | update, patch, add text blocks |
+| Sections | 7 | add blank/template, move, duplicate, edit style, dividers |
+| Blocks | 6 | add button/image/video/embed/code, move, resize, swap, remove, duplicate |
+| Pages | 4 | create, delete, update metadata, read page |
+| Blog | 4 | create/update/list/find blog posts |
+| Gallery | 3 | list/remove/reorder gallery images |
+| Site-wide | 6 | navigation, settings, CSS, code injection, design, fonts/colors |
+| Forms | 1 | update form block settings |
+| Menu | 1 | update menu block (structured JSON merge) |
+| Screenshot | 1 | take page screenshot |
+| Web Search | 2 | search (Brave API), fetch URL |
+| Gmail | 6 | list/read emails, process, download attachments, parse PDF menus |
+| Commerce | 8 | products CRUD, images, store pages |
+| Auth | 2 | login check, save session |
 
 ### Grid System
 
-- 24-column desktop grid (X: 1–24, start inclusive / end exclusive)
-- 8 named layout presets: `full-width`, `two-column`, `three-column`, `hero-wide`, `sidebar-content`, `content-sidebar`, `card-grid-2x2`, `centered-narrow`
+- 24-column desktop grid (X: 1-24, start inclusive / end exclusive)
 - Mobile auto-reflows — only desktop coordinates are modified
+
+### Commerce API
+
+Separate REST API from Content Save — uses Bearer token auth with manually generated API keys. Supports product CRUD, image management, and store page creation via internal API.
 
 ## Testing
 
 ```bash
-npm run test              # Full suite (~1590 tests, 52 files)
-npm run test:unit         # Parse action tests only
-npm run test:integration  # Compound action tests (requires live browser)
+npm run test    # Full suite (~1527 tests, 58 files)
 ```
 
-Integration tests require a live browser session and show as "failed" without one — this is expected.
+Tests use vitest with mocked API responses. No live Squarespace session required.
 
 ## License
 
