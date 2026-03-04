@@ -315,6 +315,20 @@ export interface GalleryItem {
   [key: string]: unknown;
 }
 
+/** Result of removing a gallery image */
+export interface RemoveGalleryImageResult {
+  success: boolean;
+  itemId?: string;
+  error?: string;
+}
+
+/** Result of reordering gallery images */
+export interface ReorderGalleryImagesResult {
+  success: boolean;
+  items?: GalleryItem[];
+  error?: string;
+}
+
 // ── Section API Types ───────────────────────────────────────────────────────
 
 /** Result of adding a blank section via API */
