@@ -63,7 +63,7 @@ If the user has the Squarespace editor open while you make API changes, their ne
 The blog creation endpoint ignores the body field. sq_create_blog_post handles this automatically via a create-then-update pattern, but if the follow-up update fails (e.g. session expired), the post will be created with an empty body. Check the result for errors.
 
 ### Session Cookies
-All API calls require valid Squarespace editor session cookies. If you get 401 or "session expired" errors, the session needs to be refreshed. Ask the user to log into Squarespace and re-export their session.
+All API calls require valid Squarespace editor session cookies. If you get 401 or "session expired" errors, call sq_login to check session health and get login instructions. Use sq_login + Playwright MCP + sq_save_session to capture a fresh session without leaving the conversation.
 
 ## Content Editing Workflow
 1. **Read first**: Always call sq_get_page_sections to see current content before editing.

@@ -965,11 +965,51 @@ export class ContentSaveClient {
   }
 
   /**
+   * Get collection settings including the pageSectionsId.
+   * Uses GET /api/commondata/GetCollectionSettings?collectionId=XXX
+   * (the same endpoint the Squarespace editor uses when opening a page).
+   */
+  async getCollectionSettings(collectionId: string): Promise<{
+    pageSectionsId: string;
+    [key: string]: unknown;
+  } | null> {
+    this.ensureCookies();
+
+    try {
+      const url = this.buildApiUrl(`/api/commondata/GetCollectionSettings?collectionId=${collectionId}`);
+      const response = await fetch(url, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) return null;
+
+      const data = (await response.json()) as Record<string, unknown>;
+      // The pageSectionsId is typically in the collection's mainContent or as a direct field
+      const pageSectionsId = data.mainContent as string
+        ?? data.pageSectionsId as string
+        ?? data.pageId as string
+        ?? null;
+
+      if (!pageSectionsId) {
+        // Log all top-level keys for debugging if we can't find it
+        logger.warn({ collectionId, keys: Object.keys(data) }, 'GetCollectionSettings: could not find pageSectionsId');
+        return null;
+      }
+
+      return { ...data, pageSectionsId };
+    } catch (err) {
+      logger.warn({ error: errMsg(err), collectionId }, 'GetCollectionSettings failed');
+      return null;
+    }
+  }
+
+  /**
    * Get page/collection IDs using the authenticated GetCollections API.
    * Returns pageSectionsId and collectionId for a given page slug.
    *
-   * Also tries the GetCollections endpoint since ?format=json-pretty
-   * returns 401 on private/trial sites.
+   * First gets collectionId from GetCollections, then resolves
+   * pageSectionsId via GetCollectionSettings (the same flow the editor uses).
    */
   async getPageIds(slug: string): Promise<{
     collectionId: string;
@@ -1002,9 +1042,13 @@ export class ContentSaveClient {
         const targetSlug = normalizedSlug || 'home';
 
         if (urlId === targetSlug) {
+          const collectionId = String(coll.id);
+
+          // Try to resolve pageSectionsId via GetCollectionSettings
+          const settings = await this.getCollectionSettings(collectionId);
           return {
-            collectionId: String(coll.id),
-            // pageSectionsId is not directly in GetCollections — caller should extract from DOM
+            collectionId,
+            pageSectionsId: settings?.pageSectionsId,
           };
         }
       }
@@ -7921,6 +7965,33 @@ export class ContentSaveClient {
   private ensureCookies(): void {
     if (!this.siteCookieHeader) {
       throw new Error('Session cookies not loaded. Call loadSessionCookies() first.');
+    }
+  }
+
+  /**
+   * Fetch a page's HTML using authenticated session cookies.
+   * Used by the page ID resolver when the public HTML fetch fails
+   * (e.g., password-protected or hidden pages).
+   */
+  async fetchAuthenticatedPageHtml(slug: string): Promise<string | null> {
+    this.ensureCookies();
+
+    const normalizedSlug = this.normalizeSlug(slug);
+    const pageUrl = normalizedSlug === '' || normalizedSlug === 'home'
+      ? `https://${this.siteSubdomain}.squarespace.com/`
+      : `https://${this.siteSubdomain}.squarespace.com/${normalizedSlug}`;
+
+    try {
+      const response = await fetch(pageUrl, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        redirect: 'follow',
+      });
+
+      if (!response.ok) return null;
+      return response.text();
+    } catch {
+      return null;
     }
   }
 

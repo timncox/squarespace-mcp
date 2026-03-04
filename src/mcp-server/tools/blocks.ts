@@ -181,18 +181,76 @@ export function registerBlockTools(server: McpServer) {
   // ── sq_upload_image ─────────────────────────────────────────────────────────
   server.registerTool('sq_upload_image', {
     description:
-      'Upload an image file to the Squarespace media library. Returns an assetUrl that can be used with sq_add_image or sq_update_image. Does not require a page slug.',
+      'Upload an image to the Squarespace media library. Accepts a local file path or an HTTP/HTTPS URL (downloads and uploads automatically). ' +
+      'Returns an assetUrl + assetId for use with sq_add_image, sq_update_image, or sq_attach_product_image.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
-      imageUrl: z.string().describe('Path to the image file to upload'),
+      imageUrl: z.string().describe('Local file path OR http/https URL of the image to upload'),
     },
   }, async ({ siteId, imageUrl }) => {
     try {
       const mediaClient = getMediaClient(siteId);
-      const result = await mediaClient.uploadImage(imageUrl);
+      const isUrl = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+      const result = isUrl
+        ? await mediaClient.uploadImageFromUrl(imageUrl)
+        : await mediaClient.uploadImage(imageUrl);
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ assetUrl: result.assetUrl ?? null, ...result }, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_upload_images (batch) ─────────────────────────────────────────────────
+  server.registerTool('sq_upload_images', {
+    description:
+      'Upload multiple images to the Squarespace media library in parallel. Accepts local file paths and/or HTTP/HTTPS URLs (mixed). ' +
+      'Returns an array of results (assetUrl + assetId) in the same order as the input. Partial failures are reported per-image.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      images: z.array(z.string()).describe('Array of local file paths and/or http/https URLs to upload'),
+    },
+  }, async ({ siteId, images }) => {
+    try {
+      const mediaClient = getMediaClient(siteId);
+      const results = [];
+
+      // Split into URLs and local paths, track original indices
+      const urlJobs: { idx: number; url: string }[] = [];
+      const localPaths: { idx: number; path: string }[] = [];
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i];
+        if (img.startsWith('http://') || img.startsWith('https://')) {
+          urlJobs.push({ idx: i, url: img });
+        } else {
+          localPaths.push({ idx: i, path: img });
+        }
+      }
+
+      // Upload all in parallel
+      const allResults: { idx: number; promise: Promise<any> }[] = [];
+      for (const job of urlJobs) {
+        allResults.push({ idx: job.idx, promise: mediaClient.uploadImageFromUrl(job.url).catch(e => ({ error: e instanceof Error ? e.message : String(e) })) });
+      }
+      for (const job of localPaths) {
+        allResults.push({ idx: job.idx, promise: mediaClient.uploadImage(job.path).catch(e => ({ error: e instanceof Error ? e.message : String(e) })) });
+      }
+
+      const settled = await Promise.all(allResults.map(async r => ({ idx: r.idx, result: await r.promise })));
+      settled.sort((a, b) => a.idx - b.idx);
+
+      const output = settled.map(s => {
+        if (s.result?.error) return { source: images[s.idx], success: false, error: s.result.error };
+        return { source: images[s.idx], success: true, assetUrl: s.result.assetUrl ?? null, assetId: s.result.assetId ?? null };
+      });
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(output, null, 2) }],
       };
     } catch (err) {
       return {

@@ -11,8 +11,9 @@
  * Discovered Feb 2026 via network interception with service workers blocked.
  */
 
-import { readFileSync, statSync, existsSync } from 'fs';
+import { readFileSync, statSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { basename, extname, join } from 'path';
+import { randomUUID } from 'crypto';
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
 
@@ -358,6 +359,9 @@ export class MediaUploadClient {
   async uploadImage(filePath: string, altText?: string): Promise<MediaUploadResult> {
     await this.ensureAuthorized();
 
+    // Normalize Unicode (macOS uses NFD for filenames, e.g. non-breaking spaces)
+    filePath = filePath.normalize('NFC').replace(/[\u00a0\u2007\u202f]/g, ' ');
+
     // Validate file
     const ext = extname(filePath).toLowerCase();
     if (!ACCEPTED_EXTENSIONS.has(ext)) {
@@ -415,6 +419,72 @@ export class MediaUploadClient {
 
     // Poll for completion
     return this.pollUploadStatus(uploadResult.jobId);
+  }
+
+  /**
+   * Download an image from a URL and upload it to the Squarespace media library.
+   * Supports http/https URLs. Downloads to a temp file, uploads, then cleans up.
+   *
+   * @param url The image URL to download and upload
+   * @param altText Optional alt text for the image
+   */
+  async uploadImageFromUrl(url: string, altText?: string): Promise<MediaUploadResult> {
+    // Infer extension from URL path (strip query string)
+    const urlPath = new URL(url).pathname;
+    let ext = extname(urlPath).toLowerCase();
+    if (!ext || !ACCEPTED_EXTENSIONS.has(ext)) {
+      ext = '.jpg'; // default — Squarespace infers from content anyway
+    }
+
+    logger.info({ url, inferredExt: ext }, 'Downloading image from URL for upload');
+
+    const response = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT },
+      redirect: 'follow',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to download image from ${url}: ${response.status} ${response.statusText}`);
+    }
+
+    const contentType = response.headers.get('content-type') ?? '';
+    // Override extension from content-type if we got a valid image type
+    const ctExtMap: Record<string, string> = {
+      'image/jpeg': '.jpg',
+      'image/png': '.png',
+      'image/gif': '.gif',
+      'image/webp': '.webp',
+    };
+    for (const [ct, ctExt] of Object.entries(ctExtMap)) {
+      if (contentType.includes(ct)) {
+        ext = ctExt;
+        break;
+      }
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.length === 0) {
+      throw new Error('Downloaded image is empty');
+    }
+    if (buffer.length > MAX_IMAGE_SIZE) {
+      throw new Error(`Downloaded image too large: ${(buffer.length / 1024 / 1024).toFixed(1)}MB (max 20MB)`);
+    }
+
+    // Write to temp file
+    const tmpDir = join(process.cwd(), 'storage', 'uploads');
+    mkdirSync(tmpDir, { recursive: true });
+    const tmpFile = join(tmpDir, `url-download-${randomUUID()}${ext}`);
+    writeFileSync(tmpFile, buffer);
+
+    try {
+      return await this.uploadImage(tmpFile, altText);
+    } finally {
+      // Clean up temp file
+      try {
+        const { unlinkSync } = await import('fs');
+        unlinkSync(tmpFile);
+      } catch { /* ignore cleanup errors */ }
+    }
   }
 
   /**

@@ -25,18 +25,33 @@ export function registerCommerceTools(server: McpServer) {
   server.registerTool('sq_create_store_page', {
     description:
       'Create a new store page on a Squarespace site and add it to navigation. ' +
+      'Optionally set a custom title and URL slug (otherwise defaults to "Store"). ' +
       'Returns the store collection ID and URL slug.',
     inputSchema: {
       siteId: z.string().describe('Site identifier (id, name, alias, or subdomain)'),
+      title: z.string().optional().describe('Store page title (e.g. "Merch"). Defaults to auto-generated name.'),
+      slug: z.string().optional().describe('Custom URL slug (e.g. "store", "merch"). Defaults to auto-generated.'),
       navPlacement: z.enum(['mainNav', '_hidden']).optional().describe('Where to place in navigation (default: mainNav)'),
     },
-  }, async ({ siteId, navPlacement }) => {
+  }, async ({ siteId, title, slug, navPlacement }) => {
     try {
       const client = getClient(siteId);
       const result = await client.createStorePage(navPlacement ?? 'mainNav');
       if (!result.success) {
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], isError: true };
       }
+
+      // Rename store page if title or slug provided
+      if ((title || slug) && result.data) {
+        const metaUpdates: Record<string, unknown> = {};
+        if (title) metaUpdates.title = title;
+        if (slug) metaUpdates.urlId = slug;
+        const renameResult = await client.updatePageMetadata(result.data.id, metaUpdates as any);
+        if (renameResult.success) {
+          if (title) result.data.urlId = slug ?? result.data.urlId;
+        }
+      }
+
       return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
     } catch (error) {
       return { content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
@@ -58,6 +73,7 @@ export function registerCommerceTools(server: McpServer) {
       productType: z.number().optional().describe('Product type: 1=PHYSICAL (default), 2=DIGITAL, 3=SERVICE, 4=GIFT_CARD'),
       imageAssetId: z.string().optional().describe('Asset ID from sq_upload_image to attach as product image and thumbnail'),
       visible: z.boolean().optional().describe('Make product visible immediately (default: true)'),
+      slug: z.string().optional().describe('Custom URL slug (e.g. "white-hat"). Auto-generated from name if omitted.'),
       tags: z.array(z.string()).optional().describe('Product tags'),
       categories: z.array(z.string()).optional().describe('Product categories'),
       variants: z.array(z.object({
@@ -67,7 +83,7 @@ export function registerCommerceTools(server: McpServer) {
         unlimited: z.boolean().optional().describe('Unlimited stock (default: true)'),
       })).optional().describe('Custom variants — if provided, the default variant is replaced'),
     },
-  }, async ({ siteId, collectionId, name, price, description, productType, imageAssetId, visible, tags, categories, variants }) => {
+  }, async ({ siteId, collectionId, name, price, description, productType, imageAssetId, visible, slug, tags, categories, variants }) => {
     try {
       const client = getClient(siteId);
 
@@ -93,6 +109,7 @@ export function registerCommerceTools(server: McpServer) {
         tags: tags ?? [],
         categories: categories ?? [],
       };
+      if (slug) update.urlId = slug;
 
       if (variants && variants.length > 0) {
         // Multi-variant: delete default, create new variants
@@ -137,13 +154,14 @@ export function registerCommerceTools(server: McpServer) {
   // ── sq_update_product ────────────────────────────────────────────────────────
   server.registerTool('sq_update_product', {
     description:
-      'Update an existing product. Can change name, description, visibility, tags, and variants. ' +
+      'Update an existing product. Can change name, description, slug, visibility, tags, and variants. ' +
       'For variant price changes, pass updatedVariants with variant ID, SKU, and new price.',
     inputSchema: {
       siteId: z.string().describe('Site identifier (id, name, alias, or subdomain)'),
       productId: z.string().describe('Product ID to update'),
       name: z.string().optional().describe('New product name'),
       description: z.string().optional().describe('New product description (HTML supported)'),
+      slug: z.string().optional().describe('Custom URL slug (e.g. "white-hat")'),
       visible: z.boolean().optional().describe('Product visibility'),
       tags: z.array(z.string()).optional().describe('Product tags (replaces existing)'),
       categories: z.array(z.string()).optional().describe('Product categories (replaces existing)'),
@@ -159,13 +177,14 @@ export function registerCommerceTools(server: McpServer) {
       })).optional().describe('New variants to add'),
       deletedVariants: z.array(z.string()).optional().describe('Variant IDs to delete'),
     },
-  }, async ({ siteId, productId, name, description, visible, tags, categories, updatedVariants, createdVariants, deletedVariants }) => {
+  }, async ({ siteId, productId, name, description, slug, visible, tags, categories, updatedVariants, createdVariants, deletedVariants }) => {
     try {
       const client = getClient(siteId);
       const update: UpdateProductRequest = {};
 
       if (name !== undefined) update.name = name;
       if (description !== undefined) update.description = description;
+      if (slug !== undefined) update.urlId = slug;
       if (visible !== undefined) update.visibility = { state: visible ? 'VISIBLE' : 'HIDDEN' };
       if (tags !== undefined) update.tags = tags;
       if (categories !== undefined) update.categories = categories;

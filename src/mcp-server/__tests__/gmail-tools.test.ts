@@ -2,14 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mock service dependencies ────────────────────────────────────────────────
 
-const mockFetchNewMessages = vi.fn();
 const mockFetchMessage = vi.fn();
 const mockDownloadAttachment = vi.fn();
+const mockListInboxMessages = vi.fn();
+const mockResolveAttachment = vi.fn();
 
 vi.mock('../../services/gmail.js', () => ({
-  fetchNewMessages: (...args: any[]) => mockFetchNewMessages(...args),
   fetchMessage: (...args: any[]) => mockFetchMessage(...args),
   downloadAttachment: (...args: any[]) => mockDownloadAttachment(...args),
+  listInboxMessages: (...args: any[]) => mockListInboxMessages(...args),
+  resolveAttachment: (...args: any[]) => mockResolveAttachment(...args),
 }));
 
 const mockProcessEmail = vi.fn();
@@ -72,7 +74,8 @@ describe('Gmail Tools', () => {
     registerGmailTools(server as any);
   });
 
-  it('should register all 6 gmail tools', () => {
+  it('should register all 7 gmail tools', () => {
+    expect(server.tools.has('sq_setup_gmail')).toBe(true);
     expect(server.tools.has('sq_list_emails')).toBe(true);
     expect(server.tools.has('sq_read_email')).toBe(true);
     expect(server.tools.has('sq_process_email')).toBe(true);
@@ -84,29 +87,20 @@ describe('Gmail Tools', () => {
   // ── sq_list_emails ────────────────────────────────────────────────────────
 
   describe('sq_list_emails', () => {
-    it('should list emails with summary fields only', async () => {
-      mockFetchNewMessages.mockResolvedValue([
+    it('should list inbox emails with summaries', async () => {
+      mockListInboxMessages.mockResolvedValue([
         {
           id: 'msg-1',
           threadId: 'thread-1',
           from: 'client@example.com',
-          fromName: 'Jane Client',
-          subject: 'Update our menu please',
+          fromName: 'Client',
+          subject: 'New dinner menu',
           date: '2026-03-04T10:00:00Z',
-          bodyText: 'Please update the drinks section...',
-          bodyHtml: '<p>Please update the drinks section...</p>',
-          attachments: [{ filename: 'menu.pdf', attachmentId: 'att-1' }],
-        },
-        {
-          id: 'msg-2',
-          threadId: 'thread-2',
-          from: 'other@example.com',
-          fromName: 'Bob Other',
-          subject: 'New photos',
-          date: '2026-03-04T09:00:00Z',
-          bodyText: 'Here are the photos',
-          bodyHtml: '<p>Here are the photos</p>',
-          attachments: [],
+          bodyText: 'Here is the updated menu',
+          bodyHtml: '',
+          attachments: [
+            { filename: 'dinner.pdf', mimeType: 'application/pdf', size: 12345, attachmentId: 'att-1', messageId: 'msg-1' },
+          ],
         },
       ]);
 
@@ -114,40 +108,36 @@ describe('Gmail Tools', () => {
 
       expect(result.isError).toBeUndefined();
       const data = JSON.parse(result.content[0].text);
-      expect(data).toHaveLength(2);
+      expect(data).toHaveLength(1);
       expect(data[0].id).toBe('msg-1');
-      expect(data[0].subject).toBe('Update our menu please');
+      expect(data[0].subject).toBe('New dinner menu');
       expect(data[0].attachmentCount).toBe(1);
-      // Body should NOT be included
+      expect(data[0].attachments[0].filename).toBe('dinner.pdf');
+      // Should not include body text in list view
       expect(data[0].bodyText).toBeUndefined();
-      expect(data[0].bodyHtml).toBeUndefined();
+      expect(mockListInboxMessages).toHaveBeenCalledWith({ query: undefined, maxResults: undefined });
     });
 
-    it('should respect limit parameter', async () => {
-      mockFetchNewMessages.mockResolvedValue([
-        { id: 'msg-1', threadId: 't1', from: 'a@b.com', subject: 'A', date: '2026-03-04', attachments: [] },
-        { id: 'msg-2', threadId: 't2', from: 'c@d.com', subject: 'B', date: '2026-03-04', attachments: [] },
-        { id: 'msg-3', threadId: 't3', from: 'e@f.com', subject: 'C', date: '2026-03-04', attachments: [] },
-      ]);
+    it('should pass query and limit params', async () => {
+      mockListInboxMessages.mockResolvedValue([]);
 
-      const result = await server.callTool('sq_list_emails', { limit: 2 });
+      await server.callTool('sq_list_emails', { query: 'from:chef@restaurant.com', limit: 5 });
 
-      const data = JSON.parse(result.content[0].text);
-      expect(data).toHaveLength(2);
+      expect(mockListInboxMessages).toHaveBeenCalledWith({ query: 'from:chef@restaurant.com', maxResults: 5 });
     });
 
     it('should return empty array when no messages', async () => {
-      mockFetchNewMessages.mockResolvedValue([]);
+      mockListInboxMessages.mockResolvedValue([]);
 
       const result = await server.callTool('sq_list_emails', {});
 
       expect(result.isError).toBeUndefined();
       const data = JSON.parse(result.content[0].text);
-      expect(data).toHaveLength(0);
+      expect(data).toEqual([]);
     });
 
-    it('should return error on thrown exception', async () => {
-      mockFetchNewMessages.mockRejectedValue(new Error('Gmail API not configured'));
+    it('should return error on failure', async () => {
+      mockListInboxMessages.mockRejectedValue(new Error('Gmail API not configured'));
 
       const result = await server.callTool('sq_list_emails', {});
 
@@ -159,17 +149,19 @@ describe('Gmail Tools', () => {
   // ── sq_read_email ─────────────────────────────────────────────────────────
 
   describe('sq_read_email', () => {
-    it('should return full email content', async () => {
+    it('should return full email with attachmentIds', async () => {
       mockFetchMessage.mockResolvedValue({
         id: 'msg-1',
         threadId: 'thread-1',
         from: 'client@example.com',
-        fromName: 'Jane',
+        fromName: 'Client',
         subject: 'Menu update',
         date: '2026-03-04T10:00:00Z',
-        bodyText: 'Please update the menu',
-        bodyHtml: '<p>Please update the menu</p>',
-        attachments: [{ filename: 'menu.pdf', attachmentId: 'att-1', mimeType: 'application/pdf', size: 12345, messageId: 'msg-1' }],
+        bodyText: 'Please update the dinner menu',
+        bodyHtml: '<p>Please update the dinner menu</p>',
+        attachments: [
+          { filename: 'dinner.pdf', mimeType: 'application/pdf', size: 12345, attachmentId: 'ANGjdJ-real-token', messageId: 'msg-1' },
+        ],
       });
 
       const result = await server.callTool('sq_read_email', { messageId: 'msg-1' });
@@ -177,27 +169,27 @@ describe('Gmail Tools', () => {
       expect(result.isError).toBeUndefined();
       const data = JSON.parse(result.content[0].text);
       expect(data.id).toBe('msg-1');
-      expect(data.bodyText).toBe('Please update the menu');
-      expect(data.attachments).toHaveLength(1);
-      expect(data.attachments[0].filename).toBe('menu.pdf');
+      expect(data.bodyText).toBe('Please update the dinner menu');
+      expect(data.attachments[0].attachmentId).toBe('ANGjdJ-real-token');
+      expect(mockFetchMessage).toHaveBeenCalledWith('msg-1');
     });
 
     it('should return error when message not found', async () => {
       mockFetchMessage.mockResolvedValue(null);
 
-      const result = await server.callTool('sq_read_email', { messageId: 'nonexistent' });
+      const result = await server.callTool('sq_read_email', { messageId: 'bad-id' });
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Email with messageId nonexistent not found');
+      expect(result.content[0].text).toContain('Email with messageId bad-id not found');
     });
 
-    it('should return error on thrown exception', async () => {
-      mockFetchMessage.mockRejectedValue(new Error('Auth expired'));
+    it('should return error on API failure', async () => {
+      mockFetchMessage.mockRejectedValue(new Error('Token expired'));
 
       const result = await server.callTool('sq_read_email', { messageId: 'msg-1' });
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Auth expired');
+      expect(result.content[0].text).toContain('Token expired');
     });
   });
 
@@ -257,7 +249,7 @@ describe('Gmail Tools', () => {
   // ── sq_download_attachment ────────────────────────────────────────────────
 
   describe('sq_download_attachment', () => {
-    it('should download attachment and return file path', async () => {
+    it('should download attachment with explicit attachmentId', async () => {
       mockDownloadAttachment.mockResolvedValue('/storage/uploads/menu.pdf');
 
       const result = await server.callTool('sq_download_attachment', {
@@ -271,6 +263,42 @@ describe('Gmail Tools', () => {
       expect(data.filePath).toBe('/storage/uploads/menu.pdf');
       expect(data.filename).toBe('menu.pdf');
       expect(mockDownloadAttachment).toHaveBeenCalledWith('msg-1', 'att-1', 'menu.pdf');
+      expect(mockResolveAttachment).not.toHaveBeenCalled();
+    });
+
+    it('should resolve attachmentId by filename when not provided', async () => {
+      mockResolveAttachment.mockResolvedValue({
+        filename: 'dinner.pdf',
+        attachmentId: 'resolved-att-id',
+        mimeType: 'application/pdf',
+        size: 12345,
+        messageId: 'msg-1',
+      });
+      mockDownloadAttachment.mockResolvedValue('/storage/uploads/dinner.pdf');
+
+      const result = await server.callTool('sq_download_attachment', {
+        messageId: 'msg-1',
+        filename: 'dinner.pdf',
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockResolveAttachment).toHaveBeenCalledWith('msg-1', 'dinner.pdf');
+      expect(mockDownloadAttachment).toHaveBeenCalledWith('msg-1', 'resolved-att-id', 'dinner.pdf');
+    });
+
+    it('should return error when attachment not found by filename', async () => {
+      mockResolveAttachment.mockRejectedValue(
+        new Error('No attachment named "missing.pdf" in message. Available: menu.pdf'),
+      );
+
+      const result = await server.callTool('sq_download_attachment', {
+        messageId: 'msg-1',
+        filename: 'missing.pdf',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('No attachment named "missing.pdf"');
+      expect(result.content[0].text).toContain('Available: menu.pdf');
     });
 
     it('should return error on download failure', async () => {
@@ -345,6 +373,30 @@ describe('Gmail Tools', () => {
       expect(data.menus).toHaveLength(1);
       expect(data.menus[0].title).toBe('Drinks');
       expect(data.numPages).toBe(2);
+    });
+
+    it('should resolve attachmentId by filename when not provided', async () => {
+      mockResolveAttachment.mockResolvedValue({
+        filename: 'menu.pdf',
+        attachmentId: 'resolved-att-id',
+        mimeType: 'application/pdf',
+        size: 12345,
+        messageId: 'msg-1',
+      });
+      mockDownloadAttachment.mockResolvedValue('/storage/uploads/menu.pdf');
+      mockExtractPdfText.mockResolvedValue({ text: 'Lunch\n========\nSalads\n-------\nCaesar $14', numPages: 1 });
+      mockParseMenuText.mockReturnValue([
+        { title: 'Lunch', sections: [{ title: 'Salads', items: [{ title: 'Caesar', price: '$14' }] }] },
+      ]);
+
+      const result = await server.callTool('sq_parse_pdf_menu', {
+        messageId: 'msg-1',
+        filename: 'menu.pdf',
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockResolveAttachment).toHaveBeenCalledWith('msg-1', 'menu.pdf');
+      expect(mockDownloadAttachment).toHaveBeenCalledWith('msg-1', 'resolved-att-id', 'menu.pdf');
     });
 
     it('should return raw text when parsing finds no menus', async () => {

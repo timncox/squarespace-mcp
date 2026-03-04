@@ -43,10 +43,10 @@ export function registerTextTools(server: McpServer) {
           sectionTheme: section.styles?.sectionTheme ?? null,
           blocks: blocks.map((block: any, bIdx: number) => {
             const value = block.content?.value?.value ?? block.content?.value ?? {};
-            const blockType = block.content?.type ?? null;
+            const blockType = block.content?.value?.type ?? null;
             const result: Record<string, any> = {
               blockIndex: bIdx,
-              blockId: block.content?.id ?? null,
+              blockId: block.content?.value?.id ?? null,
               type: blockType,
             };
 

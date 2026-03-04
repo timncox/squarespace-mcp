@@ -20,7 +20,7 @@ All task execution routes through a 6-stage autonomous agent pipeline:
 2. **Research Agent** — Web search (Brave API) + URL visits for context
 3. **Site Analyst** — Screenshots the target page, analyzes layout/style/brand
 4. **Content Strategist** — Drafts a structured ContentPlan with exact copy, placement, and operations
-5. **Executor** — Autonomous Claude CLI agent with ~62 MCP tools wrapping the Content Save API
+5. **Executor** — Autonomous Claude CLI agent with ~65 MCP tools wrapping the Content Save API
 6. **Supervisor** — Per-operation verification with structured verdict, retries on failure
 
 ## Setup
@@ -78,13 +78,25 @@ npm run test         # Run test suite (~1527 tests)
 
 ### MCP Server
 
-The MCP server exposes ~62 tools for editing Squarespace sites. It can be used standalone with Claude Desktop or any MCP-compatible client:
+The MCP server exposes ~65 tools for editing Squarespace sites. It can be used standalone with Claude Desktop or any MCP-compatible client.
 
-```bash
-npx tsc --noCheck    # Must compile before use
+**Claude Desktop setup** — add to `claude_desktop_config.json`:
+
+```json
+{
+  "squarespace": {
+    "command": "/usr/local/bin/npx",
+    "args": ["tsx", "/path/to/squarespace helper/src/mcp-server/index.ts"],
+    "env": {
+      "SESSION_DIR": "/path/to/squarespace helper/storage/auth",
+      "SITES_CONFIG": "/path/to/squarespace helper/config/sites.json",
+      "DB_PATH": "/path/to/squarespace helper/data/sqhelper.db"
+    }
+  }
+}
 ```
 
-Configure in Claude Desktop's `claude_desktop_config.json` pointing to `dist/src/mcp-server/index.js`.
+Using `tsx` runs TypeScript source directly — no compile step needed, changes are picked up on next conversation.
 
 ### Dashboard
 
@@ -127,7 +139,7 @@ src/
   config/                        # Model IDs, section templates
   db/                            # SQLite schema + migrations + CRUD
   routes/                        # Fastify routes (dashboard, webhooks, health)
-  mcp-server/                    # MCP server — ~62 tools across 13 modules
+  mcp-server/                    # MCP server — ~65 tools across 13 modules
     tools/                       # Tool modules (text, section, blocks, pages, site,
                                  #   content, screenshot, web-search, forms,
                                  #   divider, links, gmail, commerce)
@@ -142,7 +154,7 @@ src/
     page-id-resolver.ts          # Slug → page IDs with SQLite cache
     menu-parser.ts               # Menu text ↔ structured JSON
     menu-merger.ts               # Menu merge (LLM + deterministic)
-    media-upload.ts              # Image upload to Squarespace
+    media-upload.ts              # Image upload (local paths + URLs)
     gmail.ts                     # Gmail API integration
     whatsapp.ts                  # WhatsApp Cloud API
     conversation/                # Conversation sub-modules
@@ -168,7 +180,7 @@ The API client (`ContentSaveClient` in `src/services/content-save.ts`) provides 
 |----------|-------|---------|
 | Text | 3 | update, patch, add text blocks |
 | Sections | 7 | add blank/template, move, duplicate, edit style, dividers |
-| Blocks | 6 | add button/image/video/embed/code, move, resize, swap, remove, duplicate |
+| Blocks | 7 | add button/image/video/embed/code, move, resize, swap, remove, duplicate |
 | Pages | 4 | create, delete, update metadata, read page |
 | Blog | 4 | create/update/list/find blog posts |
 | Gallery | 3 | list/remove/reorder gallery images |
@@ -178,7 +190,8 @@ The API client (`ContentSaveClient` in `src/services/content-save.ts`) provides 
 | Screenshot | 1 | take page screenshot |
 | Web Search | 2 | search (Brave API), fetch URL |
 | Gmail | 6 | list/read emails, process, download attachments, parse PDF menus |
-| Commerce | 8 | products CRUD, images, store pages |
+| Images | 2 | upload single (path or URL), upload batch (parallel) |
+| Commerce | 8 | products CRUD with slug/variant control, images, store pages with title/slug |
 | Auth | 2 | login check, save session |
 
 ### Grid System
@@ -188,7 +201,16 @@ The API client (`ContentSaveClient` in `src/services/content-save.ts`) provides 
 
 ### Commerce API
 
-Separate REST API from Content Save — uses Bearer token auth with manually generated API keys. Supports product CRUD, image management, and store page creation via internal API.
+Internal REST API using session cookie auth (same as Content Save). Supports:
+
+- **Store pages** — create with custom title and URL slug
+- **Products** — full CRUD with custom URL slugs, HTML descriptions, tags, categories
+- **Variants** — create/update/delete with attributes (Size, Color, etc.) and per-variant pricing
+- **Images** — attach uploaded images to products, set thumbnails
+
+### Image Upload
+
+`sq_upload_image` accepts local file paths or HTTP/HTTPS URLs (auto-downloads and uploads). `sq_upload_images` uploads multiple images in parallel. Unicode path normalization handles macOS filenames with non-breaking spaces.
 
 ## Testing
 

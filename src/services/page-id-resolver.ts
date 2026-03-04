@@ -162,13 +162,19 @@ export async function resolvePageIds(
     return { pageSectionsId: cached.pageSectionsId, collectionId: cached.collectionId };
   }
 
-  // Step 2: Get collectionId via API
+  // Step 2: Get collectionId + pageSectionsId via API
+  // Uses GetCollections → GetCollectionSettings (same flow as the Squarespace editor)
   let collectionId: string | null = null;
+  let pageSectionsId: string | null = null;
   try {
     const client = createContentSaveClient(subdomain);
     const ids = await client.getPageIds(normalizedSlug === 'home' ? '' : normalizedSlug);
     if (ids) {
       collectionId = ids.collectionId;
+      pageSectionsId = ids.pageSectionsId ?? null;
+      if (pageSectionsId) {
+        logger.info({ subdomain, slug: normalizedSlug }, 'Resolved pageSectionsId via GetCollectionSettings API');
+      }
     }
   } catch (err) {
     logger.warn({ error: errMsg(err), subdomain, slug: normalizedSlug }, 'getPageIds failed');
@@ -179,10 +185,29 @@ export async function resolvePageIds(
     return null;
   }
 
-  // Step 3: Get pageSectionsId from public HTML
-  let pageSectionsId = await fetchPageSectionsIdFromHtml(subdomain, normalizedSlug);
+  // Step 3: Fallback — get pageSectionsId from public HTML
+  if (!pageSectionsId) {
+    pageSectionsId = await fetchPageSectionsIdFromHtml(subdomain, normalizedSlug);
+  }
 
-  // Step 4: Fallback to headless browser
+  // Step 3b: Fallback — authenticated HTML fetch (handles hidden/protected pages)
+  if (!pageSectionsId) {
+    try {
+      const client = createContentSaveClient(subdomain);
+      const html = await client.fetchAuthenticatedPageHtml(normalizedSlug);
+      if (html) {
+        const match = html.match(/data-page-sections="([^"]+)"/);
+        pageSectionsId = match?.[1] ?? null;
+        if (pageSectionsId) {
+          logger.info({ subdomain, slug: normalizedSlug }, 'Resolved pageSectionsId via authenticated fetch');
+        }
+      }
+    } catch (err) {
+      logger.debug({ error: errMsg(err), subdomain, slug: normalizedSlug }, 'Authenticated HTML fetch failed');
+    }
+  }
+
+  // Step 4: Last resort — headless browser
   if (!pageSectionsId) {
     logger.info({ subdomain, slug: normalizedSlug }, 'Trying browser fallback for pageSectionsId');
     pageSectionsId = await fetchPageSectionsIdFromBrowser(subdomain, normalizedSlug);

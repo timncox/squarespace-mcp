@@ -1,10 +1,14 @@
 import { google, gmail_v1 } from 'googleapis';
 import { existsSync, writeFileSync, mkdirSync } from 'fs';
 import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { logger } from '../utils/logger.js';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = join(__dirname, '..', '..');
+
 const SCOPES = ['https://www.googleapis.com/auth/gmail.readonly'];
-const TOKEN_PATH = join(process.cwd(), 'storage', 'auth', 'gmail-token.json');
+const TOKEN_PATH = join(PROJECT_ROOT, 'storage', 'auth', 'gmail-token.json');
 
 export interface GmailMessage {
   id: string;
@@ -29,6 +33,14 @@ export interface GmailAttachment {
 let gmailClient: gmail_v1.Gmail | null = null;
 
 /**
+ * Reset the cached Gmail client. Call after updating credentials
+ * so the next getGmailClient() picks up new env vars.
+ */
+export function resetClient(): void {
+  gmailClient = null;
+}
+
+/**
  * Initialize the Gmail API client with OAuth2 credentials.
  * Requires GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in .env.
  */
@@ -41,8 +53,8 @@ export function getGmailClient(): gmail_v1.Gmail {
 
   if (!clientId || !clientSecret || !refreshToken) {
     throw new Error(
-      'Gmail API not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in .env. ' +
-      'Run "npx tsx scripts/setup-gmail.ts" to complete OAuth setup.',
+      'Gmail API not configured. Use the sq_setup_gmail tool to connect your Gmail account, ' +
+      'or set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, and GMAIL_REFRESH_TOKEN in .env.',
     );
   }
 
@@ -96,6 +108,67 @@ export async function fetchNewMessages(afterDate?: Date): Promise<GmailMessage[]
   }
 
   return messages;
+}
+
+/**
+ * List inbox messages with flexible query support.
+ * Used by MCP tools for browsing the inbox.
+ */
+export async function listInboxMessages(options?: {
+  query?: string;
+  maxResults?: number;
+}): Promise<GmailMessage[]> {
+  const gmail = getGmailClient();
+  const query = options?.query ?? 'in:inbox';
+  const maxResults = options?.maxResults ?? 10;
+
+  logger.info({ query, maxResults }, 'Listing inbox messages');
+
+  const listResponse = await gmail.users.messages.list({
+    userId: 'me',
+    q: query,
+    maxResults,
+  });
+
+  const messageIds = listResponse.data.messages ?? [];
+  if (messageIds.length === 0) return [];
+
+  const messages: GmailMessage[] = [];
+  for (const msg of messageIds) {
+    if (!msg.id) continue;
+    try {
+      const fullMessage = await fetchMessage(msg.id);
+      if (fullMessage) messages.push(fullMessage);
+    } catch (err) {
+      logger.error({ messageId: msg.id, error: err }, 'Failed to fetch message');
+    }
+  }
+
+  return messages;
+}
+
+/**
+ * Resolve an attachment by filename from a message.
+ * Fetches the message and finds the matching attachment.
+ */
+export async function resolveAttachment(
+  messageId: string,
+  filename: string,
+): Promise<GmailAttachment> {
+  const message = await fetchMessage(messageId);
+  if (!message) throw new Error(`Email with messageId ${messageId} not found`);
+
+  const match = message.attachments.find(
+    (a) => a.filename.toLowerCase() === filename.toLowerCase(),
+  );
+  if (!match) {
+    const available = message.attachments.map((a) => a.filename).join(', ');
+    throw new Error(
+      `No attachment named "${filename}" in message. Available: ${available || 'none'}`,
+    );
+  }
+
+  return match;
 }
 
 /**
@@ -166,8 +239,8 @@ export async function downloadAttachment(
   // Decode base64url-encoded data
   const buffer = Buffer.from(data, 'base64url');
 
-  // Save to uploads directory
-  const uploadsDir = join(process.cwd(), 'storage', 'uploads');
+  // Save to uploads directory (use PROJECT_ROOT, not cwd — cwd is / in Claude Desktop)
+  const uploadsDir = join(PROJECT_ROOT, 'storage', 'uploads');
   if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true });
 
   // Add timestamp to filename to avoid collisions
