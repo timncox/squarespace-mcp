@@ -98,6 +98,7 @@ export type {
   SocialLinksBlockUpdateResult,
   EmbedBlockAddResult,
   EmbedBlockUpdateResult,
+  MenuBlockAddResult,
   MobileVisibilityResult,
   MobileLayoutSetResult,
   MobileMoveResult,
@@ -6213,6 +6214,155 @@ export class ContentSaveClient {
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, hasHtml: !!html, position: { startX, startY, endX, endY } },
         'Adding embed block via Content Save API',
+      );
+
+      // Step 6: PUT the modified sections
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionIndex, sectionId: section.id };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Add a new menu block (type 18) to a section.
+   * If menuText is provided, parses it via parseMenuText() into structured menus.
+   * Otherwise creates an empty menu with one blank tab/section.
+   */
+  async addMenuBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    menuText?: string,
+    options?: {
+      menuStyle?: string;
+      currencySymbol?: string;
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    },
+  ): Promise<MenuBlockAddResult> {
+    try {
+      // Step 1: GET current sections
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      // Step 2: Validate section index
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Step 3: Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      const rowHeight = options?.rowHeight ?? 6;
+      const gapRows = options?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (options?.startX != null && options?.endX != null) {
+        startX = Math.max(1, options.startX);
+        endX = Math.min(maxColumns + 1, options.endX);
+      } else {
+        const cols = options?.columns ?? 12;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (options?.startY != null && options?.endY != null) {
+        startY = Math.max(0, options.startY);
+        endY = options.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      // Step 4: Generate block ID and build menu content
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      // Parse menu text or create empty default
+      let menus: any[];
+      let raw: string;
+      if (menuText) {
+        const { parseMenuText } = await import('./menu-parser.js');
+        menus = parseMenuText(menuText);
+        raw = menuText;
+      } else {
+        menus = [{ title: null, description: null, sections: [{ title: null, description: null, items: [] }] }];
+        raw = '';
+      }
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: {
+          value: {
+            id: blockId,
+            type: BLOCK_TYPE_MENU,
+            value: {
+              raw,
+              menus,
+              menuStyle: options?.menuStyle ?? 'classic',
+              currencySymbol: options?.currencySymbol ?? '$',
+            },
+          },
+        },
+      };
+
+      // Step 5: Push to gridContents
+      gridContents.push(newBlock);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, hasMenuText: !!menuText, position: { startX, startY, endX, endY } },
+        'Adding menu block via Content Save API',
       );
 
       // Step 6: PUT the modified sections
