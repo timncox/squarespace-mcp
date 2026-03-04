@@ -26,6 +26,11 @@ vi.mock('fs', () => ({
 
 vi.mock('../menu-parser.js', () => ({
   serializeMenu: vi.fn((menus: any[]) => menus.map((t: any) => t.title).join('\n')),
+  parseMenuText: vi.fn((text: string) => {
+    // Simple mock: split by ========, return as tabs
+    const tabs = text.split(/\n={3,}\n?/).filter(Boolean);
+    return tabs.map(t => ({ title: t.trim().split('\n')[0], description: null, sections: [{ title: null, description: null, items: [] }] }));
+  }),
 }));
 
 // ── Sample data helpers ──────────────────────────────────────────────────
@@ -569,6 +574,131 @@ describe('ContentSaveClient — Menu Block Methods', () => {
       expect(result.error).toContain('Connection refused');
 
       fetchSpy.mockRestore();
+    });
+  });
+
+  describe('addMenuBlock', () => {
+    it('adds an empty menu block when no menuText provided', async () => {
+      const sections = makeSections(makeTextBlock('txt-1', '<p>Hello</p>'));
+      const fetchSpy = vi.spyOn(client as any, 'fetchWithSession')
+        .mockResolvedValueOnce({ ok: true, json: async () => makePageSectionsData(sections) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'saved' }) });
+
+      const result = await client.addMenuBlock('ps-1', 'col-1', 0);
+
+      expect(result.success).toBe(true);
+      expect(result.blockId).toBeDefined();
+      expect(result.sectionIndex).toBe(0);
+
+      // Verify the PUT body
+      const putCall = fetchSpy.mock.calls[1];
+      const putBody = JSON.parse(putCall[1].body);
+      const addedBlock = putBody.sections[0].fluidEngineContext.gridContents[1];
+      expect(addedBlock.content.value.type).toBe(18);
+      expect(addedBlock.content.value.value.menuStyle).toBe('classic');
+      expect(addedBlock.content.value.value.currencySymbol).toBe('$');
+      expect(addedBlock.content.value.value.menus).toEqual([{ title: null, description: null, sections: [{ title: null, description: null, items: [] }] }]);
+      expect(addedBlock.content.value.value.raw).toBe('');
+    });
+
+    it('adds a menu block with menuText parsed into structured menus', async () => {
+      const sections = makeSections();
+      const fetchSpy = vi.spyOn(client as any, 'fetchWithSession')
+        .mockResolvedValueOnce({ ok: true, json: async () => makePageSectionsData(sections) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'saved' }) });
+
+      const menuText = 'Lunch\n========\nStarters\n------\nSoup\n$10';
+      const result = await client.addMenuBlock('ps-1', 'col-1', 0, menuText);
+
+      expect(result.success).toBe(true);
+
+      const putCall = fetchSpy.mock.calls[1];
+      const putBody = JSON.parse(putCall[1].body);
+      const addedBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+      expect(addedBlock.content.value.type).toBe(18);
+      expect(addedBlock.content.value.value.raw).toBe(menuText);
+      // parseMenuText mock was called
+      const { parseMenuText } = await import('../menu-parser.js') as any;
+      expect(parseMenuText).toHaveBeenCalledWith(menuText);
+    });
+
+    it('uses custom menuStyle and currencySymbol', async () => {
+      const sections = makeSections();
+      const fetchSpy = vi.spyOn(client as any, 'fetchWithSession')
+        .mockResolvedValueOnce({ ok: true, json: async () => makePageSectionsData(sections) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'saved' }) });
+
+      const result = await client.addMenuBlock('ps-1', 'col-1', 0, undefined, {
+        menuStyle: 'modern',
+        currencySymbol: '£',
+      });
+
+      expect(result.success).toBe(true);
+      const putCall = fetchSpy.mock.calls[1];
+      const putBody = JSON.parse(putCall[1].body);
+      const addedBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+      expect(addedBlock.content.value.value.menuStyle).toBe('modern');
+      expect(addedBlock.content.value.value.currencySymbol).toBe('£');
+    });
+
+    it('returns error for out-of-range sectionIndex', async () => {
+      const sections = makeSections();
+      vi.spyOn(client as any, 'fetchWithSession')
+        .mockResolvedValueOnce({ ok: true, json: async () => makePageSectionsData(sections) });
+
+      const result = await client.addMenuBlock('ps-1', 'col-1', 5);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('out of range');
+    });
+
+    it('calculates grid position below existing blocks', async () => {
+      const existingBlock = makeTextBlock('txt-1', '<p>Hello</p>');
+      existingBlock.layout.desktop = { start: { x: 1, y: 0 }, end: { x: 13, y: 5 }, verticalAlignment: 'top', zIndex: 0 };
+      existingBlock.layout.mobile = { start: { x: 1, y: 0 }, end: { x: 9, y: 5 }, verticalAlignment: 'top', zIndex: 0 };
+      const sections = makeSections(existingBlock);
+      const fetchSpy = vi.spyOn(client as any, 'fetchWithSession')
+        .mockResolvedValueOnce({ ok: true, json: async () => makePageSectionsData(sections) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'saved' }) });
+
+      await client.addMenuBlock('ps-1', 'col-1', 0);
+
+      const putCall = fetchSpy.mock.calls[1];
+      const putBody = JSON.parse(putCall[1].body);
+      const addedBlock = putBody.sections[0].fluidEngineContext.gridContents[1];
+      // Should be below existing block (y=5) + gap (2) = 7
+      expect(addedBlock.layout.desktop.start.y).toBe(7);
+    });
+
+    it('respects custom layout options (columns, startX, endX)', async () => {
+      const sections = makeSections();
+      const fetchSpy = vi.spyOn(client as any, 'fetchWithSession')
+        .mockResolvedValueOnce({ ok: true, json: async () => makePageSectionsData(sections) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'saved' }) });
+
+      await client.addMenuBlock('ps-1', 'col-1', 0, undefined, {
+        startX: 5,
+        endX: 20,
+        rowHeight: 10,
+      });
+
+      const putCall = fetchSpy.mock.calls[1];
+      const putBody = JSON.parse(putCall[1].body);
+      const addedBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
+      expect(addedBlock.layout.desktop.start.x).toBe(5);
+      expect(addedBlock.layout.desktop.end.x).toBe(20);
+    });
+
+    it('returns error when save fails', async () => {
+      const sections = makeSections();
+      vi.spyOn(client as any, 'fetchWithSession')
+        .mockResolvedValueOnce({ ok: true, json: async () => makePageSectionsData(sections) })
+        .mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Server error' });
+
+      const result = await client.addMenuBlock('ps-1', 'col-1', 0);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBeDefined();
     });
   });
 });
