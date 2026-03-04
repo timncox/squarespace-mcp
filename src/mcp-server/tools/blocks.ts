@@ -11,6 +11,10 @@
  * sq_resize_block: Resize a block in the grid
  * sq_swap_blocks: Swap positions of two blocks
  * sq_duplicate_block: Duplicate a block
+ * sq_add_video: Add a video block (YouTube, Vimeo, etc.)
+ * sq_update_video: Update an existing video block
+ * sq_add_embed: Add a raw HTML embed block
+ * sq_update_embed: Update an existing embed block
  */
 
 import { z } from 'zod';
@@ -336,6 +340,172 @@ export function registerBlockTools(server: McpServer) {
       }
       const client = getClient(siteId);
       const result = await client.duplicateBlock(ids.pageSectionsId, ids.collectionId, searchText);
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_add_video ──────────────────────────────────────────────────────────
+  server.registerTool('sq_add_video', {
+    description:
+      'Add a video block (YouTube, Vimeo, etc.) to a section on a Squarespace page. Default: full-width (24 cols), 8 rows tall.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      sectionIndex: z.number().describe('0-based section index to add the video to'),
+      videoUrl: z.string().describe('Video URL (YouTube, Vimeo, etc.)'),
+      title: z.string().optional().describe('Optional video title'),
+      description: z.string().optional().describe('Optional video description'),
+      layout: z.object({
+        columns: z.number().optional().describe('Grid columns to span (default: 24)'),
+        offsetColumns: z.number().optional().describe('Push block right by N columns (e.g. 12 = right half)'),
+        rowHeight: z.number().optional().describe('Rows tall (default: 8)'),
+        startX: z.number().optional().describe('Absolute grid start X (overrides columns/offset)'),
+        endX: z.number().optional().describe('Absolute grid end X'),
+        startY: z.number().optional().describe('Absolute grid start Y'),
+        endY: z.number().optional().describe('Absolute grid end Y'),
+      }).optional().describe('Optional grid layout settings'),
+    },
+  }, async ({ siteId, pageSlug, sectionIndex, videoUrl, title, description, layout }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+
+      // Resolve offsetColumns to startX/endX
+      const resolvedLayout = layout ? { ...layout } : undefined;
+      if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
+        resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
+        resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 24);
+      }
+
+      const options: Record<string, any> = {};
+      if (title !== undefined) options.title = title;
+      if (description !== undefined) options.description = description;
+      if (resolvedLayout) options.layout = resolvedLayout;
+      const result = await client.addVideoBlock(ids.pageSectionsId, ids.collectionId, sectionIndex, videoUrl, Object.keys(options).length > 0 ? options : undefined);
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_update_video ───────────────────────────────────────────────────────
+  server.registerTool('sq_update_video', {
+    description:
+      'Update an existing video block on a Squarespace page. Finds the video by search text (matches URL, title, or description) and updates fields.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      searchText: z.string().describe('Text to find the video block (matches URL, title, or description)'),
+      videoUrl: z.string().optional().describe('New video URL'),
+      title: z.string().optional().describe('New video title'),
+      description: z.string().optional().describe('New video description'),
+    },
+  }, async ({ siteId, pageSlug, searchText, videoUrl, title, description }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+      const updates: Record<string, any> = {};
+      if (videoUrl !== undefined) updates.url = videoUrl;
+      if (title !== undefined) updates.title = title;
+      if (description !== undefined) updates.description = description;
+      const result = await client.updateVideoBlock(ids.pageSectionsId, ids.collectionId, searchText, updates);
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_add_embed ──────────────────────────────────────────────────────────
+  server.registerTool('sq_add_embed', {
+    description:
+      'Add a raw HTML embed block to a section on a Squarespace page. Use for iframes, Google Maps, Calendly, custom scripts, etc. Default: 12 cols wide, 6 rows tall.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      sectionIndex: z.number().describe('0-based section index to add the embed to'),
+      html: z.string().optional().describe('Raw HTML embed code (iframe, script, etc.) — blank placeholder if omitted'),
+      layout: z.object({
+        columns: z.number().optional().describe('Grid columns to span (default: 12)'),
+        offsetColumns: z.number().optional().describe('Push block right by N columns (e.g. 12 = right half)'),
+        rowHeight: z.number().optional().describe('Rows tall (default: 6)'),
+        startX: z.number().optional().describe('Absolute grid start X (overrides columns/offset)'),
+        endX: z.number().optional().describe('Absolute grid end X'),
+        startY: z.number().optional().describe('Absolute grid start Y'),
+        endY: z.number().optional().describe('Absolute grid end Y'),
+      }).optional().describe('Optional grid layout settings'),
+    },
+  }, async ({ siteId, pageSlug, sectionIndex, html, layout }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+
+      // Resolve offsetColumns to startX/endX
+      const resolvedLayout = layout ? { ...layout } : undefined;
+      if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
+        resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
+        resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 12);
+      }
+
+      const result = await client.addEmbedBlock(ids.pageSectionsId, ids.collectionId, sectionIndex, html, resolvedLayout);
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_update_embed ───────────────────────────────────────────────────────
+  server.registerTool('sq_update_embed', {
+    description:
+      'Update the HTML content of an existing embed block on a Squarespace page. Finds the block by ID prefix or content match.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      searchText: z.string().describe('Block ID prefix or content text to find the embed block'),
+      html: z.string().describe('New HTML embed code'),
+    },
+  }, async ({ siteId, pageSlug, searchText, html }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+      const result = await client.updateEmbedBlock(ids.pageSectionsId, ids.collectionId, searchText, html);
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
