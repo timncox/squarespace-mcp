@@ -114,6 +114,7 @@ describe('MCP session management', () => {
         aliases: ['Smyth', 'smyth tavern', "Smyth's"],
         adminUrl: 'https://grey-yellow-hbxc.squarespace.com/config/website',
         customDomain: 'https://smythtavern.com',
+        hasCommerceApi: false,
       });
       expect(sites[1].id).toBe('tim-cox');
     });

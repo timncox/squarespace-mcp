@@ -11,6 +11,7 @@
 import { createContentSaveClient } from '../services/content-save.js';
 import { ContentSaveClient } from '../services/content-save.js';
 import { MediaUploadClient } from '../services/media-upload.js';
+import { CommerceApiClient } from '../services/commerce-api.js';
 import { resolvePageIds as resolvePageIdsImpl } from '../services/page-id-resolver.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -24,6 +25,7 @@ interface SiteConfig {
   site: {
     adminUrl: string;
     customDomain?: string;
+    commerceApiKey?: string;
   };
 }
 
@@ -35,6 +37,7 @@ interface SitesConfig {
 
 const clientCache = new Map<string, ContentSaveClient>();
 const mediaClientCache = new Map<string, MediaUploadClient>();
+const commerceClientCache = new Map<string, CommerceApiClient>();
 let sitesConfig: SitesConfig | null = null;
 
 // ── Config Loading ──────────────────────────────────────────────────────────
@@ -138,10 +141,12 @@ export function listSites(): Array<{
   aliases: string[];
   adminUrl: string;
   customDomain?: string;
+  hasCommerceApi: boolean;
 }> {
   const config = loadSitesConfig();
   return config.clients.map((c) => {
     const subdomain = new URL(c.site.adminUrl).hostname.split('.')[0];
+    const envKey = `COMMERCE_API_KEY_${c.id.toUpperCase().replace(/-/g, '_')}`;
     return {
       id: c.id,
       name: c.name ?? c.id,
@@ -149,6 +154,7 @@ export function listSites(): Array<{
       aliases: c.aliases ?? [],
       adminUrl: c.site.adminUrl,
       customDomain: c.site.customDomain,
+      hasCommerceApi: !!(process.env[envKey] ?? c.site.commerceApiKey),
     };
   });
 }
@@ -190,6 +196,46 @@ export function getMediaClient(siteId: string): MediaUploadClient {
 }
 
 /**
+ * Get or create a CommerceApiClient for the given site.
+ * Resolves the API key from env var (COMMERCE_API_KEY_<ID>) or site config.
+ * Clients are cached per canonical id.
+ */
+export function getCommerceClient(siteId: string): CommerceApiClient {
+  const site = findSite(siteId);
+  const cacheKey = site?.id ?? siteId;
+
+  const cached = commerceClientCache.get(cacheKey);
+  if (cached) return cached;
+
+  // Resolve API key: env var takes precedence
+  // Env format: COMMERCE_API_KEY_SMYTH_TAVERN (id uppercased, hyphens → underscores)
+  const envKey = `COMMERCE_API_KEY_${cacheKey.toUpperCase().replace(/-/g, '_')}`;
+  const apiKey = process.env[envKey] ?? site?.site.commerceApiKey;
+
+  if (!apiKey) {
+    throw new Error(
+      `No Commerce API key for site "${siteId}". ` +
+      `Set env var ${envKey} or add "commerceApiKey" to site config.`
+    );
+  }
+
+  const client = new CommerceApiClient(apiKey, cacheKey);
+  commerceClientCache.set(cacheKey, client);
+  return client;
+}
+
+/**
+ * Check if a Commerce API key is available for the given site.
+ * Returns true if the key can be found via env var or site config, without throwing.
+ */
+export function hasCommerceApi(siteId: string): boolean {
+  const site = findSite(siteId);
+  const cacheKey = site?.id ?? siteId;
+  const envKey = `COMMERCE_API_KEY_${cacheKey.toUpperCase().replace(/-/g, '_')}`;
+  return !!(process.env[envKey] ?? site?.site.commerceApiKey);
+}
+
+/**
  * Resolve page slug to pageSectionsId + collectionId.
  * Maps siteId → subdomain internally before calling the resolver.
  */
@@ -208,5 +254,6 @@ export async function resolvePageIds(
 export function reloadAllSessions(): void {
   clientCache.clear();
   mediaClientCache.clear();
+  commerceClientCache.clear();
   sitesConfig = null;
 }
