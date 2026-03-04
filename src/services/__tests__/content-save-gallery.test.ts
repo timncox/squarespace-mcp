@@ -592,4 +592,37 @@ describe('ContentSaveClient — Gallery', () => {
       expect(result.error).toContain('failed');
     });
   });
+
+  // ── removeGalleryImage ──────────────────────────────────────────────────
+
+  describe('removeGalleryImage()', () => {
+    it('deletes an image and returns success', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        text: async () => '',
+      });
+
+      const result = await client.removeGalleryImage(GALLERY_COLL_ID, 'item-abc');
+      expect(result.success).toBe(true);
+      expect(result.itemId).toBe('item-abc');
+
+      expect(mockFetch).toHaveBeenCalledOnce();
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/content-items/item-abc');
+      expect(opts.method).toBe('DELETE');
+    });
+
+    it('returns error on 404', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: async () => 'Not found',
+      });
+
+      const result = await client.removeGalleryImage(GALLERY_COLL_ID, 'nonexistent');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('404');
+    });
+  });
 });
