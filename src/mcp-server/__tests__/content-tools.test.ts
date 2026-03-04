@@ -8,6 +8,7 @@ const mockClient = {
   findBlogPostByTitle: vi.fn(),
   getMenuBlock: vi.fn(),
   updateMenuBlock: vi.fn(),
+  addMenuBlock: vi.fn(),
   updateGallerySettings: vi.fn(),
 };
 
@@ -47,13 +48,14 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
     registerContentTools(server as any);
   });
 
-  it('should register all 7 content tools', () => {
+  it('should register all 8 content tools', () => {
     expect(server.tools.has('sq_create_blog_post')).toBe(true);
     expect(server.tools.has('sq_update_blog_post')).toBe(true);
     expect(server.tools.has('sq_list_blog_posts')).toBe(true);
     expect(server.tools.has('sq_find_blog_post')).toBe(true);
     expect(server.tools.has('sq_get_menu')).toBe(true);
     expect(server.tools.has('sq_update_menu')).toBe(true);
+    expect(server.tools.has('sq_add_menu')).toBe(true);
     expect(server.tools.has('sq_update_gallery')).toBe(true);
   });
 
@@ -375,6 +377,85 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Menu block not found');
+    });
+  });
+
+  describe('sq_add_menu', () => {
+    it('should add a menu block with menuText', async () => {
+      mockClient.addMenuBlock.mockResolvedValue({ success: true, blockId: 'menu-1', sectionIndex: 0 });
+
+      const result = await server.callTool('sq_add_menu', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'menu-page',
+        sectionIndex: 0,
+        menuText: 'Lunch\n========\nStarters\n------\nSoup\n$10',
+      });
+
+      expect(mockClient.addMenuBlock).toHaveBeenCalledWith(
+        'psi-menu-page', 'col-menu-page', 0, 'Lunch\n========\nStarters\n------\nSoup\n$10', undefined,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(data.blockId).toBe('menu-1');
+    });
+
+    it('should add empty menu block when menuText omitted', async () => {
+      mockClient.addMenuBlock.mockResolvedValue({ success: true, blockId: 'menu-2' });
+
+      await server.callTool('sq_add_menu', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 0,
+      });
+
+      expect(mockClient.addMenuBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 0, undefined, undefined,
+      );
+    });
+
+    it('should pass menuStyle and currencySymbol as options', async () => {
+      mockClient.addMenuBlock.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_add_menu', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        menuStyle: 'modern',
+        currencySymbol: '€',
+      });
+
+      const callArgs = mockClient.addMenuBlock.mock.calls[0];
+      const passedOpts = callArgs[4];
+      expect(passedOpts.menuStyle).toBe('modern');
+      expect(passedOpts.currencySymbol).toBe('€');
+    });
+
+    it('should resolve offsetColumns to startX/endX', async () => {
+      mockClient.addMenuBlock.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_add_menu', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        layout: { columns: 12, offsetColumns: 12 },
+      });
+
+      const callArgs = mockClient.addMenuBlock.mock.calls[0];
+      const passedOpts = callArgs[4];
+      expect(passedOpts.startX).toBe(13);
+      expect(passedOpts.endX).toBe(25);
+    });
+
+    it('should return error on page resolve failure', async () => {
+      vi.mocked(resolvePageIds).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_add_menu', {
+        siteId: 'bad-site',
+        pageSlug: 'home',
+        sectionIndex: 0,
+      });
+
+      expect(result.isError).toBe(true);
     });
   });
 
