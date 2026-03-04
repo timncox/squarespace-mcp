@@ -9448,6 +9448,87 @@ export class ContentSaveClient {
       return { success: false, error: errMsg(err) };
     }
   }
+
+  // ── Section Divider ──────────────────────────────────────────────────────
+
+  /**
+   * Update (or enable) a section divider.
+   * Merges the provided config onto the existing divider object.
+   */
+  async updateSectionDivider(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    dividerConfig: Record<string, unknown>,
+  ): Promise<ContentSaveResult & { sectionId?: string }> {
+    try {
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      if (!sections || sectionIndex < 0 || sectionIndex >= sections.length) {
+        return {
+          success: false,
+          error: `Section index ${sectionIndex} out of bounds (page has ${sections?.length ?? 0} sections)`,
+        };
+      }
+
+      const section = sections[sectionIndex];
+      // Merge onto existing divider (preserve fields not in dividerConfig)
+      section.divider = { ...(section.divider ?? {}), ...dividerConfig };
+
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      logger.info(
+        { pageSectionsId, sectionIndex, sectionId: section.id, dividerType: dividerConfig.type },
+        'Section divider updated',
+      );
+
+      return { success: true, sectionId: section.id };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Remove (disable) a section divider.
+   */
+  async removeSectionDivider(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+  ): Promise<ContentSaveResult & { sectionId?: string }> {
+    try {
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      if (!sections || sectionIndex < 0 || sectionIndex >= sections.length) {
+        return {
+          success: false,
+          error: `Section index ${sectionIndex} out of bounds (page has ${sections?.length ?? 0} sections)`,
+        };
+      }
+
+      const section = sections[sectionIndex];
+      section.divider = { enabled: false };
+
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      logger.info(
+        { pageSectionsId, sectionIndex, sectionId: section.id },
+        'Section divider removed',
+      );
+
+      return { success: true, sectionId: section.id };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
 }
 
 // ── Factory ─────────────────────────────────────────────────────────────────
