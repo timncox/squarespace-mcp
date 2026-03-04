@@ -89,30 +89,20 @@ When the user asks you to create a new page (contact, about, services, etc.):
 4. Use sq_update_text, sq_update_image to customize content.
 5. Screenshot to verify.
 
-## Commerce API (Products, Orders, Inventory)
-Commerce tools require an API key (Settings → Developer Tools → Developer API Keys in Squarespace admin).
-Use sq_list_sites to check which sites have Commerce API access (hasCommerceApi field).
+## Commerce (Products, Store Pages, Images)
+Commerce tools use session cookies (same auth as all other tools — no separate API key needed).
 
-### Products
-- sq_list_store_pages — list store pages on a site
-- sq_list_products — list products with optional type/date filters
+### Store & Products
+- sq_create_store_page — create a new store page on the site
+- sq_list_products — list products in the store
 - sq_get_product — get product details by ID
-- sq_create_product — create a new product
-- sq_update_product — update product name, description, tags
+- sq_create_product — create a product (shell → images → update with details)
+- sq_update_product — update product name, description, variants, visibility
 - sq_delete_product — delete a product
 
-### Orders
-- sq_list_orders — list orders with status/customer filters
-- sq_get_order — get order details by ID
-- sq_fulfill_order — mark order as fulfilled with tracking info
-
-### Inventory & Stock
-- sq_list_inventory — list current inventory levels
-- sq_adjust_stock — adjust stock quantities for variants
-
-### Customers & Transactions
-- sq_list_profiles — list customer profiles
-- sq_list_transactions — list transactions with date filters
+### Product Images
+- sq_attach_product_image — attach uploaded image to a product (use sq_upload_image first)
+- sq_set_product_thumbnail — set a product's thumbnail image
 `.trim();
 
 const server = new McpServer(
@@ -212,23 +202,17 @@ server.registerPrompt('squarespace-guide', {
 - sq_duplicate_block — duplicate a block
 - sq_duplicate_section — duplicate a section
 
-### Commerce API (Products, Orders, Inventory)
-Requires a Commerce API key (Settings → Developer Tools → Developer API Keys in Squarespace admin).
-Use sq_list_sites to check which sites have Commerce API access (hasCommerceApi field).
+### Commerce (Products, Store Pages, Images)
+Uses session cookies (same auth as all other tools — no separate API key needed).
 
-- sq_list_store_pages — list store pages on a site
-- sq_list_products — list products with optional type/date filters
+- sq_create_store_page — create a new store page
+- sq_list_products — list products in the store
 - sq_get_product — get product details by ID
-- sq_create_product — create a new product
-- sq_update_product — update product name, description, tags
+- sq_create_product — create product (shell → images → update with details)
+- sq_update_product — update product name, description, variants, visibility
 - sq_delete_product — delete a product
-- sq_list_orders — list orders with status/customer filters
-- sq_get_order — get order details by ID
-- sq_fulfill_order — mark order as fulfilled with tracking info
-- sq_list_inventory — list current inventory levels
-- sq_adjust_stock — adjust stock quantities for variants
-- sq_list_profiles — list customer profiles
-- sq_list_transactions — list transactions with date filters
+- sq_attach_product_image — attach uploaded image to product
+- sq_set_product_thumbnail — set product thumbnail image
 
 ## Key Workarounds
 

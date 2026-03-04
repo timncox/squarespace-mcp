@@ -23,7 +23,7 @@ Entry point: `src/index.ts` — starts Fastify server + Gmail polling loop (60s 
 
 All task execution routes through the **MCP orchestrator** — autonomous Claude CLI agents backed by ~40 MCP tools wrapping the Content Save API. No browser agent or legacy pipeline.
 
-- **MCP server** (`src/mcp-server/`) wraps ContentSaveClient + CommerceApiClient as ~67 tools
+- **MCP server** (`src/mcp-server/`) wraps ContentSaveClient as ~62 tools
 - **Autonomous Claude CLI agents** spawned via `claude -p --mcp-config --output-format stream-json`
 - **Orchestrator** (`src/orchestrator/`) runs the full pipeline: classify → research → analyze → strategize → [approve] → execute → supervise
 - **Self-improving loop**: browser fallbacks logged → dashboard → new API tools created
@@ -75,10 +75,9 @@ storage/            # Runtime data (uploads/, screenshots/) — not committed
 | `src/mcp-server/index.ts` | MCP server — ~67 tools registration entry point |
 | `src/mcp-server/tools/web-search.ts` | Web search MCP tools (`sq_web_search`, `sq_fetch_url`) |
 | `src/mcp-server/tools/gmail.ts` | Gmail MCP tools (`sq_list_emails`, `sq_read_email`, `sq_process_email`, `sq_download_attachment`, `sq_list_processed_emails`, `sq_parse_pdf_menu`) |
-| `src/mcp-server/tools/commerce.ts` | Commerce API MCP tools (13 tools: products, orders, inventory, profiles, transactions) |
-| `src/mcp-server/session.ts` | Client cache + resolvePageIds + Commerce client cache (shared by all tools) |
-| `src/services/commerce-api.ts` | Commerce API client (products, orders, inventory, profiles, transactions — Bearer auth, rate limiting) |
-| `src/services/commerce-api-types.ts` | TypeScript interfaces for Commerce API resources |
+| `src/mcp-server/tools/commerce.ts` | Internal commerce MCP tools (8 tools: products, images, store pages) |
+| `src/mcp-server/session.ts` | Client cache + resolvePageIds (shared by all tools) |
+| `src/services/internal-commerce-types.ts` | TypeScript interfaces for internal commerce API (products, variants, images) |
 | `src/services/conversation-handler.ts` | Message router — delegates to conversation sub-modules |
 | `src/services/conversation/execution.ts` | Task execution — routes all tasks through MCP orchestrator + multi-site expansion |
 | `src/services/conversation/message-handlers.ts` | Conversation message routing (direct requests, confirmations, clarifications, plan approval) |
@@ -131,25 +130,36 @@ The Content Save API is the primary execution mechanism, exposed as MCP tools. U
 
 **Site-wide methods**: `getNavigation()`, `getSettings()`, `getCodeInjection()`, `saveCodeInjection()`.
 
-### Commerce API
+### Internal Commerce API
 
-The Commerce API (`api.squarespace.com`) is a completely separate REST API from the Content Save API. Uses `Authorization: Bearer {API_KEY}` — no session cookies. API keys are generated in Squarespace admin (Settings → Developer Tools → Developer API Keys).
+Commerce uses the same internal REST API as the Content Save client — session cookie auth, no separate API key. Methods live on `ContentSaveClient`.
 
-**Client**: `CommerceApiClient` (`src/services/commerce-api.ts`) — rate limiting (300 req/min sliding window), pagination, error handling.
+**Product CRUD** (on ContentSaveClient):
+- `createProductShell(collectionId, productType?)` — `POST /api/commerce/products/{collectionId}`. Creates hidden product with default variant.
+- `getProduct(productId)` — `GET /api/commerce/products/{productId}`.
+- `updateProduct(productId, updates)` — `PUT /api/commerce/products/{productId}`. Supports name, description, visibility, variants (create/update/delete), tags, categories, image ordering.
+- `deleteProduct(productId)` — `DELETE /api/commerce/products/{productId}`.
+- `listProducts(params?)` — `GET /api/3/commerce/products`. Optional pageSize/cursor.
 
-**API key config**: Env var `COMMERCE_API_KEY_SMYTH_TAVERN` (site ID uppercased, hyphens → underscores) takes precedence over `commerceApiKey` field in `config/sites.json`.
+**Product images** (on ContentSaveClient):
+- `attachProductImage(productId, systemDataId)` — `POST /api/commerce/products/{productId}/images/asset-reference`. The `systemDataId` is the `assetId` from `MediaUploadClient`.
+- `setProductThumbnail(productId, systemDataId)` — `POST /api/commerce/products/{productId}/thumbnail-image/asset-reference`.
+- `updateProductImage(productId, imageId, updates)` — `PUT /api/2/commerce/products/{productId}/images/{imageId}`. Updates title, focalPoint.
 
-**Session integration**: `getCommerceClient(siteId)` and `hasCommerceApi(siteId)` in `src/mcp-server/session.ts`. `listSites()` includes `hasCommerceApi` boolean.
+**Store page creation** (on ContentSaveClient):
+- `createStorePage(navPlacement?)` — copies `empty-store` template, adds to navigation. Two API calls: `POST /api/content/copy/collection/empty-store` → `POST /api/widget/UpdateNavigation`.
 
-**Base URL**: `https://api.squarespace.com/{version}/commerce/...` — Products use v2, everything else v1.0.
+**MCP Commerce tools** (8 tools):
+- `sq_create_store_page` — create store page on site
+- `sq_create_product` — orchestrates: shell → images → update with name/price/variants
+- `sq_update_product` — update product details and variants
+- `sq_get_product` — get product by ID
+- `sq_delete_product` — delete product
+- `sq_list_products` — list products
+- `sq_attach_product_image` — attach uploaded image + optionally set as thumbnail
+- `sq_set_product_thumbnail` — set product thumbnail
 
-**MCP Commerce tools** (13 tools):
-- Products: `sq_list_store_pages`, `sq_list_products`, `sq_get_product`, `sq_create_product`, `sq_update_product`, `sq_delete_product`
-- Orders: `sq_list_orders`, `sq_get_order`, `sq_fulfill_order`
-- Inventory: `sq_list_inventory`, `sq_adjust_stock`
-- Reporting: `sq_list_profiles`, `sq_list_transactions`
-
-**Constraints**: API key must be manually generated. Rate limit: 300 req/min. Requires Core plan minimum. `adjustStock` and `fulfillOrder` use `Idempotency-Key` header.
+**Key details**: All commerce endpoints use `X-CSRF-Token` header (not crumb query string). `createProductShell` creates a HIDDEN product — must `updateProduct` with `visibility: { state: 'VISIBLE' }` to publish. `memberAccountIdCache` on ContentSaveClient provides the `authorId` for image attachment.
 
 **Design settings methods**:
 - `getWebsiteFonts()` / `updateWebsiteFonts(data)` — `GET`/`PUT /api/website-fonts`
@@ -266,8 +276,8 @@ Image uploads use `MediaUploadClient` to upload files to Squarespace's asset ser
 - `src/services/__tests__/content-save-design-nav.test.ts` — design write + navigation tests (30 tests)
 - `src/orchestrator/__tests__/orchestrator.test.ts` — MCP orchestrator pipeline tests
 - `src/mcp-server/__tests__/` — MCP tool registration + handler tests
-- `src/services/__tests__/commerce-api.test.ts` — Commerce API client tests (46 tests)
-- `src/mcp-server/__tests__/commerce-tools.test.ts` — Commerce MCP tool tests (40 tests)
+- `src/services/__tests__/content-save-commerce.test.ts` — Internal commerce methods tests (10 tests)
+- `src/mcp-server/__tests__/commerce-tools.test.ts` — Commerce MCP tool tests (12 tests)
 - `src/mcp-server/__tests__/gmail-tools.test.ts` — Gmail MCP tools tests
 - Run: `npx vitest run --exclude '.claude/**' --exclude 'dist/**' --exclude 'src/archive/**'`
 - Old browser agent and pipeline tests are in `src/archive/` — excluded from test runs
