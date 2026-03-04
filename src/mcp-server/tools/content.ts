@@ -9,6 +9,9 @@
  * sq_update_menu: Update menu block
  * sq_add_menu: Add a new menu block
  * sq_update_gallery: Update gallery display settings
+ * sq_list_gallery_images: List images in a gallery
+ * sq_remove_gallery_image: Remove an image from a gallery
+ * sq_reorder_gallery_images: Reorder images in a gallery
  */
 
 import { z } from 'zod';
@@ -375,6 +378,103 @@ export function registerContentTools(server: McpServer) {
         content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
         isError: true,
       };
+    }
+  });
+
+  // ── sq_list_gallery_images ─────────────────────────────────────────────────
+  server.registerTool('sq_list_gallery_images', {
+    description:
+      'List all images in a gallery on a Squarespace page. Returns image IDs, filenames, titles, display order, and asset URLs. Use this to discover image IDs before removing or reordering.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug containing the gallery'),
+      searchText: z.string().optional().describe('Gallery collectionId or block ID prefix (optional — uses first gallery if omitted)'),
+    },
+  }, async ({ siteId, pageSlug, searchText }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+      const data = await client.getPageSections(ids.pageSectionsId);
+      const found = client.findGalleryBlock(data.sections, searchText);
+      if (!found) {
+        return { content: [{ type: 'text' as const, text: 'Error: No gallery block found on this page' }], isError: true };
+      }
+      const result = await client.getGalleryItems(found.galleryCollectionId);
+      if (!result.success) {
+        return { content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Failed to fetch gallery items'}` }], isError: true };
+      }
+      const summary = (result.items ?? []).map((item: any) => ({
+        id: item.id,
+        displayIndex: item.displayIndex,
+        filename: item.filename,
+        title: item.title,
+        assetUrl: item.assetUrl,
+      }));
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ success: true, galleryCollectionId: found.galleryCollectionId, items: summary }, null, 2) }],
+      };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_remove_gallery_image ────────────────────────────────────────────────
+  server.registerTool('sq_remove_gallery_image', {
+    description:
+      'Remove an image from a gallery. Use sq_list_gallery_images first to get the image item ID.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      itemId: z.string().describe('Gallery image item ID (from sq_list_gallery_images)'),
+    },
+  }, async ({ siteId, itemId }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.removeGalleryImage('', itemId);
+      if (!result.success) {
+        return { content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Failed to remove image'}` }], isError: true };
+      }
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_reorder_gallery_images ──────────────────────────────────────────────
+  server.registerTool('sq_reorder_gallery_images', {
+    description:
+      'Reorder images in a gallery. Pass the complete list of image item IDs in the desired order. Use sq_list_gallery_images first to get current IDs and order.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug containing the gallery'),
+      itemIds: z.array(z.string()).describe('Complete ordered list of all gallery image item IDs in desired display order'),
+      searchText: z.string().optional().describe('Gallery collectionId or block ID prefix (optional — uses first gallery if omitted)'),
+    },
+  }, async ({ siteId, pageSlug, itemIds, searchText }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+      const data = await client.getPageSections(ids.pageSectionsId);
+      const found = client.findGalleryBlock(data.sections, searchText);
+      if (!found) {
+        return { content: [{ type: 'text' as const, text: 'Error: No gallery block found on this page' }], isError: true };
+      }
+      const result = await client.reorderGalleryImages(found.galleryCollectionId, itemIds);
+      if (!result.success) {
+        return { content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Failed to reorder images'}` }], isError: true };
+      }
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
     }
   });
 }
