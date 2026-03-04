@@ -625,4 +625,51 @@ describe('ContentSaveClient — Gallery', () => {
       expect(result.error).toContain('404');
     });
   });
+
+  // ── reorderGalleryImages ────────────────────────────────────────────────
+
+  describe('reorderGalleryImages()', () => {
+    it('reorders images and returns updated items', async () => {
+      const updatedItems = [
+        { id: 'item-b', displayIndex: 0, filename: 'b.png' },
+        { id: 'item-a', displayIndex: 1, filename: 'a.png' },
+      ];
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ items: updatedItems }),
+        text: async () => JSON.stringify({ items: updatedItems }),
+      });
+
+      const result = await client.reorderGalleryImages(GALLERY_COLL_ID, ['item-b', 'item-a']);
+      expect(result.success).toBe(true);
+      expect(result.items).toHaveLength(2);
+      expect(result.items![0].id).toBe('item-b');
+
+      expect(mockFetch).toHaveBeenCalledOnce();
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/commondata/ReorderItems');
+      expect(opts.method).toBe('POST');
+      expect(opts.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+
+      // Verify form body
+      const body = opts.body as string;
+      expect(body).toContain(`collectionId=${GALLERY_COLL_ID}`);
+      expect(body).toContain('itemIds=');
+      const decodedIds = decodeURIComponent(body.split('itemIds=')[1]);
+      expect(JSON.parse(decodedIds)).toEqual(['item-b', 'item-a']);
+    });
+
+    it('returns error on API failure', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => 'Internal error',
+      });
+
+      const result = await client.reorderGalleryImages(GALLERY_COLL_ID, ['item-a']);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('500');
+    });
+  });
 });
