@@ -10,7 +10,7 @@ AI agent that edits Squarespace websites based on forwarded client emails and Wh
 npm run dev          # Start dev server (tsx watch)
 npm run build        # TypeScript compile
 npm run start        # Run compiled JS (node dist/src/index.js)
-npm run test         # vitest run (~1278 tests, 54 files)
+npm run test         # vitest run (~1441 tests, 56 files)
 npm run test:unit    # Parse agent action tests only
 npm run cli          # CLI tool (tsx src/cli.ts)
 npm run setup-gmail  # Gmail OAuth setup
@@ -23,7 +23,7 @@ Entry point: `src/index.ts` — starts Fastify server + Gmail polling loop (60s 
 
 All task execution routes through the **MCP orchestrator** — autonomous Claude CLI agents backed by ~40 MCP tools wrapping the Content Save API. No browser agent or legacy pipeline.
 
-- **MCP server** (`src/mcp-server/`) wraps ContentSaveClient as ~44 tools
+- **MCP server** (`src/mcp-server/`) wraps ContentSaveClient as ~47 tools
 - **Autonomous Claude CLI agents** spawned via `claude -p --mcp-config --output-format stream-json`
 - **Orchestrator** (`src/orchestrator/`) runs the full pipeline: classify → research → analyze → strategize → [approve] → execute → supervise
 - **Self-improving loop**: browser fallbacks logged → dashboard → new API tools created
@@ -36,7 +36,7 @@ All task execution routes through the **MCP orchestrator** — autonomous Claude
 2. **Tasks created** → `conversation-handler.ts` sends summary to Tim via WhatsApp
 3. **Tim confirms** → conversation state machine routes to `executeTasks()`
 4. **MCP Orchestrator pipeline**: classify → research (web search) → analyze (site snapshot) → strategize (structured ContentPlan) → [plan approval if configured] → execute (MCP tools) → supervise (verify result)
-5. All edits via Content Save API through MCP tools (~44 tools)
+5. All edits via Content Save API through MCP tools (~47 tools)
 
 ### Directory Structure
 
@@ -49,7 +49,7 @@ src/
   routes/           # Fastify routes (dashboard, webhooks, screenshots, health)
   services/         # Business logic (whatsapp, gmail, email-processor, conversation-handler, content-save)
     conversation/   # Conversation sub-modules (message-handlers, execution, helpers)
-  mcp-server/       # MCP server — ~44 tools across 8 modules (text, section, blocks, pages, site, content, screenshot, web-search)
+  mcp-server/       # MCP server — ~47 tools across 8 modules (text, section, blocks, pages, site, content, screenshot, web-search)
     tools/          # Tool modules (registerXxxTools pattern)
     session.ts      # Client cache + resolvePageIds (shared by all tools)
     index.ts        # Tool registration entry point
@@ -72,7 +72,7 @@ storage/            # Runtime data (uploads/, screenshots/) — not committed
 | `src/orchestrator/orchestrator.ts` | MCP orchestrator — 6-stage pipeline with structured planning, per-operation tracking, and SSE events |
 | `src/orchestrator/cli-runner.ts` | Claude CLI spawner (stream-json NDJSON parsing) |
 | `src/orchestrator/prompts/` | 6 agent prompts (executor, supervisor, classifier, researcher, analyst, strategist) |
-| `src/mcp-server/index.ts` | MCP server — ~44 tools registration entry point |
+| `src/mcp-server/index.ts` | MCP server — ~47 tools registration entry point |
 | `src/mcp-server/tools/web-search.ts` | Web search MCP tools (`sq_web_search`, `sq_fetch_url`) |
 | `src/mcp-server/session.ts` | Client cache + resolvePageIds (shared by all tools) |
 | `src/services/conversation-handler.ts` | Message router — delegates to conversation sub-modules |
@@ -116,6 +116,12 @@ The Content Save API is the primary execution mechanism, exposed as MCP tools. U
 - `findBlogPostByTitle(collectionId, searchTitle)` — case-insensitive substring match, returns first match
 
 **MCP blog tools**: `sq_create_blog_post`, `sq_update_blog_post`, `sq_list_blog_posts`, `sq_find_blog_post`. All accept `siteId` + `collectionId`. Create/update also accept `excerpt`, `categories`, `slug`, `publishDate` (ISO 8601).
+
+**Gallery image management methods**:
+- `removeGalleryImage(galleryCollectionId, itemId)` — `DELETE /api/content-items/{itemId}`
+- `reorderGalleryImages(galleryCollectionId, itemIds)` — `POST /api/commondata/ReorderItems` (form-encoded)
+
+**MCP gallery tools**: `sq_list_gallery_images` (discover image IDs/filenames/order), `sq_remove_gallery_image` (delete by itemId), `sq_reorder_gallery_images` (reorder by passing itemIds array). List/reorder accept `pageSlug` + optional `searchText`; remove just needs `itemId`.
 
 **Site-wide methods**: `getNavigation()`, `getSettings()`, `getCodeInjection()`, `saveCodeInjection()`.
 
