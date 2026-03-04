@@ -10,7 +10,7 @@ AI agent that edits Squarespace websites based on forwarded client emails and Wh
 npm run dev          # Start dev server (tsx watch)
 npm run build        # TypeScript compile
 npm run start        # Run compiled JS (node dist/src/index.js)
-npm run test         # vitest run (~1441 tests, 56 files)
+npm run test         # vitest run (~1527 tests, 58 files)
 npm run test:unit    # Parse agent action tests only
 npm run cli          # CLI tool (tsx src/cli.ts)
 npm run setup-gmail  # Gmail OAuth setup
@@ -23,7 +23,7 @@ Entry point: `src/index.ts` — starts Fastify server + Gmail polling loop (60s 
 
 All task execution routes through the **MCP orchestrator** — autonomous Claude CLI agents backed by ~40 MCP tools wrapping the Content Save API. No browser agent or legacy pipeline.
 
-- **MCP server** (`src/mcp-server/`) wraps ContentSaveClient as ~54 tools
+- **MCP server** (`src/mcp-server/`) wraps ContentSaveClient + CommerceApiClient as ~67 tools
 - **Autonomous Claude CLI agents** spawned via `claude -p --mcp-config --output-format stream-json`
 - **Orchestrator** (`src/orchestrator/`) runs the full pipeline: classify → research → analyze → strategize → [approve] → execute → supervise
 - **Self-improving loop**: browser fallbacks logged → dashboard → new API tools created
@@ -36,7 +36,7 @@ All task execution routes through the **MCP orchestrator** — autonomous Claude
 2. **Tasks created** → `conversation-handler.ts` sends summary to Tim via WhatsApp
 3. **Tim confirms** → conversation state machine routes to `executeTasks()`
 4. **MCP Orchestrator pipeline**: classify → research (web search) → analyze (site snapshot) → strategize (structured ContentPlan) → [plan approval if configured] → execute (MCP tools) → supervise (verify result)
-5. All edits via Content Save API through MCP tools (~54 tools)
+5. All edits via Content Save API through MCP tools (~67 tools)
 
 ### Directory Structure
 
@@ -49,7 +49,7 @@ src/
   routes/           # Fastify routes (dashboard, webhooks, screenshots, health)
   services/         # Business logic (whatsapp, gmail, email-processor, conversation-handler, content-save)
     conversation/   # Conversation sub-modules (message-handlers, execution, helpers)
-  mcp-server/       # MCP server — ~54 tools across 12 modules (text, section, blocks, pages, site, content, screenshot, web-search, forms, divider, links, gmail)
+  mcp-server/       # MCP server — ~67 tools across 13 modules (text, section, blocks, pages, site, content, screenshot, web-search, forms, divider, links, gmail, commerce)
     tools/          # Tool modules (registerXxxTools pattern)
     session.ts      # Client cache + resolvePageIds (shared by all tools)
     index.ts        # Tool registration entry point
@@ -72,10 +72,13 @@ storage/            # Runtime data (uploads/, screenshots/) — not committed
 | `src/orchestrator/orchestrator.ts` | MCP orchestrator — 6-stage pipeline with structured planning, per-operation tracking, and SSE events |
 | `src/orchestrator/cli-runner.ts` | Claude CLI spawner (stream-json NDJSON parsing) |
 | `src/orchestrator/prompts/` | 6 agent prompts (executor, supervisor, classifier, researcher, analyst, strategist) |
-| `src/mcp-server/index.ts` | MCP server — ~54 tools registration entry point |
+| `src/mcp-server/index.ts` | MCP server — ~67 tools registration entry point |
 | `src/mcp-server/tools/web-search.ts` | Web search MCP tools (`sq_web_search`, `sq_fetch_url`) |
 | `src/mcp-server/tools/gmail.ts` | Gmail MCP tools (`sq_list_emails`, `sq_read_email`, `sq_process_email`, `sq_download_attachment`, `sq_list_processed_emails`, `sq_parse_pdf_menu`) |
-| `src/mcp-server/session.ts` | Client cache + resolvePageIds (shared by all tools) |
+| `src/mcp-server/tools/commerce.ts` | Commerce API MCP tools (13 tools: products, orders, inventory, profiles, transactions) |
+| `src/mcp-server/session.ts` | Client cache + resolvePageIds + Commerce client cache (shared by all tools) |
+| `src/services/commerce-api.ts` | Commerce API client (products, orders, inventory, profiles, transactions — Bearer auth, rate limiting) |
+| `src/services/commerce-api-types.ts` | TypeScript interfaces for Commerce API resources |
 | `src/services/conversation-handler.ts` | Message router — delegates to conversation sub-modules |
 | `src/services/conversation/execution.ts` | Task execution — routes all tasks through MCP orchestrator + multi-site expansion |
 | `src/services/conversation/message-handlers.ts` | Conversation message routing (direct requests, confirmations, clarifications, plan approval) |
@@ -127,6 +130,26 @@ The Content Save API is the primary execution mechanism, exposed as MCP tools. U
 **Gmail MCP tools**: `sq_list_emails` (list inbox with limit/unreadOnly), `sq_read_email` (full message + attachment metadata by messageId), `sq_process_email` (trigger task extraction pipeline), `sq_download_attachment` (save to storage/uploads/), `sq_list_processed_emails` (query email history DB with status filter), `sq_parse_pdf_menu` (download PDF → extractPdfText → parseMenuText → structured MenuTab[] or raw text fallback). Site-independent — no siteId or resolvePageIds needed.
 
 **Site-wide methods**: `getNavigation()`, `getSettings()`, `getCodeInjection()`, `saveCodeInjection()`.
+
+### Commerce API
+
+The Commerce API (`api.squarespace.com`) is a completely separate REST API from the Content Save API. Uses `Authorization: Bearer {API_KEY}` — no session cookies. API keys are generated in Squarespace admin (Settings → Developer Tools → Developer API Keys).
+
+**Client**: `CommerceApiClient` (`src/services/commerce-api.ts`) — rate limiting (300 req/min sliding window), pagination, error handling.
+
+**API key config**: Env var `COMMERCE_API_KEY_SMYTH_TAVERN` (site ID uppercased, hyphens → underscores) takes precedence over `commerceApiKey` field in `config/sites.json`.
+
+**Session integration**: `getCommerceClient(siteId)` and `hasCommerceApi(siteId)` in `src/mcp-server/session.ts`. `listSites()` includes `hasCommerceApi` boolean.
+
+**Base URL**: `https://api.squarespace.com/{version}/commerce/...` — Products use v2, everything else v1.0.
+
+**MCP Commerce tools** (13 tools):
+- Products: `sq_list_store_pages`, `sq_list_products`, `sq_get_product`, `sq_create_product`, `sq_update_product`, `sq_delete_product`
+- Orders: `sq_list_orders`, `sq_get_order`, `sq_fulfill_order`
+- Inventory: `sq_list_inventory`, `sq_adjust_stock`
+- Reporting: `sq_list_profiles`, `sq_list_transactions`
+
+**Constraints**: API key must be manually generated. Rate limit: 300 req/min. Requires Core plan minimum. `adjustStock` and `fulfillOrder` use `Idempotency-Key` header.
 
 **Design settings methods**:
 - `getWebsiteFonts()` / `updateWebsiteFonts(data)` — `GET`/`PUT /api/website-fonts`
@@ -226,7 +249,7 @@ Image uploads use `MediaUploadClient` to upload files to Squarespace's asset ser
 
 ## Environment
 
-- `.env` file for secrets (ANTHROPIC_API_KEY, WhatsApp tokens, Gmail OAuth)
+- `.env` file for secrets (ANTHROPIC_API_KEY, WhatsApp tokens, Gmail OAuth, Commerce API keys)
 - Claude CLI agents use Claude Max auth directly (no API key or proxy needed)
 - `data/` directory for SQLite database
 - `storage/` directory for uploads, screenshots
@@ -234,7 +257,7 @@ Image uploads use `MediaUploadClient` to upload files to Squarespace's asset ser
 
 ## Testing
 
-- `vitest` for unit tests — **~1278 tests** across 54 test files
+- `vitest` for unit tests — **~1527 tests** across 58 test files
 - `src/services/__tests__/content-save-add-block.test.ts` — addTextBlock tests (block ID generation, layout calculation, backfill, gapRows/rowHeight spacing)
 - `src/db/__tests__/plan-operations.test.ts` — operation tracking CRUD tests
 - `src/services/__tests__/menu-parser.test.ts` — menu text parser + serializer tests (45 tests)
@@ -243,6 +266,8 @@ Image uploads use `MediaUploadClient` to upload files to Squarespace's asset ser
 - `src/services/__tests__/content-save-design-nav.test.ts` — design write + navigation tests (30 tests)
 - `src/orchestrator/__tests__/orchestrator.test.ts` — MCP orchestrator pipeline tests
 - `src/mcp-server/__tests__/` — MCP tool registration + handler tests
+- `src/services/__tests__/commerce-api.test.ts` — Commerce API client tests (46 tests)
+- `src/mcp-server/__tests__/commerce-tools.test.ts` — Commerce MCP tool tests (40 tests)
 - `src/mcp-server/__tests__/gmail-tools.test.ts` — Gmail MCP tools tests
 - Run: `npx vitest run --exclude '.claude/**' --exclude 'dist/**' --exclude 'src/archive/**'`
 - Old browser agent and pipeline tests are in `src/archive/` — excluded from test runs

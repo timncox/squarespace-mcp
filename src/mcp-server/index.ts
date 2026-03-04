@@ -212,6 +212,24 @@ server.registerPrompt('squarespace-guide', {
 - sq_duplicate_block — duplicate a block
 - sq_duplicate_section — duplicate a section
 
+### Commerce API (Products, Orders, Inventory)
+Requires a Commerce API key (Settings → Developer Tools → Developer API Keys in Squarespace admin).
+Use sq_list_sites to check which sites have Commerce API access (hasCommerceApi field).
+
+- sq_list_store_pages — list store pages on a site
+- sq_list_products — list products with optional type/date filters
+- sq_get_product — get product details by ID
+- sq_create_product — create a new product
+- sq_update_product — update product name, description, tags
+- sq_delete_product — delete a product
+- sq_list_orders — list orders with status/customer filters
+- sq_get_order — get order details by ID
+- sq_fulfill_order — mark order as fulfilled with tracking info
+- sq_list_inventory — list current inventory levels
+- sq_adjust_stock — adjust stock quantities for variants
+- sq_list_profiles — list customer profiles
+- sq_list_transactions — list transactions with date filters
+
 ## Key Workarounds
 
 **Creating a new page:** sq_create_page usually fails (404). Instead, ask the user to create a blank page in Squarespace (Pages → + → Blank Page), then build it out with sq_add_section, sq_add_text_block, etc.
