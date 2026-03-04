@@ -8,6 +8,14 @@
  * Use console.error for any debugging output.
  */
 
+import { config } from 'dotenv';
+import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+
+// Load .env from project root (MCP server spawned by Claude Desktop has cwd=/)
+const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: join(__dirname, '..', '..', '..', '.env') });
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -23,6 +31,8 @@ import { registerFormTools } from './tools/forms.js';
 import { registerDividerTools } from './tools/divider.js';
 import { registerLinkTools } from './tools/links.js';
 import { registerGmailTools } from './tools/gmail.js';
+import { registerAuthTools } from './tools/auth.js';
+import { registerCommerceTools } from './tools/commerce.js';
 
 // ── Server instructions — sent to Claude Desktop during MCP handshake ───────
 const INSTRUCTIONS = `
@@ -78,6 +88,31 @@ When the user asks you to create a new page (contact, about, services, etc.):
 3. Use sq_add_text_block, sq_add_button, sq_add_image, sq_add_video, sq_add_embed to add content blocks.
 4. Use sq_update_text, sq_update_image to customize content.
 5. Screenshot to verify.
+
+## Commerce API (Products, Orders, Inventory)
+Commerce tools require an API key (Settings → Developer Tools → Developer API Keys in Squarespace admin).
+Use sq_list_sites to check which sites have Commerce API access (hasCommerceApi field).
+
+### Products
+- sq_list_store_pages — list store pages on a site
+- sq_list_products — list products with optional type/date filters
+- sq_get_product — get product details by ID
+- sq_create_product — create a new product
+- sq_update_product — update product name, description, tags
+- sq_delete_product — delete a product
+
+### Orders
+- sq_list_orders — list orders with status/customer filters
+- sq_get_order — get order details by ID
+- sq_fulfill_order — mark order as fulfilled with tracking info
+
+### Inventory & Stock
+- sq_list_inventory — list current inventory levels
+- sq_adjust_stock — adjust stock quantities for variants
+
+### Customers & Transactions
+- sq_list_profiles — list customer profiles
+- sq_list_transactions — list transactions with date filters
 `.trim();
 
 const server = new McpServer(
@@ -97,6 +132,8 @@ registerFormTools(server);
 registerDividerTools(server);
 registerLinkTools(server);
 registerGmailTools(server);
+registerAuthTools(server);
+registerCommerceTools(server);
 
 // ── MCP Prompts — on-demand guidance Claude Desktop can invoke ───────────────
 server.registerPrompt('squarespace-guide', {
