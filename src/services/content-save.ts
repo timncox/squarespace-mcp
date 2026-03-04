@@ -54,6 +54,8 @@ export type {
   GallerySettings,
   GallerySettingsUpdateResult,
   AddBlankSectionResult,
+  AddSectionWithBlocksResult,
+  InitialBlock,
   CopyTemplateSectionResult,
   AddGalleryImageResult,
   GalleryItem,
@@ -167,6 +169,8 @@ import type {
   GallerySettings,
   GallerySettingsUpdateResult,
   AddBlankSectionResult,
+  AddSectionWithBlocksResult,
+  InitialBlock,
   CopyTemplateSectionResult,
   AddGalleryImageResult,
   GalleryItem,
@@ -3293,6 +3297,96 @@ export class ContentSaveClient {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
+  }
+
+  // ── Block Content Builders (static) ──────────────────────────────────
+  // Reusable functions to build GridContent.content for each block type.
+  // Used by addSectionWithBlocks() and could replace inline construction
+  // in existing addXxxBlock methods in the future.
+
+  static buildTextBlockContent(
+    blockId: string,
+    html: string,
+    formatting?: { tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p'; alignment?: 'left' | 'center' | 'right'; bold?: boolean; italic?: boolean },
+  ): GridContent['content'] {
+    // Reuse formatHtml logic — if formatting provided and html has no tags, wrap it
+    let formattedHtml = html;
+    if (formatting && !html.startsWith('<')) {
+      const tag = formatting.tag ?? 'p';
+      const styles = ['white-space:pre-wrap'];
+      if (formatting.alignment) styles.push(`text-align:${formatting.alignment}`);
+      let inner = html;
+      if (formatting.italic) inner = `<em>${inner}</em>`;
+      if (formatting.bold) inner = `<strong>${inner}</strong>`;
+      formattedHtml = `<${tag} style="${styles.join(';')}">${inner}</${tag}>`;
+    }
+    return {
+      value: {
+        id: blockId,
+        type: 2, // BLOCK_TYPE_TEXT
+        value: { engine: 'wysiwyg', source: formattedHtml, html: formattedHtml, textAttributes: [] },
+      },
+    };
+  }
+
+  static buildEmbedBlockContent(blockId: string, html: string): GridContent['content'] {
+    return {
+      value: {
+        id: blockId,
+        type: 22, // BLOCK_TYPE_EMBED
+        value: html ? { html } : {},
+        containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+      },
+    };
+  }
+
+  static buildButtonBlockContent(blockId: string, text: string, url: string): GridContent['content'] {
+    return {
+      value: {
+        id: blockId,
+        type: 1337, // BLOCK_TYPE_IMAGE (buttons share this type)
+        value: {
+          buttonText: text,
+          buttonLink: url,
+          newWindow: false,
+          buttonAlignment: 'center',
+          buttonSize: 'medium',
+          containerStyles: { stretchedToFill: true },
+          transforms: {
+            rotation: { value: 0, unit: 'deg' },
+            scale: { x: { value: 100, unit: '%' }, y: { value: 100, unit: '%' } },
+            opacity: { value: 100, unit: '%' },
+            offset: { x: { value: 0, unit: 'px' }, y: { value: 0, unit: 'px' } },
+            origin: { x: { value: 50, unit: '%' }, y: { value: 50, unit: '%' } },
+            skew: { x: { value: 0, unit: 'deg' }, y: { value: 0, unit: 'deg' } },
+          },
+          animations: [],
+          breakpointOverrides: {},
+        },
+        containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+        definitionName: 'website.components.button',
+      },
+    };
+  }
+
+  static buildImageBlockContent(blockId: string, assetUrl: string, altText?: string): GridContent['content'] {
+    const blockContent: Record<string, unknown> = {
+      id: blockId,
+      type: 1337, // BLOCK_TYPE_IMAGE
+      value: { assetUrl, layout: 'caption-below', linkTo: '' },
+    };
+    if (altText !== undefined) blockContent.altText = altText;
+    return { value: blockContent as GridContent['content']['value'] };
+  }
+
+  static buildVideoBlockContent(blockId: string, videoUrl: string, title?: string, description?: string): GridContent['content'] {
+    return {
+      value: {
+        id: blockId,
+        type: 32, // BLOCK_TYPE_VIDEO
+        value: { url: videoUrl, title, description },
+      },
+    };
   }
 
   /**
@@ -8284,6 +8378,7 @@ export class ContentSaveClient {
   async addBlankSection(
     pageSectionsId: string,
     collectionId: string,
+    position?: number,
   ): Promise<AddBlankSectionResult> {
     try {
       this.ensureCookies();
@@ -8330,9 +8425,18 @@ export class ContentSaveClient {
         },
       };
 
-      const updatedSections = [...data.sections, blankSection];
+      // Insert at position or append
+      const updatedSections = [...data.sections];
+      let sectionIndex: number;
+      if (position !== undefined && position >= 0 && position < updatedSections.length) {
+        updatedSections.splice(position, 0, blankSection);
+        sectionIndex = position;
+      } else {
+        updatedSections.push(blankSection);
+        sectionIndex = updatedSections.length - 1;
+      }
 
-      logger.info({ pageSectionsId, newSectionId, totalSections: updatedSections.length }, 'Adding blank section via PUT');
+      logger.info({ pageSectionsId, newSectionId, sectionIndex, totalSections: updatedSections.length }, 'Adding blank section via PUT');
 
       const saveResult = await this.savePageSections(pageSectionsId, collectionId, updatedSections);
 
@@ -8342,6 +8446,184 @@ export class ContentSaveClient {
 
       logger.info({ newSectionId }, 'Blank section added via API');
       return { success: true, sectionId: newSectionId };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Atomic Section + Blocks Creation ─────────────────────────────────
+
+  /**
+   * Create a new Fluid Engine section with initial blocks pre-populated.
+   * This is the preferred way to add new sections because Squarespace's
+   * backend may not fully initialize empty sections created via API,
+   * causing 500 errors on subsequent block insertions.
+   *
+   * All blocks are positioned using the same auto-stacking logic as
+   * addTextBlock() — each block placed below the previous with gap rows.
+   */
+  async addSectionWithBlocks(
+    pageSectionsId: string,
+    collectionId: string,
+    blocks: InitialBlock[],
+    options?: {
+      position?: number;
+      styles?: Record<string, unknown>;
+    },
+  ): Promise<AddSectionWithBlocksResult> {
+    try {
+      if (blocks.length === 0) {
+        return { success: false, error: 'addSectionWithBlocks requires at least one block' };
+      }
+
+      this.ensureCookies();
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Build blank section skeleton (same as addBlankSection)
+      const newSectionId = ContentSaveClient.generateSectionId();
+      const defaultStyles = {
+        backgroundWidth: 'background-width--full-bleed',
+        imageOverlayOpacity: 0.15,
+        sectionHeight: 'section-height--medium',
+        customSectionHeight: 10,
+        horizontalAlignment: 'horizontal-alignment--center',
+        verticalAlignment: 'vertical-alignment--middle',
+        contentWidth: 'content-width--wide',
+        customContentWidth: 50,
+        sectionTheme: '',
+        sectionAnimation: 'none',
+        backgroundMode: 'image',
+        ...(options?.styles ?? {}),
+      };
+
+      // Build gridContents from InitialBlock specs
+      const gridContents: GridContent[] = [];
+      const blockIds: string[] = [];
+      const maxColumns = 24;
+      let maxY = 0;
+      let maxMobileY = 0;
+
+      for (let i = 0; i < blocks.length; i++) {
+        const spec = blocks[i];
+        const blockId = ContentSaveClient.generateBlockId();
+        blockIds.push(blockId);
+
+        // Build content for this block type
+        let content: GridContent['content'];
+        let defaultCols: number;
+        let defaultRowHeight: number;
+
+        switch (spec.type) {
+          case 'text':
+            content = ContentSaveClient.buildTextBlockContent(blockId, spec.html, spec.formatting);
+            defaultCols = maxColumns;
+            defaultRowHeight = 3;
+            break;
+          case 'embed':
+            content = ContentSaveClient.buildEmbedBlockContent(blockId, spec.html);
+            defaultCols = 12;
+            defaultRowHeight = 6;
+            break;
+          case 'button':
+            content = ContentSaveClient.buildButtonBlockContent(blockId, spec.text, spec.url);
+            defaultCols = 7;
+            defaultRowHeight = 2;
+            break;
+          case 'image':
+            content = ContentSaveClient.buildImageBlockContent(blockId, spec.assetUrl, spec.altText);
+            defaultCols = 12;
+            defaultRowHeight = 8;
+            break;
+          case 'video':
+            content = ContentSaveClient.buildVideoBlockContent(blockId, spec.videoUrl, spec.title, spec.description);
+            defaultCols = maxColumns;
+            defaultRowHeight = 8;
+            break;
+          default:
+            return { success: false, error: `Unknown block type: ${(spec as any).type}` };
+        }
+
+        // Calculate layout
+        const layout = spec.layout;
+        const gapRows = layout?.gapRows ?? (i > 0 ? 2 : 0);
+        const rowHeight = layout?.rowHeight ?? defaultRowHeight;
+        let startX: number, endX: number, startY: number, endY: number;
+
+        if (layout?.startX != null && layout?.endX != null) {
+          startX = Math.max(1, layout.startX);
+          endX = Math.min(maxColumns + 1, layout.endX);
+        } else {
+          const cols = layout?.columns ?? defaultCols;
+          startX = 1;
+          endX = Math.min(startX + cols, maxColumns + 1);
+        }
+
+        if (layout?.startY != null && layout?.endY != null) {
+          startY = Math.max(0, layout.startY);
+          endY = layout.endY;
+        } else {
+          startY = maxY + gapRows;
+          endY = startY + rowHeight;
+        }
+
+        const mobileStartY = maxMobileY + gapRows;
+        const mobileEndY = mobileStartY + rowHeight;
+
+        const zIndex = i;
+
+        gridContents.push({
+          layout: {
+            mobile: { start: { x: 1, y: mobileStartY }, end: { x: 9, y: mobileEndY }, visible: true, verticalAlignment: 'top', zIndex },
+            desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+          },
+          content,
+        });
+
+        // Update maxY for next block
+        maxY = endY;
+        maxMobileY = mobileEndY;
+      }
+
+      const newSection: PageSection = {
+        id: newSectionId,
+        sectionName: 'FLUID_ENGINE',
+        isCloneable: false,
+        styles: defaultStyles,
+        sourceType: 'blank',
+        fluidEngineContext: {
+          id: ContentSaveClient.generateSectionId(),
+          gridContents,
+          gridSettings: {
+            rowGap: { unit: 'px', value: 11 },
+            columnGap: { unit: 'px', value: 11 },
+            rowStretch: false,
+            breakpointSettings: {
+              mobile: { rows: Math.max(2, maxMobileY), columns: 8, rowSize: { unit: 'vw', value: 6 } },
+              desktop: { rows: Math.max(8, maxY), columns: 24, rowSize: { unit: 'vw', value: 2 } },
+            },
+          },
+        },
+      };
+
+      // Insert at position or append
+      const sections = [...data.sections];
+      let sectionIndex: number;
+      if (options?.position !== undefined && options.position >= 0 && options.position < sections.length) {
+        sections.splice(options.position, 0, newSection);
+        sectionIndex = options.position;
+      } else {
+        sections.push(newSection);
+        sectionIndex = sections.length - 1;
+      }
+
+      logger.info({ pageSectionsId, newSectionId, blockCount: blocks.length, sectionIndex }, 'Adding section with blocks via PUT');
+
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error ?? 'savePageSections failed' };
+      }
+
+      return { success: true, sectionId: newSectionId, sectionIndex, blockIds };
     } catch (err) {
       return { success: false, error: errMsg(err) };
     }

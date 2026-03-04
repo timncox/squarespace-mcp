@@ -3,8 +3,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // Mock session module
 const mockClient = {
   addBlankSection: vi.fn(),
+  addSectionWithBlocks: vi.fn(),
   getSectionCatalog: vi.fn(),
   copyTemplateSection: vi.fn(),
+  getPageSections: vi.fn(),
+  savePageSections: vi.fn(),
   updateTextBlock: vi.fn(),
   removeBlock: vi.fn(),
   editSectionStyle: vi.fn(),
@@ -53,8 +56,9 @@ describe('MCP Section Tools (new)', () => {
     registerSectionTools(server as any);
   });
 
-  it('should register all 5 section tools', () => {
+  it('should register all 6 section tools', () => {
     expect(server.tools.has('sq_add_blank_section')).toBe(true);
+    expect(server.tools.has('sq_add_section')).toBe(true);
     expect(server.tools.has('sq_add_template_section')).toBe(true);
     expect(server.tools.has('sq_edit_section_style')).toBe(true);
     expect(server.tools.has('sq_move_section')).toBe(true);
@@ -240,6 +244,168 @@ describe('MCP Section Tools (new)', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Could not resolve page');
+    });
+  });
+
+  // ── sq_add_template_section (orphan fix) ──────────────────────────────
+
+  describe('sq_add_template_section', () => {
+    it('appends copied section to target page via GET+PUT', async () => {
+      const { lookupCatalogEntry } = await import('../../services/section-catalog.js');
+      vi.mocked(lookupCatalogEntry).mockReturnValue({
+        websiteId: 'template-site',
+        collectionId: 'template-col',
+        sectionId: 'template-sec',
+      });
+
+      mockClient.getSectionCatalog.mockResolvedValue({
+        success: true,
+        catalog: { CONTACT: [{ websiteId: 'template-site', collectionId: 'template-col', sectionId: 'template-sec' }] },
+      });
+
+      // copyTemplateSection returns the new section data
+      mockClient.copyTemplateSection.mockResolvedValue({
+        success: true,
+        sectionId: 'new-sec-id',
+        sectionData: {
+          id: 'new-sec-id',
+          sectionName: 'FLUID_ENGINE',
+          fluidEngineContext: {
+            id: 'ctx-new',
+            gridContents: [{ content: { value: { id: 'blk-1', type: 2, value: { html: '<p>Template content</p>' } } } }],
+            gridSettings: { breakpointSettings: { desktop: { columns: 24 } } },
+          },
+        },
+      });
+
+      // getPageSections returns current page
+      mockClient.getPageSections.mockResolvedValue({
+        sections: [{ id: 'existing-sec', sectionName: 'FLUID_ENGINE', fluidEngineContext: { gridContents: [] } }],
+      });
+
+      mockClient.savePageSections.mockResolvedValue({ success: true });
+
+      const result = await server.callTool('sq_add_template_section', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'contact',
+        category: 'Contact',
+        templateIndex: 0,
+      });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(data.sectionId).toBe('new-sec-id');
+      // Verify the section was attached to the page
+      expect(mockClient.savePageSections).toHaveBeenCalled();
+      const savedSections = mockClient.savePageSections.mock.calls[0][2];
+      expect(savedSections).toHaveLength(2);
+      expect(savedSections[1].id).toBe('new-sec-id');
+    });
+
+    it('returns error when copy fails', async () => {
+      const { lookupCatalogEntry } = await import('../../services/section-catalog.js');
+      vi.mocked(lookupCatalogEntry).mockReturnValue({
+        websiteId: 'template-site',
+        collectionId: 'template-col',
+        sectionId: 'template-sec',
+      });
+
+      mockClient.getSectionCatalog.mockResolvedValue({ success: true, catalog: { CONTACT: [{}] } });
+      mockClient.copyTemplateSection.mockResolvedValue({ success: false, error: 'Copy failed' });
+
+      const result = await server.callTool('sq_add_template_section', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'contact',
+        category: 'Contact',
+        templateIndex: 0,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Copy failed');
+    });
+  });
+
+  // ── sq_add_section ────────────────────────────────────────────────────
+
+  describe('sq_add_section', () => {
+    it('should register sq_add_section tool', () => {
+      expect(server.tools.has('sq_add_section')).toBe(true);
+    });
+
+    it('should call addSectionWithBlocks with text block', async () => {
+      mockClient.addSectionWithBlocks.mockResolvedValue({
+        success: true,
+        sectionId: 'sec-new',
+        sectionIndex: 2,
+        blockIds: ['blk-1'],
+      });
+
+      const result = await server.callTool('sq_add_section', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'contact',
+        blocks: [{ type: 'text', html: '<p>Contact us at hello@example.com</p>' }],
+      });
+
+      expect(mockClient.addSectionWithBlocks).toHaveBeenCalledWith(
+        'psi-contact', 'col-contact',
+        [{ type: 'text', html: '<p>Contact us at hello@example.com</p>' }],
+        { position: undefined, styles: undefined },
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(data.sectionId).toBe('sec-new');
+      expect(data.blockIds).toEqual(['blk-1']);
+    });
+
+    it('should pass position and styles options', async () => {
+      mockClient.addSectionWithBlocks.mockResolvedValue({
+        success: true,
+        sectionId: 'sec-new',
+        sectionIndex: 0,
+        blockIds: ['blk-1'],
+      });
+
+      await server.callTool('sq_add_section', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        blocks: [{ type: 'text', html: '<h1>Hero</h1>' }],
+        position: 0,
+        styles: { sectionTheme: 'dark' },
+      });
+
+      expect(mockClient.addSectionWithBlocks).toHaveBeenCalledWith(
+        'psi-home', 'col-home',
+        [{ type: 'text', html: '<h1>Hero</h1>' }],
+        { position: 0, styles: { sectionTheme: 'dark' } },
+      );
+    });
+
+    it('should return error when page resolve fails', async () => {
+      vi.mocked(resolvePageIds).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_add_section', {
+        siteId: 'bad-site',
+        pageSlug: 'home',
+        blocks: [{ type: 'text', html: '<p>Test</p>' }],
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Could not resolve page');
+    });
+
+    it('should return error when addSectionWithBlocks fails', async () => {
+      mockClient.addSectionWithBlocks.mockResolvedValue({
+        success: false,
+        error: 'at least one block required',
+      });
+
+      const result = await server.callTool('sq_add_section', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        blocks: [],
+      });
+
+      expect(result.isError).toBe(true);
     });
   });
 });

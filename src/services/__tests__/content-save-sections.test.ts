@@ -671,4 +671,216 @@ describe('ContentSaveClient — Section Operations', () => {
       expect(result.success).toBe(false);
     });
   });
+
+  // ── Block Builders (static) ────────────────────────────────────────────
+
+  describe('buildBlockContent (static helpers)', () => {
+    it('buildTextBlockContent creates type 2 block content', () => {
+      const content = ContentSaveClient.buildTextBlockContent('blk-1', '<p>Hello</p>');
+      expect(content.value.id).toBe('blk-1');
+      expect(content.value.type).toBe(2);
+      expect(content.value.value.engine).toBe('wysiwyg');
+      expect(content.value.value.source).toBe('<p>Hello</p>');
+      expect(content.value.value.html).toBe('<p>Hello</p>');
+    });
+
+    it('buildTextBlockContent with formatting wraps plain text', () => {
+      const content = ContentSaveClient.buildTextBlockContent('blk-1', 'Hello', { tag: 'h2', alignment: 'center' });
+      expect(content.value.value.source).toContain('<h2');
+      expect(content.value.value.source).toContain('text-align:center');
+      expect(content.value.value.source).toContain('Hello');
+    });
+
+    it('buildEmbedBlockContent creates type 22 block content', () => {
+      const content = ContentSaveClient.buildEmbedBlockContent('blk-2', '<iframe src="https://example.com"></iframe>');
+      expect(content.value.id).toBe('blk-2');
+      expect(content.value.type).toBe(22);
+      expect(content.value.value.html).toBe('<iframe src="https://example.com"></iframe>');
+      expect(content.value.containerStyles).toEqual({ backgroundEnabled: false, stretchedToFill: false });
+    });
+
+    it('buildButtonBlockContent creates type 1337 with definitionName', () => {
+      const content = ContentSaveClient.buildButtonBlockContent('blk-3', 'Click Me', 'https://example.com');
+      expect(content.value.id).toBe('blk-3');
+      expect(content.value.type).toBe(1337);
+      expect(content.value.value.buttonText).toBe('Click Me');
+      expect(content.value.value.buttonLink).toBe('https://example.com');
+      expect(content.value.definitionName).toBe('website.components.button');
+    });
+
+    it('buildImageBlockContent creates type 1337 without definitionName', () => {
+      const content = ContentSaveClient.buildImageBlockContent('blk-4', 'https://images.squarespace-cdn.com/test.jpg', 'A photo');
+      expect(content.value.id).toBe('blk-4');
+      expect(content.value.type).toBe(1337);
+      expect(content.value.value.assetUrl).toBe('https://images.squarespace-cdn.com/test.jpg');
+      expect(content.value.altText).toBe('A photo');
+      expect(content.value.definitionName).toBeUndefined();
+    });
+
+    it('buildVideoBlockContent creates type 32 block content', () => {
+      const content = ContentSaveClient.buildVideoBlockContent('blk-5', 'https://youtube.com/watch?v=abc');
+      expect(content.value.id).toBe('blk-5');
+      expect(content.value.type).toBe(32);
+      expect(content.value.value.url).toBe('https://youtube.com/watch?v=abc');
+    });
+  });
+
+  // ── addSectionWithBlocks ──────────────────────────────────────────────
+
+  describe('addSectionWithBlocks()', () => {
+    it('creates a section with a single text block in one PUT', async () => {
+      mockGetPut([makeSection('sec-0', [makeTextBlock('blk-0', '<p>Existing</p>')])]);
+
+      const result = await client.addSectionWithBlocks(PS_ID, COLL_ID, [
+        { type: 'text', html: '<p>Contact us</p>' },
+      ]);
+
+      expect(result.success).toBe(true);
+      expect(result.sectionId).toMatch(/^[0-9a-f]{24}$/);
+      expect(result.blockIds).toHaveLength(1);
+      expect(result.blockIds![0]).toMatch(/^[0-9a-f]{20}$/);
+      expect(result.sectionIndex).toBe(1); // Appended after sec-0
+
+      const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      expect(putBody.sections).toHaveLength(2);
+      const newSection = putBody.sections[1];
+      expect(newSection.sectionName).toBe('FLUID_ENGINE');
+      expect(newSection.fluidEngineContext.gridContents).toHaveLength(1);
+      expect(newSection.fluidEngineContext.gridContents[0].content.value.type).toBe(2);
+    });
+
+    it('creates a section with multiple mixed blocks', async () => {
+      mockGetPut([]);
+
+      const result = await client.addSectionWithBlocks(PS_ID, COLL_ID, [
+        { type: 'text', html: '<h2>Welcome</h2>' },
+        { type: 'embed', html: '<iframe src="https://maps.google.com"></iframe>' },
+        { type: 'button', text: 'Contact Us', url: '/contact' },
+      ]);
+
+      expect(result.success).toBe(true);
+      expect(result.blockIds).toHaveLength(3);
+
+      const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      const gridContents = putBody.sections[0].fluidEngineContext.gridContents;
+      expect(gridContents).toHaveLength(3);
+      expect(gridContents[0].content.value.type).toBe(2);  // text
+      expect(gridContents[1].content.value.type).toBe(22); // embed
+      expect(gridContents[2].content.value.type).toBe(1337); // button
+    });
+
+    it('stacks blocks vertically with gap rows', async () => {
+      mockGetPut([]);
+
+      await client.addSectionWithBlocks(PS_ID, COLL_ID, [
+        { type: 'text', html: '<p>First</p>' },
+        { type: 'text', html: '<p>Second</p>' },
+      ]);
+
+      const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      const blocks = putBody.sections[0].fluidEngineContext.gridContents;
+      // First block starts at y=0
+      expect(blocks[0].layout.desktop.start.y).toBe(0);
+      // Second block starts after first block end + gap
+      expect(blocks[1].layout.desktop.start.y).toBeGreaterThan(blocks[0].layout.desktop.end.y);
+    });
+
+    it('inserts at specified position', async () => {
+      mockGetPut([
+        makeSection('sec-0', [makeTextBlock('blk-0', '<p>First</p>')]),
+        makeSection('sec-1', [makeTextBlock('blk-1', '<p>Last</p>')]),
+      ]);
+
+      const result = await client.addSectionWithBlocks(PS_ID, COLL_ID,
+        [{ type: 'text', html: '<p>Middle</p>' }],
+        { position: 1 },
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.sectionIndex).toBe(1);
+
+      const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      expect(putBody.sections).toHaveLength(3);
+      // New section is at index 1
+      expect(putBody.sections[1].fluidEngineContext.gridContents[0].content.value.value.source).toBe('<p>Middle</p>');
+      // Original sec-1 moved to index 2
+      expect(putBody.sections[2].id).toBe('sec-1');
+    });
+
+    it('rejects empty blocks array', async () => {
+      const result = await client.addSectionWithBlocks(PS_ID, COLL_ID, []);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('at least one block');
+    });
+
+    it('returns error when GET fails', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Server error' });
+
+      const result = await client.addSectionWithBlocks(PS_ID, COLL_ID, [
+        { type: 'text', html: '<p>Test</p>' },
+      ]);
+
+      expect(result.success).toBe(false);
+    });
+
+    it('returns error when PUT fails', async () => {
+      mockGetPutFail([]);
+
+      const result = await client.addSectionWithBlocks(PS_ID, COLL_ID, [
+        { type: 'text', html: '<p>Test</p>' },
+      ]);
+
+      expect(result.success).toBe(false);
+    });
+
+    it('all blocks have verticalAlignment and zIndex set', async () => {
+      mockGetPut([]);
+
+      await client.addSectionWithBlocks(PS_ID, COLL_ID, [
+        { type: 'text', html: '<p>A</p>' },
+        { type: 'embed', html: '<div>B</div>' },
+      ]);
+
+      const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      const blocks = putBody.sections[0].fluidEngineContext.gridContents;
+      for (const block of blocks) {
+        expect(block.layout.desktop.verticalAlignment).toBe('top');
+        expect(block.layout.desktop.zIndex).toBeDefined();
+        expect(block.layout.mobile.verticalAlignment).toBe('top');
+        expect(block.layout.mobile.zIndex).toBeDefined();
+      }
+    });
+
+    it('supports image and video block types', async () => {
+      mockGetPut([]);
+
+      const result = await client.addSectionWithBlocks(PS_ID, COLL_ID, [
+        { type: 'image', assetUrl: 'https://images.squarespace-cdn.com/test.jpg', altText: 'Photo' },
+        { type: 'video', videoUrl: 'https://youtube.com/watch?v=abc' },
+      ]);
+
+      expect(result.success).toBe(true);
+      expect(result.blockIds).toHaveLength(2);
+
+      const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      const blocks = putBody.sections[0].fluidEngineContext.gridContents;
+      expect(blocks[0].content.value.type).toBe(1337); // image
+      expect(blocks[0].content.value.value.assetUrl).toBe('https://images.squarespace-cdn.com/test.jpg');
+      expect(blocks[1].content.value.type).toBe(32);   // video
+    });
+
+    it('applies text formatting when provided', async () => {
+      mockGetPut([]);
+
+      await client.addSectionWithBlocks(PS_ID, COLL_ID, [
+        { type: 'text', html: 'Contact Us', formatting: { tag: 'h2', alignment: 'center' } },
+      ]);
+
+      const putBody = JSON.parse(mockFetch.mock.calls[1][1].body);
+      const block = putBody.sections[0].fluidEngineContext.gridContents[0];
+      expect(block.content.value.value.source).toContain('<h2');
+      expect(block.content.value.value.source).toContain('text-align:center');
+    });
+  });
 });

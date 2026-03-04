@@ -23,7 +23,7 @@ Entry point: `src/index.ts` — starts Fastify server + Gmail polling loop (60s 
 
 All task execution routes through the **MCP orchestrator** — autonomous Claude CLI agents backed by ~40 MCP tools wrapping the Content Save API. No browser agent or legacy pipeline.
 
-- **MCP server** (`src/mcp-server/`) wraps ContentSaveClient as ~62 tools
+- **MCP server** (`src/mcp-server/`) wraps ContentSaveClient as ~63 tools
 - **Autonomous Claude CLI agents** spawned via `claude -p --mcp-config --output-format stream-json`
 - **Orchestrator** (`src/orchestrator/`) runs the full pipeline: classify → research → analyze → strategize → [approve] → execute → supervise
 - **Self-improving loop**: browser fallbacks logged → dashboard → new API tools created
@@ -36,7 +36,7 @@ All task execution routes through the **MCP orchestrator** — autonomous Claude
 2. **Tasks created** → `conversation-handler.ts` sends summary to Tim via WhatsApp
 3. **Tim confirms** → conversation state machine routes to `executeTasks()`
 4. **MCP Orchestrator pipeline**: classify → research (web search) → analyze (site snapshot) → strategize (structured ContentPlan) → [plan approval if configured] → execute (MCP tools) → supervise (verify result)
-5. All edits via Content Save API through MCP tools (~67 tools)
+5. All edits via Content Save API through MCP tools (~68 tools)
 
 ### Directory Structure
 
@@ -49,7 +49,7 @@ src/
   routes/           # Fastify routes (dashboard, webhooks, screenshots, health)
   services/         # Business logic (whatsapp, gmail, email-processor, conversation-handler, content-save)
     conversation/   # Conversation sub-modules (message-handlers, execution, helpers)
-  mcp-server/       # MCP server — ~67 tools across 13 modules (text, section, blocks, pages, site, content, screenshot, web-search, forms, divider, links, gmail, commerce)
+  mcp-server/       # MCP server — ~68 tools across 13 modules (text, section, blocks, pages, site, content, screenshot, web-search, forms, divider, links, gmail, commerce)
     tools/          # Tool modules (registerXxxTools pattern)
     session.ts      # Client cache + resolvePageIds (shared by all tools)
     index.ts        # Tool registration entry point
@@ -72,7 +72,7 @@ storage/            # Runtime data (uploads/, screenshots/) — not committed
 | `src/orchestrator/orchestrator.ts` | MCP orchestrator — 6-stage pipeline with structured planning, per-operation tracking, and SSE events |
 | `src/orchestrator/cli-runner.ts` | Claude CLI spawner (stream-json NDJSON parsing) |
 | `src/orchestrator/prompts/` | 6 agent prompts (executor, supervisor, classifier, researcher, analyst, strategist) |
-| `src/mcp-server/index.ts` | MCP server — ~67 tools registration entry point |
+| `src/mcp-server/index.ts` | MCP server — ~68 tools registration entry point |
 | `src/mcp-server/tools/web-search.ts` | Web search MCP tools (`sq_web_search`, `sq_fetch_url`) |
 | `src/mcp-server/tools/gmail.ts` | Gmail MCP tools (`sq_list_emails`, `sq_read_email`, `sq_process_email`, `sq_download_attachment`, `sq_list_processed_emails`, `sq_parse_pdf_menu`) |
 | `src/mcp-server/tools/commerce.ts` | Internal commerce MCP tools (8 tools: products, images, store pages) |
@@ -109,6 +109,8 @@ The Content Save API is the primary execution mechanism, exposed as MCP tools. U
 - `swapBlocks()` — exchange two blocks' full layout objects
 - `updateMenuBlock()` — structured JSON read-modify-write on type 18 blocks
 - `findBlock()` — generalized finder (text, image, menu, button blocks + ID prefix fallback)
+- `addSectionWithBlocks()` — atomic section creation with pre-populated blocks (text, embed, button, image, video). Preferred over `addBlankSection()` + separate block adds.
+- `addBlankSection()` — add empty section (supports position param). WARNING: subsequent block insertions may fail.
 
 **Grid system**: Desktop = 24 columns (X: 1–24), `start` inclusive / `end` exclusive. Mobile auto-reflows — only desktop coordinates are modified.
 

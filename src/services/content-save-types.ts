@@ -338,6 +338,42 @@ export interface AddBlankSectionResult {
   error?: string;
 }
 
+/** Hints for block positioning within a section */
+export interface LayoutHints {
+  columns?: number;
+  rowHeight?: number;
+  gapRows?: number;
+  startX?: number;
+  endX?: number;
+  startY?: number;
+  endY?: number;
+}
+
+/** Text formatting options for text blocks */
+export interface TextBlockFormatting {
+  tag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p';
+  alignment?: 'left' | 'center' | 'right';
+  bold?: boolean;
+  italic?: boolean;
+}
+
+/** Block specification for atomic section creation */
+export type InitialBlock =
+  | { type: 'text'; html: string; layout?: LayoutHints; formatting?: TextBlockFormatting }
+  | { type: 'embed'; html: string; layout?: LayoutHints }
+  | { type: 'button'; text: string; url: string; layout?: LayoutHints }
+  | { type: 'image'; assetUrl: string; altText?: string; layout?: LayoutHints }
+  | { type: 'video'; videoUrl: string; title?: string; description?: string; layout?: LayoutHints };
+
+/** Result of adding a section with initial blocks */
+export interface AddSectionWithBlocksResult {
+  success: boolean;
+  sectionId?: string;
+  sectionIndex?: number;
+  blockIds?: string[];
+  error?: string;
+}
+
 /** Result of copying a template section via API */
 export interface CopyTemplateSectionResult {
   success: boolean;

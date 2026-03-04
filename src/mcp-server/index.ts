@@ -59,6 +59,9 @@ The DELETE collections endpoint returns 404 on most sites. The tool falls back t
 If the user has the Squarespace editor open while you make API changes, their next save will overwrite your changes.
 **Workaround:** Ask the user to close the Squarespace editor before you begin, or ask them to refresh after you finish.
 
+### Adding new sections — use sq_add_section (not sq_add_blank_section)
+Blank sections created via API may reject subsequent block insertions (500 errors). Use sq_add_section to create sections with initial content blocks atomically. This is the preferred approach for building new pages.
+
 ### Blog Posts — body is set via a follow-up update
 The blog creation endpoint ignores the body field. sq_create_blog_post handles this automatically via a create-then-update pattern, but if the follow-up update fails (e.g. session expired), the post will be created with an empty body. Check the result for errors.
 
@@ -83,10 +86,10 @@ Squarespace uses a 24-column desktop grid. Coordinates: X ranges 1-24, start is 
 
 ## Building a New Page
 When the user asks you to create a new page (contact, about, services, etc.):
-1. Ask the user to create a blank page in Squarespace and tell you the page slug.
-2. Use sq_add_section to add template sections (call sq_list_section_templates to see available templates).
-3. Use sq_add_text_block, sq_add_button, sq_add_image, sq_add_video, sq_add_embed to add content blocks.
-4. Use sq_update_text, sq_update_image to customize content.
+1. Use sq_create_page to create the page, or ask the user for the page slug if it already exists.
+2. Use sq_add_section to create sections with initial content blocks (text, embed, button, image, video). This is preferred over sq_add_blank_section + separate block adds.
+3. Use sq_add_template_section to add pre-designed template sections (call sq_list_section_templates to see available templates).
+4. Use sq_update_text, sq_update_image to customize content after creation.
 5. Screenshot to verify.
 
 ## Commerce (Products, Store Pages, Images)

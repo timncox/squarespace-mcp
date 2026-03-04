@@ -199,7 +199,7 @@ describe('MCP Tools', () => {
       expect(data.sectionId).toBe('new-sec');
     });
 
-    it('sq_add_blank_section with position should include note', async () => {
+    it('sq_add_blank_section with position should pass position to addBlankSection', async () => {
       mockClient.addBlankSection.mockResolvedValue({ success: true, sectionId: 'new-sec' });
 
       const result = await server.callTool('sq_add_blank_section', {
@@ -208,8 +208,9 @@ describe('MCP Tools', () => {
         position: 2,
       });
 
+      expect(mockClient.addBlankSection).toHaveBeenCalledWith('psi-home', 'col-home', 2);
       const data = JSON.parse(result.content[0].text);
-      expect(data.note).toContain('sq_move_section');
+      expect(data.success).toBe(true);
     });
 
     it('sq_add_blank_section should return error on failure', async () => {
