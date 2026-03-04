@@ -7,6 +7,7 @@
  * sq_find_blog_post: Find a blog post by title
  * sq_get_menu: Read menu block data
  * sq_update_menu: Update menu block
+ * sq_add_menu: Add a new menu block
  * sq_update_gallery: Update gallery display settings
  */
 
@@ -266,6 +267,62 @@ export function registerContentTools(server: McpServer) {
           type: 'text' as const,
           text: JSON.stringify(result, null, 2),
         }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_add_menu ──────────────────────────────────────────────────────────────
+  server.registerTool('sq_add_menu', {
+    description:
+      'Add a new menu block (type 18) to a section on a Squarespace page. Optionally provide initial menu content in Squarespace menu text format (tabs with ========, sections with ------, items with $price).',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      sectionIndex: z.number().describe('0-based section index to add the menu to'),
+      menuText: z.string().optional().describe('Menu content in Squarespace text format — tabs (========), sections (------), items ($price). Omit for empty menu.'),
+      menuStyle: z.string().optional().describe('Menu display style (default: "classic")'),
+      currencySymbol: z.string().optional().describe('Currency symbol (default: "$")'),
+      layout: z.object({
+        columns: z.number().optional().describe('Grid columns to span (default: 12)'),
+        offsetColumns: z.number().optional().describe('Push block right by N columns (e.g. 12 = right half)'),
+        rowHeight: z.number().optional().describe('Rows tall (default: 6)'),
+        startX: z.number().optional().describe('Absolute grid start X (overrides columns/offset)'),
+        endX: z.number().optional().describe('Absolute grid end X'),
+        startY: z.number().optional().describe('Absolute grid start Y'),
+        endY: z.number().optional().describe('Absolute grid end Y'),
+      }).optional().describe('Optional grid layout settings'),
+    },
+  }, async ({ siteId, pageSlug, sectionIndex, menuText, menuStyle, currencySymbol, layout }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+
+      // Resolve offsetColumns to startX/endX, then strip convenience keys
+      const resolvedLayout = layout ? { ...layout } : undefined;
+      if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
+        resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
+        resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 12);
+      }
+      if (resolvedLayout) delete resolvedLayout.offsetColumns;
+
+      // Build options from top-level params + resolved layout
+      const options = (menuStyle || currencySymbol || resolvedLayout)
+        ? { ...resolvedLayout, ...(menuStyle ? { menuStyle } : {}), ...(currencySymbol ? { currencySymbol } : {}) }
+        : undefined;
+
+      const result = await client.addMenuBlock(ids.pageSectionsId, ids.collectionId, sectionIndex, menuText, options);
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        ...(result.success ? {} : { isError: true }),
       };
     } catch (err) {
       return {
