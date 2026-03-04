@@ -13,6 +13,9 @@ const mockClient = {
   getCodeInjection: vi.fn(),
   saveCodeInjection: vi.fn(),
   saveCustomCSS: vi.fn(),
+  getSocialAccounts: vi.fn(),
+  addSocialAccount: vi.fn(),
+  removeSocialAccount: vi.fn(),
 };
 
 vi.mock('../session.js', () => ({
@@ -46,7 +49,7 @@ describe('Site Tools', () => {
     registerSiteTools(server as any);
   });
 
-  it('should register all 7 site tools', () => {
+  it('should register all 10 site tools', () => {
     expect(server.tools.has('sq_get_settings')).toBe(true);
     expect(server.tools.has('sq_update_settings')).toBe(true);
     expect(server.tools.has('sq_get_design')).toBe(true);
@@ -54,6 +57,9 @@ describe('Site Tools', () => {
     expect(server.tools.has('sq_get_code_injection')).toBe(true);
     expect(server.tools.has('sq_update_code_injection')).toBe(true);
     expect(server.tools.has('sq_update_css')).toBe(true);
+    expect(server.tools.has('sq_list_social_links')).toBe(true);
+    expect(server.tools.has('sq_add_social_link')).toBe(true);
+    expect(server.tools.has('sq_remove_social_link')).toBe(true);
   });
 
   // ── sq_get_settings ─────────────────────────────────────────────────────────
@@ -387,6 +393,158 @@ describe('Site Tools', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Network timeout');
+    });
+  });
+
+  // ── sq_list_social_links ──────────────────────────────────────────────────
+
+  describe('sq_list_social_links', () => {
+    it('should return social accounts list', async () => {
+      mockClient.getSocialAccounts.mockResolvedValue({
+        success: true,
+        data: [
+          { id: 'acc-1', serviceId: 62, screenname: 'Twitter', profileUrl: 'https://twitter.com/test', iconEnabled: true, serviceName: 'twitter-unauth' },
+          { id: 'acc-2', serviceId: 64, screenname: 'Instagram', profileUrl: 'https://instagram.com/test', iconEnabled: true, serviceName: 'instagram-unauth' },
+        ],
+      });
+
+      const result = await server.callTool('sq_list_social_links', { siteId: 'test-site' });
+
+      expect(result.isError).toBeUndefined();
+      const data = JSON.parse(result.content[0].text);
+      expect(data).toHaveLength(2);
+      expect(data[0].serviceName).toBe('twitter-unauth');
+    });
+
+    it('should return error on failure', async () => {
+      mockClient.getSocialAccounts.mockResolvedValue({
+        success: false,
+        error: 'Session expired',
+      });
+
+      const result = await server.callTool('sq_list_social_links', { siteId: 'test-site' });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Session expired');
+    });
+  });
+
+  // ── sq_add_social_link ────────────────────────────────────────────────────
+
+  describe('sq_add_social_link', () => {
+    it('should add social link by platform name', async () => {
+      mockClient.addSocialAccount.mockResolvedValue({
+        success: true,
+        data: { id: 'acc-new', serviceId: 64, screenname: 'Instagram', profileUrl: 'https://instagram.com/new', iconEnabled: true, serviceName: 'instagram-unauth' },
+      });
+
+      const result = await server.callTool('sq_add_social_link', {
+        siteId: 'test-site',
+        service: 'instagram',
+        username: 'Instagram',
+        profileUrl: 'https://instagram.com/new',
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockClient.addSocialAccount).toHaveBeenCalledWith(64, 'Instagram', 'https://instagram.com/new');
+      const data = JSON.parse(result.content[0].text);
+      expect(data.id).toBe('acc-new');
+    });
+
+    it('should accept "x" as alias for twitter', async () => {
+      mockClient.addSocialAccount.mockResolvedValue({
+        success: true,
+        data: { id: 'acc-x', serviceId: 62, screenname: 'X', profileUrl: 'https://x.com/test', iconEnabled: true, serviceName: 'twitter-unauth' },
+      });
+
+      await server.callTool('sq_add_social_link', {
+        siteId: 'test-site',
+        service: 'x',
+        username: 'X',
+        profileUrl: 'https://x.com/test',
+      });
+
+      expect(mockClient.addSocialAccount).toHaveBeenCalledWith(62, 'X', 'https://x.com/test');
+    });
+
+    it('should accept numeric service ID', async () => {
+      mockClient.addSocialAccount.mockResolvedValue({
+        success: true,
+        data: { id: 'acc-num', serviceId: 69, screenname: 'YouTube', profileUrl: 'https://youtube.com/test', iconEnabled: true, serviceName: 'youtube-unauth' },
+      });
+
+      await server.callTool('sq_add_social_link', {
+        siteId: 'test-site',
+        service: '69',
+        username: 'YouTube',
+        profileUrl: 'https://youtube.com/test',
+      });
+
+      expect(mockClient.addSocialAccount).toHaveBeenCalledWith(69, 'YouTube', 'https://youtube.com/test');
+    });
+
+    it('should reject unknown service name', async () => {
+      const result = await server.callTool('sq_add_social_link', {
+        siteId: 'test-site',
+        service: 'myspace',
+        username: 'MySpace',
+        profileUrl: 'https://myspace.com/test',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Unknown service');
+      expect(mockClient.addSocialAccount).not.toHaveBeenCalled();
+    });
+
+    it('should return error on API failure', async () => {
+      mockClient.addSocialAccount.mockResolvedValue({
+        success: false,
+        error: 'CreateNonOAuthAccount failed: 400',
+      });
+
+      const result = await server.callTool('sq_add_social_link', {
+        siteId: 'test-site',
+        service: 'facebook',
+        username: 'Facebook',
+        profileUrl: 'https://facebook.com/test',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('400');
+    });
+  });
+
+  // ── sq_remove_social_link ─────────────────────────────────────────────────
+
+  describe('sq_remove_social_link', () => {
+    it('should remove social account by ID', async () => {
+      mockClient.removeSocialAccount.mockResolvedValue({ success: true });
+
+      const result = await server.callTool('sq_remove_social_link', {
+        siteId: 'test-site',
+        accountId: 'acc-123',
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockClient.removeSocialAccount).toHaveBeenCalledWith('acc-123');
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(data.removedAccountId).toBe('acc-123');
+    });
+
+    it('should return error on failure', async () => {
+      mockClient.removeSocialAccount.mockResolvedValue({
+        success: false,
+        error: 'Account not found',
+      });
+
+      const result = await server.callTool('sq_remove_social_link', {
+        siteId: 'test-site',
+        accountId: 'nonexistent',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Account not found');
     });
   });
 });

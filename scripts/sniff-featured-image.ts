@@ -6,7 +6,7 @@
  *   npx tsx scripts/sniff-featured-image.ts [siteSubdomain]
  *
  * Prerequisites:
- *   - Session cookies in storage/state.json (from refresh-session.ts)
+ *   - Session cookies in storage/auth/sqsp-session.json (from refresh-session.ts)
  *   - A blog post that already exists on the site
  *
  * What it does:
@@ -22,7 +22,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const SITE = process.argv[2] || 'grey-yellow-hbxc';
-const STORAGE_STATE = path.resolve('storage/state.json');
+const STORAGE_STATE = path.resolve('storage/auth/sqsp-session.json');
 
 const IMAGE_FIELDS = [
   'mainImage', 'thumbnailImage', 'leadImage', 'mediaFocalPoint',

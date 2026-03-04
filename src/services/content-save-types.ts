@@ -1117,3 +1117,15 @@ export interface TemplateTweakSettingsUpdateResult {
   error?: string;
 }
 
+// ── Social Accounts ──────────────────────────────────────────────────────────
+
+/** A non-OAuth social link account */
+export interface SocialAccount {
+  id: string;
+  serviceId: number;
+  screenname: string;
+  profileUrl: string;
+  iconEnabled: boolean;
+  serviceName: string;
+}
+

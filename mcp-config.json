@@ -4,9 +4,9 @@
       "command": "node",
       "args": ["dist/src/mcp-server/index.js"],
       "env": {
-        "SESSION_DIR": "./storage/auth",
-        "SITES_CONFIG": "./config/sites.json",
-        "DB_PATH": "./data/sqhelper.db"
+        "SESSION_DIR": "/Users/timcox/squarespace helper/storage/auth",
+        "SITES_CONFIG": "/Users/timcox/squarespace helper/config/sites.json",
+        "DB_PATH": "/Users/timcox/squarespace helper/data/sqhelper.db"
       }
     }
   }

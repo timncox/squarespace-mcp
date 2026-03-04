@@ -73,10 +73,19 @@ describe('ContentSaveClient — Speculative APIs', () => {
   // ── createPageViaApi ─────────────────────────────────────────────────
 
   describe('createPageViaApi()', () => {
-    it('returns success when first endpoint works', async () => {
+    it('creates page via SaveCollectionSettings', async () => {
+      // SaveCollectionSettings → success
       mockFetch.mockResolvedValueOnce(
-        jsonResponse({ id: 'page-123', urlId: 'new-page' }),
+        jsonResponse({ id: 'page-123', urlId: 'new-page', updatedOn: 1700000000000 }),
       );
+      // GET /api/navigation
+      mockFetch.mockResolvedValueOnce(jsonResponse({ mainNavigation: [], notLinked: [] }));
+      // GET /api/commondata/GetSiteLayout
+      mockFetch.mockResolvedValueOnce(jsonResponse({}));
+      // GET /api/template/GetTemplate
+      mockFetch.mockResolvedValueOnce(jsonResponse({ id: 'tmpl-123' }));
+      // POST /api/widget/UpdateNavigation
+      mockFetch.mockResolvedValueOnce(jsonResponse({ id: 'nav-1' }));
 
       const result = await client.createPageViaApi('New Page', 'new-page');
       expect(result.success).toBe(true);
@@ -84,37 +93,8 @@ describe('ContentSaveClient — Speculative APIs', () => {
       expect(result.pageId).toBe('page-123');
       expect(result.urlId).toBe('new-page');
 
-      // Should have only called once (first endpoint worked)
-      expect(mockFetch).toHaveBeenCalledTimes(1);
       const fetchUrl = mockFetch.mock.calls[0][0] as string;
-      expect(fetchUrl).toContain('/api/content/add/page');
-    });
-
-    it('tries fallback endpoints when first returns 404', async () => {
-      mockFetch
-        .mockResolvedValueOnce(errorResponse(404))  // /api/content/add/page
-        .mockResolvedValueOnce(                       // /api/pages
-          jsonResponse({ id: 'page-456', urlId: 'fallback-page' }),
-        );
-
-      const result = await client.createPageViaApi('Fallback Page', 'fallback-page');
-      expect(result.success).toBe(true);
-      expect(result.endpointAvailable).toBe(true);
-      expect(result.pageId).toBe('page-456');
-
-      expect(mockFetch).toHaveBeenCalledTimes(2);
-    });
-
-    it('returns endpointAvailable: false when all return 404', async () => {
-      mockFetch
-        .mockResolvedValueOnce(errorResponse(404))  // /api/content/add/page
-        .mockResolvedValueOnce(errorResponse(405))  // /api/pages
-        .mockResolvedValueOnce(errorResponse(404)); // /api/collections
-
-      const result = await client.createPageViaApi('No Endpoint', 'no-endpoint');
-      expect(result.success).toBe(false);
-      expect(result.endpointAvailable).toBe(false);
-      expect(result.error).toContain('No page creation endpoint found');
+      expect(fetchUrl).toContain('/api/commondata/SaveCollectionSettings');
     });
 
     it('returns endpointAvailable: true with error on 401', async () => {

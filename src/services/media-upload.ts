@@ -22,7 +22,9 @@ const MEDIA_API_BASE = 'https://media-api.squarespace.com';
 const MAX_IMAGE_SIZE = 20 * 1024 * 1024; // 20 MB
 const POLL_INTERVAL_MS = 1_500;
 const POLL_TIMEOUT_MS = 120_000; // 2 minutes
-const SESSION_PATH = join(process.cwd(), 'storage', 'auth', 'sqsp-session.json');
+const SESSION_PATH = process.env.SESSION_DIR
+  ? join(process.env.SESSION_DIR, 'sqsp-session.json')
+  : join(process.cwd(), 'storage', 'auth', 'sqsp-session.json');
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36';

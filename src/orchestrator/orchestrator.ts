@@ -12,7 +12,7 @@ import { errMsg } from '../utils/errors.js';
 import type { Task } from '../models/task.js';
 import type { Conversation } from '../models/conversation.js';
 import type { ContentPlan } from '../agents/types.js';
-import { createPlanOperations, type PlanOperation } from '../db/plan-operations.js';
+import { createPlanOperations, updateOperationStatus, type PlanOperation } from '../db/plan-operations.js';
 import { join } from 'path';
 
 // ── Agent Configs ───────────────────────────────────────────────────────────
@@ -40,9 +40,10 @@ const AGENT_CONFIGS: Record<string, Omit<AgentConfig, 'mcpConfig'>> = {
   analyst: {
     name: 'analyst',
     model: 'sonnet',
-    maxTurns: 3,
+    maxTurns: 5,
     systemPromptFile: join(PROMPTS_DIR, 'analyst.md'),
     allowedTools: [
+      'mcp__squarespace__sq_list_sites',
       'mcp__squarespace__sq_read_page',
       'mcp__squarespace__sq_list_pages',
       'mcp__squarespace__sq_get_navigation',
@@ -92,6 +93,7 @@ const AGENT_CONFIGS: Record<string, Omit<AgentConfig, 'mcpConfig'>> = {
 
 export interface OrchestratorResult {
   success: boolean;
+  error?: string;
   verdict?: { verdict: string; issues: string[]; suggestions: string[] };
   fallbacks: BrowserFallback[];
   agentCosts: Record<string, number>;
@@ -106,11 +108,34 @@ function agentConfig(name: string): AgentConfig {
   return { ...base, mcpConfig: MCP_CONFIG };
 }
 
-function emitActivity(taskId: string, agent: string, status: string) {
-  dashboardEvents.emit('agent_activity', {
-    taskId,
-    agent,
-    status,
+/** Emit agent activity via the 'dashboard' envelope so SSE relay + persistence both pick it up. */
+function emitActivity(taskId: string, agent: string, status: string, message?: string) {
+  dashboardEvents.emit('dashboard', {
+    type: 'agent_activity' as const,
+    data: {
+      taskId,
+      agent,
+      status,
+      message: message ?? `${agent} ${status}`,
+    },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/** Emit agent step via the 'dashboard' envelope. */
+function emitStep(taskId: string, step: Record<string, unknown>) {
+  dashboardEvents.emit('dashboard', {
+    type: 'agent_step' as const,
+    data: { taskId, ...step },
+    timestamp: new Date().toISOString(),
+  });
+}
+
+/** Emit operation_update via the 'dashboard' envelope. */
+function emitOperationUpdate(conversationId: string, operationId: string, status: string, description: string) {
+  dashboardEvents.emit('dashboard', {
+    type: 'operation_update' as const,
+    data: { conversationId, operationId, status, description },
     timestamp: new Date().toISOString(),
   });
 }
@@ -160,7 +185,7 @@ export async function orchestrateTask(
     try {
       const result = await runAgent(agentConfig('researcher'), task.description ?? '', {
         timeout: 60_000,
-        onStep: (step) => dashboardEvents.emit('agent_step', { taskId, ...step }),
+        onStep: (step) => emitStep(taskId, step),
       });
       research = result.text;
       agentCosts.researcher = result.cost;
@@ -171,19 +196,20 @@ export async function orchestrateTask(
   }
 
   // 3. Analyze
-  emitActivity(taskId, 'analyst', 'started');
+  emitActivity(taskId, 'analyst', 'started', `Analyzing site "${task.siteId}" for task`);
   let analysis = '';
   try {
     const input = `Analyze site "${task.siteId}" for this task: ${task.description}\nTarget page: ${task.targetPage ?? 'home'}`;
     const result = await runAgent(agentConfig('analyst'), input, {
-      timeout: 120_000,
-      onStep: (step) => dashboardEvents.emit('agent_step', { taskId, ...step }),
+      timeout: 300_000,
+      onStep: (step) => emitStep(taskId, step),
     });
     analysis = result.text;
     agentCosts.analyst = result.cost;
   } catch (err) {
     logger.error({ error: errMsg(err) }, 'Analyst failed');
-    return { success: false, fallbacks: [], agentCosts, totalCost: sumCosts(agentCosts) };
+    emitActivity(taskId, 'analyst', 'failed', `Analyst failed: ${errMsg(err)}`);
+    return { success: false, error: `Analyst failed: ${errMsg(err)}`, fallbacks: [], agentCosts, totalCost: sumCosts(agentCosts) };
   }
   emitActivity(taskId, 'analyst', 'completed');
 
@@ -200,13 +226,14 @@ export async function orchestrateTask(
     ].join('\n');
     const result = await runAgent(agentConfig('strategist'), input, {
       timeout: 120_000,
-      onStep: (step) => dashboardEvents.emit('agent_step', { taskId, ...step }),
+      onStep: (step) => emitStep(taskId, step),
     });
     plan = result.text;
     agentCosts.strategist = result.cost;
   } catch (err) {
     logger.error({ error: errMsg(err) }, 'Strategist failed');
-    return { success: false, fallbacks: [], agentCosts, totalCost: sumCosts(agentCosts) };
+    emitActivity(taskId, 'strategist', 'failed', `Strategist failed: ${errMsg(err)}`);
+    return { success: false, error: `Strategist failed: ${errMsg(err)}`, fallbacks: [], agentCosts, totalCost: sumCosts(agentCosts) };
   }
   emitActivity(taskId, 'strategist', 'completed');
 
@@ -216,7 +243,7 @@ export async function orchestrateTask(
     contentPlan = JSON.parse(plan);
   } catch {
     logger.error({ raw: plan.substring(0, 500) }, 'Strategist returned invalid JSON');
-    return { success: false, fallbacks: [], agentCosts, totalCost: sumCosts(agentCosts) };
+    return { success: false, error: `Strategist returned invalid JSON: ${plan.substring(0, 200)}`, fallbacks: [], agentCosts, totalCost: sumCosts(agentCosts) };
   }
 
   // 4c. Track operations in DB
@@ -224,12 +251,7 @@ export async function orchestrateTask(
   try {
     trackedOps = createPlanOperations(conversation.id, contentPlan);
     for (const op of trackedOps) {
-      dashboardEvents.emit('operation_update', {
-        conversationId: conversation.id,
-        operationId: op.id,
-        status: 'pending',
-        description: `${op.operationType} on ${op.targetPage ?? 'site'}`,
-      });
+      emitOperationUpdate(conversation.id, op.id, 'pending', `${op.operationType} on ${op.targetPage ?? 'site'}`);
     }
   } catch (err) {
     logger.warn({ error: errMsg(err) }, 'Failed to track operations (non-blocking)');
@@ -264,8 +286,11 @@ export async function orchestrateTask(
     return { success: true, verdict: undefined, fallbacks: [], agentCosts, totalCost: sumCosts(agentCosts) };
   }
 
-  // 5. Execute
-  emitActivity(taskId, 'executor', 'started');
+  // 5. Execute — mark all operations as executing, then run
+  for (const op of trackedOps) {
+    updateOperationStatus(op.id, 'executing');
+  }
+  emitActivity(taskId, 'executor', 'started', `Executing ${contentPlan.operations.length} operations`);
   let executorOutput = '';
   try {
     const input = [
@@ -275,15 +300,47 @@ export async function orchestrateTask(
     ].join('\n');
     const result = await runAgent(agentConfig('executor'), input, {
       timeout: 300_000,
-      onStep: (step) => dashboardEvents.emit('agent_step', { taskId, ...step }),
+      onStep: (step) => emitStep(taskId, step),
     });
     executorOutput = result.text;
     agentCosts.executor = result.cost;
   } catch (err) {
     logger.error({ error: errMsg(err) }, 'Executor failed');
-    return { success: false, fallbacks: [], agentCosts, totalCost: sumCosts(agentCosts) };
+    // Mark all tracked ops as failed
+    for (const op of trackedOps) {
+      updateOperationStatus(op.id, 'failed', errMsg(err));
+    }
+    emitActivity(taskId, 'executor', 'failed', `Executor failed: ${errMsg(err)}`);
+    return { success: false, error: `Executor failed: ${errMsg(err)}`, fallbacks: [], agentCosts, totalCost: sumCosts(agentCosts) };
   }
   emitActivity(taskId, 'executor', 'completed');
+
+  // 5b. Parse executor output to update per-operation status
+  try {
+    const executorResult = JSON.parse(executorOutput);
+    const completed: string[] = executorResult.completed ?? [];
+    const failed: string[] = executorResult.failed ?? [];
+
+    // Best-effort: match operations by index (executor runs them in order)
+    for (let i = 0; i < trackedOps.length; i++) {
+      if (i < completed.length + failed.length) {
+        if (i < completed.length) {
+          updateOperationStatus(trackedOps[i].id, 'succeeded');
+        } else {
+          updateOperationStatus(trackedOps[i].id, 'failed', failed[i - completed.length]);
+        }
+      } else {
+        // More tracked ops than executor reported — mark as succeeded if no failures
+        updateOperationStatus(trackedOps[i].id, failed.length === 0 ? 'succeeded' : 'skipped', 'Not reported by executor');
+      }
+    }
+  } catch {
+    // Executor output wasn't valid JSON — mark all ops based on whether executor succeeded
+    logger.warn('Could not parse executor output for operation tracking, marking all as succeeded');
+    for (const op of trackedOps) {
+      updateOperationStatus(op.id, 'succeeded');
+    }
+  }
 
   // 6. Track browser fallbacks
   const fallbacks = parseBrowserFallbacks(executorOutput);
@@ -304,7 +361,7 @@ export async function orchestrateTask(
     ].join('\n');
     const result = await runAgent(agentConfig('supervisor'), input, {
       timeout: 120_000,
-      onStep: (step) => dashboardEvents.emit('agent_step', { taskId, ...step }),
+      onStep: (step) => emitStep(taskId, step),
     });
     try {
       verdict = JSON.parse(result.text);

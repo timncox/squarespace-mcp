@@ -19,6 +19,7 @@ vi.mock('../../services/dashboard-events.js', () => ({
 // Mock plan-operations
 vi.mock('../../db/plan-operations.js', () => ({
   createPlanOperations: vi.fn(() => []),
+  updateOperationStatus: vi.fn(),
 }));
 
 // Mock logger
@@ -356,10 +357,10 @@ describe('orchestrator', () => {
 
       await orchestrateTask(makeTask(), makeConversation());
 
-      const opUpdateCalls = mockEmit.mock.calls.filter(([type]) => type === 'operation_update');
+      const opUpdateCalls = mockEmit.mock.calls.filter(([type, evt]) => type === 'dashboard' && evt?.type === 'operation_update');
       expect(opUpdateCalls.length).toBe(2);
-      expect(opUpdateCalls[0][1]).toMatchObject({ operationId: 'op-1', status: 'pending' });
-      expect(opUpdateCalls[1][1]).toMatchObject({ operationId: 'op-2', status: 'pending' });
+      expect(opUpdateCalls[0][1].data).toMatchObject({ operationId: 'op-1', status: 'pending' });
+      expect(opUpdateCalls[1][1].data).toMatchObject({ operationId: 'op-2', status: 'pending' });
     });
 
     it('should continue when createPlanOperations fails', async () => {
@@ -530,12 +531,13 @@ describe('orchestrator', () => {
 
       // Each agent gets started + completed = 2 events each
       // classifier, analyst, strategist, executor, supervisor = 5 agents x 2 = 10 events
-      const activityCalls = mockEmit.mock.calls.filter(([type]) => type === 'agent_activity');
+      // All emitted via 'dashboard' envelope with type: 'agent_activity' inside
+      const activityCalls = mockEmit.mock.calls.filter(([type, evt]) => type === 'dashboard' && evt?.type === 'agent_activity');
       expect(activityCalls.length).toBe(10);
 
       // Verify ordering: classifier started first
-      expect(activityCalls[0][1]).toMatchObject({ agent: 'classifier', status: 'started' });
-      expect(activityCalls[1][1]).toMatchObject({ agent: 'classifier', status: 'completed' });
+      expect(activityCalls[0][1].data).toMatchObject({ agent: 'classifier', status: 'started' });
+      expect(activityCalls[1][1].data).toMatchObject({ agent: 'classifier', status: 'completed' });
     });
 
     it('should pass ContentPlan JSON to executor input', async () => {

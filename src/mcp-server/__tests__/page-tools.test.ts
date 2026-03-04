@@ -72,14 +72,14 @@ describe('Page Tools', () => {
         slug: 'my-page',
       });
 
-      expect(mockClient.createPageViaApi).toHaveBeenCalledWith('My Page', 'my-page', undefined);
+      expect(mockClient.createPageViaApi).toHaveBeenCalledWith('My Page', 'my-page', {});
       const data = JSON.parse(result.content[0].text);
       expect(data.success).toBe(true);
       expect(data.pageId).toBe('page-123');
       expect(data.urlId).toBe('my-page');
     });
 
-    it('should pass type 11 for blog pages', async () => {
+    it('should pass type 1 for blog pages', async () => {
       mockClient.createPageViaApi.mockResolvedValue({ success: true, pageId: 'blog-1' });
 
       await server.callTool('sq_create_page', {
@@ -88,10 +88,10 @@ describe('Page Tools', () => {
         pageType: 'blog',
       });
 
-      expect(mockClient.createPageViaApi).toHaveBeenCalledWith('Blog', undefined, { type: 11 });
+      expect(mockClient.createPageViaApi).toHaveBeenCalledWith('Blog', undefined, { type: 1 });
     });
 
-    it('should pass type 1 for page type', async () => {
+    it('should pass type 10 for page type', async () => {
       mockClient.createPageViaApi.mockResolvedValue({ success: true, pageId: 'p-1' });
 
       await server.callTool('sq_create_page', {
@@ -100,7 +100,19 @@ describe('Page Tools', () => {
         pageType: 'page',
       });
 
-      expect(mockClient.createPageViaApi).toHaveBeenCalledWith('About', undefined, { type: 1 });
+      expect(mockClient.createPageViaApi).toHaveBeenCalledWith('About', undefined, { type: 10 });
+    });
+
+    it('should pass navigation option', async () => {
+      mockClient.createPageViaApi.mockResolvedValue({ success: true, pageId: 'p-2' });
+
+      await server.callTool('sq_create_page', {
+        siteId: 'test-site',
+        title: 'Staff',
+        navigation: 'mainNav',
+      });
+
+      expect(mockClient.createPageViaApi).toHaveBeenCalledWith('Staff', undefined, { navigation: 'mainNav' });
     });
 
     it('should return error when creation fails', async () => {

@@ -4,7 +4,7 @@ import { dirname, join } from 'path';
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
 
-const DB_PATH = join(process.cwd(), 'data', 'sqhelper.db');
+const DB_PATH = process.env.DB_PATH || join(process.cwd(), 'data', 'sqhelper.db');
 
 let db: Database.Database | null = null;
 

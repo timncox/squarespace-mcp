@@ -42,13 +42,16 @@ vi.mock('fs', () => ({
       {
         id: 'smyth-tavern',
         name: 'Smyth Tavern',
+        aliases: ['Smyth', 'smyth tavern', "Smyth's"],
         site: {
           adminUrl: 'https://grey-yellow-hbxc.squarespace.com/config/website',
+          customDomain: 'https://smythtavern.com',
         },
       },
       {
         id: 'tim-cox',
         name: 'Tim Cox',
+        aliases: ['Tim', 'my site'],
         site: {
           adminUrl: 'https://tim-cox.squarespace.com/config/website',
         },
@@ -57,7 +60,7 @@ vi.mock('fs', () => ({
   })),
 }));
 
-import { getSubdomain, getClient, getMediaClient, resolvePageIds, reloadAllSessions } from '../session.js';
+import { getSubdomain, getClient, getMediaClient, resolvePageIds, reloadAllSessions, listSites } from '../session.js';
 import { createContentSaveClient } from '../../services/content-save.js';
 
 describe('MCP session management', () => {
@@ -76,11 +79,43 @@ describe('MCP session management', () => {
     });
 
     it('should throw for unknown siteId', () => {
-      expect(() => getSubdomain('nonexistent')).toThrow('Unknown siteId: "nonexistent"');
+      expect(() => getSubdomain('nonexistent')).toThrow('Unknown site: "nonexistent"');
     });
 
     it('should list available sites in error message', () => {
-      expect(() => getSubdomain('bad')).toThrow('Available: smyth-tavern, tim-cox');
+      expect(() => getSubdomain('bad')).toThrow(/Available:.*smyth-tavern.*tim-cox/);
+    });
+
+    it('should match by name (case-insensitive)', () => {
+      expect(getSubdomain('Smyth Tavern')).toBe('grey-yellow-hbxc');
+      expect(getSubdomain('smyth tavern')).toBe('grey-yellow-hbxc');
+      expect(getSubdomain('Tim Cox')).toBe('tim-cox');
+    });
+
+    it('should match by alias', () => {
+      expect(getSubdomain('Smyth')).toBe('grey-yellow-hbxc');
+      expect(getSubdomain("Smyth's")).toBe('grey-yellow-hbxc');
+      expect(getSubdomain('my site')).toBe('tim-cox');
+    });
+
+    it('should match by subdomain', () => {
+      expect(getSubdomain('grey-yellow-hbxc')).toBe('grey-yellow-hbxc');
+    });
+  });
+
+  describe('listSites', () => {
+    it('should return all configured sites', () => {
+      const sites = listSites();
+      expect(sites).toHaveLength(2);
+      expect(sites[0]).toEqual({
+        id: 'smyth-tavern',
+        name: 'Smyth Tavern',
+        subdomain: 'grey-yellow-hbxc',
+        aliases: ['Smyth', 'smyth tavern', "Smyth's"],
+        adminUrl: 'https://grey-yellow-hbxc.squarespace.com/config/website',
+        customDomain: 'https://smythtavern.com',
+      });
+      expect(sites[1].id).toBe('tim-cox');
     });
   });
 
@@ -102,6 +137,15 @@ describe('MCP session management', () => {
       getClient('smyth-tavern');
       getClient('tim-cox');
       expect(createContentSaveClient).toHaveBeenCalledTimes(2);
+    });
+
+    it('should share cache across id, name, and alias for same site', () => {
+      const c1 = getClient('smyth-tavern');
+      const c2 = getClient('Smyth Tavern');
+      const c3 = getClient('Smyth');
+      expect(c1).toBe(c2);
+      expect(c1).toBe(c3);
+      expect(createContentSaveClient).toHaveBeenCalledTimes(1);
     });
   });
 

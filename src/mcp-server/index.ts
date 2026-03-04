@@ -34,9 +34,8 @@ You have tools to edit Squarespace websites via the Content Save API. Here's how
 
 ## Known Limitations & Workarounds
 
-### Page Creation — sq_create_page often fails
-The Squarespace API does not reliably support page creation. The endpoint returns 404 on most site templates/versions.
-**Workaround:** Ask the user to create a blank page in the Squarespace editor (Pages → + → Blank Page), then use sq_add_section, sq_add_text_block, sq_add_button, sq_add_image, etc. to build out the content.
+### Page Creation — sq_create_page
+Creates a new page and adds it to site navigation. Supports page type ("page" or "blog") and navigation placement ("mainNav" for visible, "_hidden" for not linked). After creation, use sq_add_section and content tools to build out the page.
 
 ### Page Deletion — sq_delete_page is best-effort
 The DELETE collections endpoint returns 404 on most sites. The tool falls back to hiding the page from navigation, but cannot fully delete it.
@@ -131,7 +130,7 @@ server.registerPrompt('squarespace-guide', {
 - sq_remove_section — remove a section
 
 ### Pages
-- sq_create_page — create a new page (⚠️ OFTEN FAILS — see workaround below)
+- sq_create_page — create a new page or blog collection
 - sq_delete_page — delete a page (⚠️ BEST-EFFORT)
 - sq_update_page_metadata — update SEO title, description, nav title
 

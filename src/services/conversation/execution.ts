@@ -39,7 +39,8 @@ export async function executeTasks(conversation: Conversation): Promise<void> {
     try {
       const result = await orchestrateTask(task, conversation);
       const status = result.success ? 'done' : 'failed';
-      updateTaskStatus(taskId, status, result.success ? undefined : result.verdict?.issues?.join(', '));
+      const errorMsg = result.success ? undefined : (result.error ?? result.verdict?.issues?.join(', ') ?? 'Unknown error');
+      updateTaskStatus(taskId, status, errorMsg);
       dashboardEvents.emit('task_update', { taskId, status });
 
       if (result.success) completed++;

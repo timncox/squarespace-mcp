@@ -131,6 +131,7 @@ export type {
   TemplateTweakSettings,
   TemplateTweakSettingsResult,
   TemplateTweakSettingsUpdateResult,
+  SocialAccount,
 } from './content-save-types.js';
 
 import type {
@@ -6836,121 +6837,216 @@ export class ContentSaveClient {
   }
 
   /**
-   * SPECULATIVE: Attempt to create a page via API.
-   * Tries multiple endpoint candidates — returns endpointAvailable: false if none work (404/405).
+   * Create a page via POST /api/commondata/SaveCollectionSettings.
+   * After creation, adds the page to navigation (mainNav or _hidden).
    * Never throws.
    */
   async createPageViaApi(
     title: string,
     slug?: string,
-    options?: { type?: number },
+    options?: {
+      type?: number;
+      /** Navigation placement: 'mainNav' for visible, '_hidden' for not linked. Default: '_hidden'. */
+      navigation?: 'mainNav' | '_hidden';
+    },
   ): Promise<PageCreateResult> {
     this.ensureCookies();
 
-    const body = JSON.stringify({
-      title,
-      ...(slug ? { urlId: slug } : {}),
-      ...(options?.type != null ? { type: options.type } : {}),
-    });
+    // Resolve websiteId — required by SaveCollectionSettings
+    const websiteId = await this.resolveWebsiteId();
+    if (!websiteId) {
+      return {
+        success: false,
+        endpointAvailable: true,
+        error: 'Could not determine websiteId. Ensure session cookies are loaded.',
+      };
+    }
 
-    const endpoints = [
-      '/api/content/add/page',
-      '/api/pages',
-      '/api/collections',
-    ];
+    // collectionType: 10 = page, 1 = blog
+    const collectionType = options?.type === 1 ? 1 : 10;
+    const typeName = collectionType === 1 ? 'blog-single-column' : 'page';
 
-    // For collections endpoint, always include type: 1 (page)
-    const bodiesForEndpoint: Record<string, string> = {
-      '/api/collections': JSON.stringify({
+    const requestBody = {
+      collectionData: {
+        description: { html: '', raw: false },
+        enabled: true,
+        deleted: false,
+        folder: false,
+        regionName: 'default',
+        dirty: false,
+        body: null,
+        collectionType,
+        supported: true,
+        supportsVideoBackgrounds: false,
+        typeName,
         title,
-        ...(slug ? { urlId: slug } : {}),
-        type: options?.type ?? 1,
-      }),
+        newTitle: title,
+        ordering: 3,
+        icon: typeName === 'page' ? 'page' : 'blog',
+        addText: 'Add Block',
+        navigationTitle: title,
+        type: collectionType,
+        websiteId,
+      },
+      memberAreaData: { memberAreaIds: [] },
     };
 
-    for (let i = 0; i < endpoints.length; i++) {
-      const endpoint = endpoints[i];
+    try {
+      logger.info({ title, collectionType, typeName }, 'createPageViaApi: creating page via SaveCollectionSettings');
+      const url = this.buildApiUrl('/api/commondata/SaveCollectionSettings', true);
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
 
-      // Short delay between retries (not before first attempt)
-      if (i > 0) {
-        await new Promise(r => setTimeout(r, 500));
-      }
-
-      try {
-        logger.info({ endpoint, attempt: i + 1, totalEndpoints: endpoints.length }, 'createPageViaApi: trying endpoint');
-        const url = this.buildApiUrl(endpoint, true);
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            ...this.buildHeaders(),
-            'Content-Type': 'application/json',
-          },
-          body: bodiesForEndpoint[endpoint] ?? body,
-          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        });
-
-        // 404/405 means this endpoint doesn't exist — try next
-        if (response.status === 404 || response.status === 405) {
-          logger.info({ endpoint, status: response.status }, 'createPageViaApi: endpoint not available, trying next');
-          continue;
-        }
-
-        // 401 means session expired — don't try other endpoints
-        if (response.status === 401) {
-          return {
-            success: false,
-            endpointAvailable: true,
-            error: 'Session expired — re-authenticate via browser to refresh cookies',
-          };
-        }
-
-        // Other errors (500, etc.) — endpoint exists but failed
-        if (!response.ok) {
-          return {
-            success: false,
-            endpointAvailable: true,
-            error: `${endpoint} returned ${response.status}`,
-          };
-        }
-
-        const data = (await response.json()) as Record<string, unknown>;
-
-        // Check for crumb failure
-        if (data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
-          const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
-          return {
-            success: false,
-            endpointAvailable: true,
-            error: `createPageViaApi rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.`,
-          };
-        }
-
-        logger.info({ endpoint, pageId: data.id, urlId: data.urlId, title }, 'createPageViaApi: page created via %s', endpoint);
-
-        return {
-          success: true,
-          endpointAvailable: true,
-          pageId: data.id ? String(data.id) : undefined,
-          urlId: data.urlId ? String(data.urlId) : undefined,
-        };
-      } catch (err) {
-        // Network/timeout error — endpoint might exist, just unreachable
-        logger.warn({ endpoint, error: errMsg(err), title }, 'createPageViaApi: network/timeout error on %s', endpoint);
+      if (response.status === 401) {
         return {
           success: false,
           endpointAvailable: true,
-          error: `${endpoint}: ${errMsg(err)}`,
+          error: 'Session expired — re-authenticate via browser to refresh cookies',
         };
       }
-    }
 
-    // All endpoints returned 404/405
-    logger.warn({ title, endpoints }, 'createPageViaApi: all endpoints returned 404/405');
-    return {
-      success: false,
-      endpointAvailable: false,
-      error: `No page creation endpoint found (tried: ${endpoints.join(', ')})`,
-    };
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        return {
+          success: false,
+          endpointAvailable: true,
+          error: `SaveCollectionSettings returned ${response.status}: ${errBody.slice(0, 200)}`,
+        };
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+
+      // Check for crumb failure
+      if (data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
+        const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
+        return {
+          success: false,
+          endpointAvailable: true,
+          error: `createPageViaApi rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.`,
+        };
+      }
+
+      const pageId = data.id ? String(data.id) : undefined;
+      const urlId = data.urlId ? String(data.urlId) : undefined;
+
+      logger.info({ pageId, urlId, title }, 'createPageViaApi: page created');
+
+      // Add to navigation
+      const navField = options?.navigation ?? '_hidden';
+      const navResult = await this.addPageToNavigation(navField, {
+        collectionId: pageId!,
+        collectionType,
+        enabled: true,
+        isFolder: false,
+        items: [],
+        linkId: pageId!,
+        linkType: 'collection',
+        passwordProtected: false,
+        title,
+        typeName,
+        urlId: urlId ?? slug ?? '',
+        isDraft: false,
+        isPending: false,
+        pagePermissionType: 1,
+        updatedOn: typeof data.updatedOn === 'number' ? data.updatedOn : Date.now(),
+      });
+
+      if (!navResult.success) {
+        logger.warn({ pageId, navField, error: navResult.error }, 'createPageViaApi: page created but navigation update failed');
+      }
+
+      return {
+        success: true,
+        endpointAvailable: true,
+        pageId,
+        urlId,
+      };
+    } catch (err) {
+      logger.warn({ error: errMsg(err), title }, 'createPageViaApi: error');
+      return {
+        success: false,
+        endpointAvailable: true,
+        error: errMsg(err),
+      };
+    }
+  }
+
+  /**
+   * Resolve websiteId from cache or by fetching /api/commondata/GetCollections/.
+   * Returns null if it cannot be determined.
+   */
+  private async resolveWebsiteId(): Promise<string | null> {
+    if (this.websiteIdCache) return this.websiteIdCache;
+
+    try {
+      const url = this.buildApiUrl('/api/commondata/GetCollections/');
+      const response = await fetch(url, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!response.ok) return null;
+
+      const data = (await response.json()) as Record<string, unknown>;
+      // Collections response includes items with websiteId
+      const collections = Array.isArray(data) ? data : (data.collections ?? data.items ?? []) as unknown[];
+      for (const col of collections as Record<string, unknown>[]) {
+        if (typeof col.websiteId === 'string') {
+          this.websiteIdCache = col.websiteId;
+          return col.websiteId;
+        }
+      }
+    } catch {
+      // Fall through
+    }
+    return null;
+  }
+
+  /**
+   * Add a newly created page to navigation.
+   * Reads current nav, appends or prepends the new item, then saves.
+   */
+  private async addPageToNavigation(
+    fieldName: string,
+    newItem: Record<string, unknown>,
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Get current navigation to find existing items for this field
+      const rawNavUrl = this.buildApiUrl('/api/navigation');
+      const rawNavRes = await fetch(rawNavUrl, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!rawNavRes.ok) {
+        return { success: false, error: `Failed to fetch navigation: ${rawNavRes.status}` };
+      }
+
+      const rawNav = await rawNavRes.json() as Record<string, unknown>;
+
+      // Map fieldName to the navigation data key
+      const navKey = fieldName === 'mainNav' ? 'mainNavigation' : 'notLinked';
+      const existingItems = Array.isArray(rawNav[navKey])
+        ? (rawNav[navKey] as Record<string, unknown>[])
+        : [];
+
+      // Build the items array: prepend new item for mainNav, prepend for _hidden
+      const updatedItems = [newItem, ...existingItems];
+
+      const result = await this.updateNavigation(
+        fieldName,
+        updatedItems as unknown as UpdateNavigationItem[],
+      );
+
+      return result;
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
   }
 
   /**
@@ -7040,13 +7136,24 @@ export class ContentSaveClient {
       // Follow-up: set fields the create endpoint doesn't accept
       const needsUpdate = options?.body || options?.tags || options?.excerpt || options?.categories || options?.coverImageUrl;
       if (needsUpdate && data.id) {
-        await this.updateBlogPost(collectionId, String(data.id), {
+        const updateResult = await this.updateBlogPost(collectionId, String(data.id), {
           ...(options.body ? { body: options.body } : {}),
           ...(options.tags ? { tags: options.tags } : {}),
           ...(options.excerpt ? { excerpt: options.excerpt } : {}),
           ...(options.categories ? { categories: options.categories } : {}),
           ...(options.coverImageUrl ? { coverImageUrl: options.coverImageUrl } : {}),
         });
+        if (!updateResult.success) {
+          logger.warn({ collectionId, itemId: data.id, error: updateResult.error, fields: updateResult.updatedFields },
+            'createBlogPost: post created but follow-up update failed — body/tags/excerpt may be missing');
+          return {
+            success: false,
+            endpointAvailable: true,
+            itemId: data.id ? String(data.id) : undefined,
+            urlId: data.urlId ? String(data.urlId) : undefined,
+            error: `Post created (${data.id}) but follow-up update failed: ${updateResult.error}`,
+          };
+        }
       }
 
       return {
@@ -9213,6 +9320,133 @@ export class ContentSaveClient {
 
     logger.info({ colorId, oldValues, newValues: hsl }, 'Palette color updated via convenience helper');
     return { success: true, colorId, oldValues, newValues: hsl };
+  }
+
+  // ── Social Accounts ──────────────────────────────────────────────────────
+
+  /**
+   * List all social accounts (non-OAuth social links) for this site.
+   * Endpoint: GET /api/rest/social-accounts
+   * Never throws.
+   */
+  async getSocialAccounts(): Promise<{ success: boolean; data?: SocialAccount[]; error?: string }> {
+    this.ensureCookies();
+    const url = this.buildApiUrl('/api/rest/social-accounts');
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `GET /api/rest/social-accounts failed: ${response.status} ${body}` };
+      }
+
+      const raw = (await response.json()) as { results?: SocialAccount[] };
+      const accounts = (raw.results ?? []).map((a) => ({
+        id: a.id,
+        serviceId: a.serviceId,
+        screenname: a.screenname,
+        profileUrl: a.profileUrl,
+        iconEnabled: a.iconEnabled,
+        serviceName: a.serviceName,
+      }));
+
+      logger.info({ siteSubdomain: this.siteSubdomain, count: accounts.length }, 'Fetched social accounts');
+      return { success: true, data: accounts };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Add a non-OAuth social account (social link by URL).
+   * Endpoint: POST /api/config/CreateNonOAuthAccount (form-encoded, X-CSRF-Token header)
+   * Never throws.
+   */
+  async addSocialAccount(
+    serviceId: number,
+    username: string,
+    profileUrl: string,
+  ): Promise<{ success: boolean; data?: SocialAccount; error?: string }> {
+    this.ensureCookies();
+    const url = this.buildApiUrl('/api/config/CreateNonOAuthAccount');
+
+    try {
+      const formBody = `service=${encodeURIComponent(serviceId)}&username=${encodeURIComponent(username)}&profileUrl=${encodeURIComponent(profileUrl)}`;
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+          ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+        },
+        body: formBody,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `POST CreateNonOAuthAccount failed: ${response.status} ${body}` };
+      }
+
+      const raw = (await response.json()) as { account?: SocialAccount };
+      if (!raw.account) {
+        return { success: false, error: 'CreateNonOAuthAccount returned no account object' };
+      }
+
+      const account: SocialAccount = {
+        id: raw.account.id,
+        serviceId: raw.account.serviceId,
+        screenname: raw.account.screenname,
+        profileUrl: raw.account.profileUrl,
+        iconEnabled: raw.account.iconEnabled,
+        serviceName: raw.account.serviceName,
+      };
+
+      logger.info(
+        { siteSubdomain: this.siteSubdomain, accountId: account.id, serviceName: account.serviceName, profileUrl },
+        'Social account added',
+      );
+      return { success: true, data: account };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Remove a social account by ID.
+   * Endpoint: DELETE /api/rest/social-accounts/{id} (X-CSRF-Token header)
+   * Never throws.
+   */
+  async removeSocialAccount(accountId: string): Promise<{ success: boolean; error?: string }> {
+    this.ensureCookies();
+    const url = this.buildApiUrl(`/api/rest/social-accounts/${accountId}`);
+
+    try {
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: {
+          ...this.buildHeaders(),
+          ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+        },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `DELETE /api/rest/social-accounts/${accountId} failed: ${response.status} ${body}` };
+      }
+
+      logger.info({ siteSubdomain: this.siteSubdomain, accountId }, 'Social account removed');
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
   }
 }
 

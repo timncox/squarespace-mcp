@@ -8,13 +8,40 @@
  * sq_get_code_injection: Read header/footer code injection
  * sq_update_code_injection: Save header/footer scripts
  * sq_update_css: Update custom CSS
+ * sq_list_social_links: List social link accounts
+ * sq_add_social_link: Add a social link by URL
+ * sq_remove_social_link: Remove a social link account
  */
 
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getClient } from '../session.js';
+import { getClient, listSites } from '../session.js';
 
 export function registerSiteTools(server: McpServer) {
+  // ── sq_list_sites ─────────────────────────────────────────────────────────
+  server.registerTool('sq_list_sites', {
+    description:
+      'List all configured Squarespace sites. Returns site ID, name, subdomain URL, aliases, and custom domain for each site. ' +
+      'Use this to discover available sites before calling other tools. ' +
+      'Any of the returned identifiers (id, name, alias, subdomain) can be used as the siteId parameter in other tools.',
+    inputSchema: {},
+  }, async () => {
+    try {
+      const sites = listSites();
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify(sites, null, 2),
+        }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
   // ── sq_get_settings ─────────────────────────────────────────────────────────
   server.registerTool('sq_get_settings', {
     description: 'Read the full site settings object for a Squarespace site.',
@@ -286,6 +313,126 @@ export function registerSiteTools(server: McpServer) {
         content: [{
           type: 'text' as const,
           text: JSON.stringify({ success: true }, null, 2),
+        }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── Social Links ────────────────────────────────────────────────────────
+
+  const SOCIAL_SERVICE_MAP: Record<string, number> = {
+    facebook: 60,
+    twitter: 62,
+    x: 62,
+    instagram: 64,
+    linkedin: 65,
+    youtube: 69,
+  };
+
+  // ── sq_list_social_links ────────────────────────────────────────────────
+  server.registerTool('sq_list_social_links', {
+    description: 'List all social link accounts for a site. Returns account IDs, platform names, and profile URLs.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier (id, name, alias, or subdomain)'),
+    },
+  }, async ({ siteId }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.getSocialAccounts();
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Failed to list social accounts'}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify(result.data, null, 2),
+        }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_add_social_link ──────────────────────────────────────────────────
+  server.registerTool('sq_add_social_link', {
+    description: 'Add a social link account by URL. The link appears in all Social Links blocks on the site. To update an existing link, remove the old one first, then add the new one.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier (id, name, alias, or subdomain)'),
+      service: z.string().describe('Platform name (facebook, twitter, x, instagram, linkedin, youtube) or numeric service ID'),
+      username: z.string().describe('Display name for the account (e.g. "Instagram", "My YouTube")'),
+      profileUrl: z.string().describe('Full URL to the social profile (e.g. "https://instagram.com/myaccount")'),
+    },
+  }, async ({ siteId, service, username, profileUrl }) => {
+    try {
+      // Resolve service name to ID
+      const serviceId = SOCIAL_SERVICE_MAP[service.toLowerCase()] ?? parseInt(service, 10);
+      if (isNaN(serviceId)) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: Unknown service "${service}". Use: facebook, twitter, x, instagram, linkedin, youtube, or a numeric service ID.` }],
+          isError: true,
+        };
+      }
+
+      const client = getClient(siteId);
+      const result = await client.addSocialAccount(serviceId, username, profileUrl);
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Failed to add social account'}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify(result.data, null, 2),
+        }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_remove_social_link ───────────────────────────────────────────────
+  server.registerTool('sq_remove_social_link', {
+    description: 'Remove a social link account by its ID. Use sq_list_social_links first to find the account ID.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier (id, name, alias, or subdomain)'),
+      accountId: z.string().describe('The social account ID to remove (from sq_list_social_links)'),
+    },
+  }, async ({ siteId, accountId }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.removeSocialAccount(accountId);
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Failed to remove social account'}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({ success: true, removedAccountId: accountId }, null, 2),
         }],
       };
     } catch (err) {

@@ -17,27 +17,31 @@ import { getClient, resolvePageIds } from '../session.js';
 function pageTypeToNumber(pageType?: string): number | undefined {
   if (!pageType) return undefined;
   switch (pageType) {
-    case 'blog': return 11;
+    case 'blog': return 1;
     case 'page':
-    default: return 1;
+    default: return 10;
   }
 }
 
 export function registerPageTools(server: McpServer) {
   // ── sq_create_page ──────────────────────────────────────────────────────────
   server.registerTool('sq_create_page', {
-    description: 'Create a new Squarespace page or blog collection.',
+    description: 'Create a new Squarespace page or blog collection. Creates the page via API and adds it to site navigation. After creation, use sq_add_section, sq_add_text_block, etc. to build out the page content.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
       title: z.string().describe('Page title'),
       slug: z.string().optional().describe('URL slug (e.g. "about-us"). Auto-generated from title if omitted.'),
-      pageType: z.enum(['page', 'blog']).optional().describe('Page type: "page" (default) or "blog"'),
+      pageType: z.enum(['page', 'blog']).optional().describe('Page type: "page" (default) or "blog" collection'),
+      navigation: z.enum(['mainNav', '_hidden']).optional().describe('Where to place the page: "mainNav" for main navigation (visible), "_hidden" for not linked (default)'),
     },
-  }, async ({ siteId, title, slug, pageType }) => {
+  }, async ({ siteId, title, slug, pageType, navigation }) => {
     try {
       const client = getClient(siteId);
       const typeNum = pageTypeToNumber(pageType);
-      const result = await client.createPageViaApi(title, slug, typeNum != null ? { type: typeNum } : undefined);
+      const result = await client.createPageViaApi(title, slug, {
+        ...(typeNum != null ? { type: typeNum } : {}),
+        ...(navigation ? { navigation } : {}),
+      });
 
       if (!result.success) {
         return {
@@ -66,7 +70,7 @@ export function registerPageTools(server: McpServer) {
 
   // ── sq_delete_page ──────────────────────────────────────────────────────────
   server.registerTool('sq_delete_page', {
-    description: 'Delete a Squarespace page by its collection ID. Use sq_list_pages to find collection IDs.',
+    description: 'Delete a Squarespace page by its collection ID. Use sq_list_pages to find collection IDs. ⚠️ BEST-EFFORT — the DELETE API returns 404 on most sites. Falls back to hiding the page from navigation. If this fails, ask the user to delete the page manually in Squarespace.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
       collectionId: z.string().describe('Collection ID of the page to delete'),

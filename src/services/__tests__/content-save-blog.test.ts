@@ -240,6 +240,30 @@ describe('createBlogPost', () => {
     expect(updateBody.categories).toEqual(['updates']);
   });
 
+  it('returns failure when follow-up update fails (e.g. session expired)', async () => {
+    // First call: POST create → success
+    mockFetch.mockResolvedValueOnce({
+      ok: true, status: 200,
+      json: async () => ({ id: 'new-post-fail', urlId: 'fail-post' }),
+      text: async () => '',
+    } as Response);
+    // Second call: PUT update → 401 session expired
+    mockFetch.mockResolvedValueOnce({
+      ok: false, status: 401,
+      text: async () => '',
+    } as Response);
+
+    const client = makeClient();
+    const result = await client.createBlogPost('col-1', 'Failing Post', {
+      body: '<p>This should fail</p>',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.itemId).toBe('new-post-fail');
+    expect(result.error).toMatch(/follow-up update failed/i);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
   it('does not call updateBlogPost when only title and draft provided', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true, status: 200,

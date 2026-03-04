@@ -43,6 +43,7 @@ export function runAgent(
     const args = [
       '-p', input,
       '--output-format', 'stream-json',
+      '--verbose',
       '--model', config.model,
       '--max-turns', String(config.maxTurns),
       '--system-prompt-file', config.systemPromptFile,
@@ -82,8 +83,14 @@ export function runAgent(
       }
     }, timeout);
 
-    // Swallow stderr — Claude CLI writes progress/warnings there
-    proc.stderr?.resume();
+    // Capture stderr for debugging
+    let stderrBuf = '';
+    proc.stderr?.on('data', (chunk: Buffer) => { stderrBuf += chunk.toString(); });
+    proc.stderr?.on('end', () => {
+      if (stderrBuf.trim()) {
+        logger.warn({ agent: config.name, stderr: stderrBuf.substring(0, 1000) }, 'Agent stderr output');
+      }
+    });
 
     const rl = createInterface({ input: proc.stdout! });
 
