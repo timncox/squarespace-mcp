@@ -22,6 +22,7 @@ import { registerWebSearchTools } from './tools/web-search.js';
 import { registerFormTools } from './tools/forms.js';
 import { registerDividerTools } from './tools/divider.js';
 import { registerLinkTools } from './tools/links.js';
+import { registerGmailTools } from './tools/gmail.js';
 
 // ── Server instructions — sent to Claude Desktop during MCP handshake ───────
 const INSTRUCTIONS = `
@@ -59,6 +60,14 @@ All API calls require valid Squarespace editor session cookies. If you get 401 o
 2. **Edit specifically**: Use sq_update_text for text changes, sq_update_image for images, etc.
 3. **Verify**: Call sq_take_screenshot after changes to confirm the result looks correct.
 
+## Email & PDF Menu Processing
+1. Call sq_list_emails to check for new client emails.
+2. Call sq_read_email to see full content and attachments.
+3. For PDF menu attachments, use sq_parse_pdf_menu to extract structured MenuTab[] JSON.
+4. If parsing succeeds, pass the menus directly to sq_update_menu.
+5. If parsing fails (returns rawText), format the text yourself and use sq_update_menu.
+6. Use sq_process_email to run the full task extraction pipeline on an email.
+
 ## Grid System
 Squarespace uses a 24-column desktop grid. Coordinates: X ranges 1-24, start is inclusive, end is exclusive. Mobile layout auto-reflows from desktop — you only control desktop positioning.
 
@@ -87,6 +96,7 @@ registerWebSearchTools(server);
 registerFormTools(server);
 registerDividerTools(server);
 registerLinkTools(server);
+registerGmailTools(server);
 
 // ── MCP Prompts — on-demand guidance Claude Desktop can invoke ───────────────
 server.registerPrompt('squarespace-guide', {
