@@ -21,6 +21,7 @@ import { registerContentTools } from './tools/content.js';
 import { registerWebSearchTools } from './tools/web-search.js';
 import { registerFormTools } from './tools/forms.js';
 import { registerDividerTools } from './tools/divider.js';
+import { registerLinkTools } from './tools/links.js';
 
 // ── Server instructions — sent to Claude Desktop during MCP handshake ───────
 const INSTRUCTIONS = `
@@ -85,6 +86,7 @@ registerContentTools(server);
 registerWebSearchTools(server);
 registerFormTools(server);
 registerDividerTools(server);
+registerLinkTools(server);
 
 // ── MCP Prompts — on-demand guidance Claude Desktop can invoke ───────────────
 server.registerPrompt('squarespace-guide', {

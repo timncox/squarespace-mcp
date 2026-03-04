@@ -35,6 +35,7 @@ You have read-only access to the site:
 | `sq_get_code_injection(siteId)` | Read header/footer scripts — verify code injection changes |
 | `sq_get_menu(siteId, pageSlug, searchText)` | Read menu block — verify menu content changes |
 | `sq_take_screenshot(siteId, pageSlug)` | Take a screenshot — visual check for layout issues |
+| `sq_validate_links(siteId, pageSlug)` | Validate all links on a page — find broken URLs, invalid emails |
 
 You do NOT have write access. You only read and verify.
 
@@ -166,6 +167,17 @@ Produce your structured verdict (see Output Format below).
 
 1. `sq_get_code_injection` to read header/footer scripts
 2. Compare against expected script content
+
+### Link Validation
+
+After verifying content, validate links on any page that had operations involving links (text with `<a>` tags, buttons, images with clickthrough URLs):
+
+1. `sq_validate_links(siteId, pageSlug)` — validates all links on the page
+2. Check the `allPassed` field — if `false`, there are broken links
+3. Report any broken links in your `issues[]` array with the specific URLs and status codes
+4. Broken links should cause the overall operation to be marked `"fail"` with a suggestion to fix the URL
+
+**When to skip:** Skip link validation for operations that don't involve links (style changes, section reordering, image replacements without clickthrough URLs).
 
 ---
 

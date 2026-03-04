@@ -85,6 +85,7 @@ const AGENT_CONFIGS: Record<string, Omit<AgentConfig, 'mcpConfig'>> = {
       'mcp__squarespace__sq_take_screenshot',
       'mcp__squarespace__sq_get_code_injection',
       'mcp__squarespace__sq_get_menu',
+      'mcp__squarespace__sq_validate_links',
     ],
   },
 };
