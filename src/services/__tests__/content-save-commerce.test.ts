@@ -124,4 +124,114 @@ describe('ContentSaveClient — Commerce', () => {
       expect(opts.method).toBe('DELETE');
     });
   });
+
+  describe('attachProductImage', () => {
+    it('posts asset-reference with systemDataId', async () => {
+      const imageResp = { id: 'img-123', url: 'https://...' };
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => imageResp,
+      });
+
+      const client = makeClient();
+      const result = await client.attachProductImage('prod-abc', 'timestamp-RANDOM');
+
+      expect(result.success).toBe(true);
+      expect(result.data?.id).toBe('img-123');
+
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toBe('https://test-site.squarespace.com/api/commerce/products/prod-abc/images/asset-reference');
+      const body = JSON.parse(opts.body);
+      expect(body.systemDataId).toBe('timestamp-RANDOM');
+      expect(body.authorId).toBe('member-123');
+    });
+  });
+
+  describe('setProductThumbnail', () => {
+    it('posts thumbnail asset-reference', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'prod-abc' }),
+      });
+
+      const client = makeClient();
+      const result = await client.setProductThumbnail('prod-abc', 'timestamp-RANDOM');
+
+      expect(result.success).toBe(true);
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toBe('https://test-site.squarespace.com/api/commerce/products/prod-abc/thumbnail-image/asset-reference');
+    });
+  });
+
+  describe('updateProductImage', () => {
+    it('puts image metadata with v2 API path', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'img-123', title: 'hat.jpg' }),
+      });
+
+      const client = makeClient();
+      const result = await client.updateProductImage('prod-abc', 'img-123', {
+        title: 'hat.jpg',
+        focalPoint: { x: 0.5, y: 0.5 },
+      });
+
+      expect(result.success).toBe(true);
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toBe('https://test-site.squarespace.com/api/2/commerce/products/prod-abc/images/img-123');
+    });
+  });
+
+  describe('createStorePage', () => {
+    it('creates store collection and adds to navigation', async () => {
+      // First call: copy/collection
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 'store-new', urlId: 'store' }),
+      });
+      // Second call: GetSiteLayout
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ layout: { mainNav: [] } }),
+      });
+      // Third call: UpdateNavigation
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true }),
+      });
+
+      const client = makeClient();
+      const result = await client.createStorePage();
+
+      expect(result.success).toBe(true);
+      expect(result.data?.id).toBe('store-new');
+
+      // Verify copy/collection call
+      const [url1] = mockFetch.mock.calls[0];
+      expect(url1).toBe('https://test-site.squarespace.com/api/content/copy/collection/empty-store');
+    });
+  });
+
+  describe('listProducts', () => {
+    it('fetches products list', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ products: [{ id: 'p1', name: 'Hat' }] }),
+      });
+
+      const client = makeClient();
+      const result = await client.listProducts();
+
+      expect(result.success).toBe(true);
+      const [url] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/3/commerce/products');
+    });
+  });
 });
