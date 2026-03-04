@@ -21,6 +21,7 @@ import { randomBytes } from 'crypto';
 import { join } from 'path';
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
+import type { InternalProduct, UpdateProductRequest, AssetReferenceResponse, InternalProductImage, ProductImageUpdateRequest, CommerceResult } from './internal-commerce-types.js';
 
 // ── Re-export all types from content-save-types.ts for backward compatibility ─
 export type {
@@ -9617,6 +9618,141 @@ export class ContentSaveClient {
       );
 
       return { success: true, sectionId: section.id };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Internal Commerce API ─────────────────────────────────────────────
+
+  /**
+   * Create an empty product shell in a store collection.
+   * Returns the product ID and default variant ID.
+   */
+  async createProductShell(
+    collectionId: string,
+    productType: number = 1,
+  ): Promise<CommerceResult<InternalProduct>> {
+    this.ensureCookies();
+    try {
+      const url = `https://${this.siteSubdomain}.squarespace.com/api/commerce/products/${collectionId}`;
+      const sku = `SQ${String(Math.floor(Math.random() * 10_000_000)).padStart(7, '0')}`;
+      const body = JSON.stringify({
+        productType,
+        name: '',
+        description: '',
+        displayIndex: 0,
+        visibility: { state: 'HIDDEN', visibleOn: new Date().toISOString() },
+        variantOptionOrdering: [],
+        variantOrderBySkus: [],
+        useCustomAddButtonText: false,
+        featuredProduct: false,
+        shareStates: [],
+        createdVariants: [{
+          sku,
+          price: { decimalValue: '0', currencyCode: 'USD' },
+          salePrice: { decimalValue: '0', currencyCode: 'USD' },
+          onSale: false,
+          quantityInStock: 1,
+          unlimited: true,
+          optionValues: [],
+        }],
+      });
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+          ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+        },
+        body,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        return { success: false, error: `API returned ${response.status}: ${errBody.slice(0, 200)}` };
+      }
+
+      const data = (await response.json()) as InternalProduct;
+      logger.info({ collectionId, productId: data.id }, 'createProductShell: product created');
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /** Get a product by ID. */
+  async getProduct(productId: string): Promise<CommerceResult<InternalProduct>> {
+    this.ensureCookies();
+    try {
+      const url = `https://${this.siteSubdomain}.squarespace.com/api/commerce/products/${productId}`;
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        return { success: false, error: `API returned ${response.status}: ${errBody.slice(0, 200)}` };
+      }
+      const data = (await response.json()) as InternalProduct;
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /** Update a product (name, variants, price, visibility, images, etc). */
+  async updateProduct(
+    productId: string,
+    updates: UpdateProductRequest,
+  ): Promise<CommerceResult<InternalProduct>> {
+    this.ensureCookies();
+    try {
+      const url = `https://${this.siteSubdomain}.squarespace.com/api/commerce/products/${productId}`;
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+          ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+        },
+        body: JSON.stringify(updates),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        return { success: false, error: `API returned ${response.status}: ${errBody.slice(0, 200)}` };
+      }
+      const data = (await response.json()) as InternalProduct;
+      logger.info({ productId, name: data.name }, 'updateProduct: product updated');
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /** Delete a product by ID. */
+  async deleteProduct(productId: string): Promise<CommerceResult<void>> {
+    this.ensureCookies();
+    try {
+      const url = `https://${this.siteSubdomain}.squarespace.com/api/commerce/products/${productId}`;
+      const response = await fetch(url, {
+        method: 'DELETE',
+        headers: {
+          ...this.buildHeaders(),
+          ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+        },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!response.ok && response.status !== 204) {
+        const errBody = await response.text().catch(() => '');
+        return { success: false, error: `API returned ${response.status}: ${errBody.slice(0, 200)}` };
+      }
+      logger.info({ productId }, 'deleteProduct: product deleted');
+      return { success: true };
     } catch (err) {
       return { success: false, error: errMsg(err) };
     }
