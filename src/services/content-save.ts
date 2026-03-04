@@ -8606,6 +8606,58 @@ export class ContentSaveClient {
   }
 
   /**
+   * Reorder images in a gallery collection.
+   *
+   * Endpoint: POST /api/commondata/ReorderItems
+   * Body: form-encoded collectionId + itemIds (JSON array of IDs in desired order)
+   * Discovered via Playwright traffic capture on gallery editor.
+   */
+  async reorderGalleryImages(
+    galleryCollectionId: string,
+    itemIds: string[],
+  ): Promise<ReorderGalleryImagesResult> {
+    try {
+      this.ensureCookies();
+
+      const path = '/api/commondata/ReorderItems';
+      const url = this.buildApiUrl(path, true);
+
+      const formBody = `collectionId=${encodeURIComponent(galleryCollectionId)}&itemIds=${encodeURIComponent(JSON.stringify(itemIds))}`;
+
+      logger.info(
+        { galleryCollectionId, itemCount: itemIds.length },
+        'Reordering gallery images',
+      );
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: formBody,
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        return { success: false, error: `Failed to reorder gallery images: ${response.status}. ${body}` };
+      }
+
+      const data = await response.json().catch(() => ({})) as Record<string, unknown>;
+      const items = Array.isArray(data.items) ? data.items as GalleryItem[] : undefined;
+
+      logger.info(
+        { galleryCollectionId, itemCount: items?.length },
+        'Gallery images reordered',
+      );
+      return { success: true, items };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
    * Upload an image to a gallery using the /api/uploads/images endpoint.
    *
    * Discovered from captured traffic:
