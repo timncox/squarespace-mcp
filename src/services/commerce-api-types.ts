@@ -17,14 +17,6 @@ export interface CommerceApiResponse<T> {
   statusCode?: number;
 }
 
-export interface PaginatedResponse<T> extends CommerceApiResponse<T> {
-  pagination: {
-    nextPageCursor?: string;
-    nextPageUrl?: string;
-    hasNextPage: boolean;
-  };
-}
-
 // ── Store pages ──────────────────────────────────────────────────────────────
 
 export interface StorePage {

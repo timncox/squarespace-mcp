@@ -41,7 +41,8 @@ const RATE_LIMIT_PROACTIVE_THRESHOLD = 250;
 
 export class CommerceApiClient {
   private apiKey: string;
-  private siteId: string;
+  /** Used by MCP session layer to identify which site this client belongs to */
+  readonly siteId: string;
   private requestTimestamps: number[] = [];
 
   constructor(apiKey: string, siteId: string) {
@@ -104,10 +105,12 @@ export class CommerceApiClient {
     try {
       await this.checkRateLimit();
 
-      const fetchOptions: RequestInit = {
-        method,
-        headers: this.buildHeaders({ idempotencyKey: options?.idempotencyKey }),
-      };
+      const headers = this.buildHeaders({ idempotencyKey: options?.idempotencyKey });
+      if (!options?.body) {
+        delete headers['Content-Type'];
+      }
+
+      const fetchOptions: RequestInit = { method, headers };
 
       if (options?.body !== undefined) {
         fetchOptions.body = JSON.stringify(options.body);
