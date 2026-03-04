@@ -11,6 +11,10 @@ const mockClient = {
   resizeBlock: vi.fn(),
   swapBlocks: vi.fn(),
   duplicateBlock: vi.fn(),
+  addVideoBlock: vi.fn(),
+  updateVideoBlock: vi.fn(),
+  addEmbedBlock: vi.fn(),
+  updateEmbedBlock: vi.fn(),
 };
 
 const mockMediaClient = {
@@ -54,7 +58,7 @@ describe('Block Tools', () => {
     registerBlockTools(server as any);
   });
 
-  it('should register all 10 block tools', () => {
+  it('should register all 14 block tools', () => {
     expect(server.tools.has('sq_add_button')).toBe(true);
     expect(server.tools.has('sq_update_button')).toBe(true);
     expect(server.tools.has('sq_add_image')).toBe(true);
@@ -65,6 +69,10 @@ describe('Block Tools', () => {
     expect(server.tools.has('sq_resize_block')).toBe(true);
     expect(server.tools.has('sq_swap_blocks')).toBe(true);
     expect(server.tools.has('sq_duplicate_block')).toBe(true);
+    expect(server.tools.has('sq_add_video')).toBe(true);
+    expect(server.tools.has('sq_update_video')).toBe(true);
+    expect(server.tools.has('sq_add_embed')).toBe(true);
+    expect(server.tools.has('sq_update_embed')).toBe(true);
   });
 
   // ── sq_add_button ─────────────────────────────────────────────────────────
@@ -473,6 +481,239 @@ describe('Block Tools', () => {
         siteId: 'bad-site',
         pageSlug: 'home',
         searchText: 'X',
+      });
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── sq_add_video ───────────────────────────────────────────────────────
+  describe('sq_add_video', () => {
+    it('should add a video block with URL', async () => {
+      mockClient.addVideoBlock.mockResolvedValue({ success: true, blockId: 'vid-1' });
+
+      const result = await server.callTool('sq_add_video', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        videoUrl: 'https://www.youtube.com/watch?v=WCkcPcMTYuQ',
+      });
+
+      expect(mockClient.addVideoBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 0, 'https://www.youtube.com/watch?v=WCkcPcMTYuQ', undefined,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(data.blockId).toBe('vid-1');
+    });
+
+    it('should pass title, description, and layout', async () => {
+      mockClient.addVideoBlock.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_add_video', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 1,
+        videoUrl: 'https://vimeo.com/12345',
+        title: 'Our Story',
+        description: 'A short video about us',
+        layout: { columns: 12, rowHeight: 10 },
+      });
+
+      expect(mockClient.addVideoBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 1, 'https://vimeo.com/12345',
+        { title: 'Our Story', description: 'A short video about us', layout: { columns: 12, rowHeight: 10 } },
+      );
+    });
+
+    it('should resolve offsetColumns to startX/endX', async () => {
+      mockClient.addVideoBlock.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_add_video', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        videoUrl: 'https://www.youtube.com/watch?v=abc',
+        layout: { columns: 12, offsetColumns: 12 },
+      });
+
+      const callArgs = mockClient.addVideoBlock.mock.calls[0];
+      const options = callArgs[4];
+      expect(options.layout.startX).toBe(13);
+      expect(options.layout.endX).toBe(25);
+    });
+
+    it('should not override explicit startX/endX with offsetColumns', async () => {
+      mockClient.addVideoBlock.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_add_video', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        videoUrl: 'https://www.youtube.com/watch?v=abc',
+        layout: { startX: 5, endX: 20, offsetColumns: 12 },
+      });
+
+      const callArgs = mockClient.addVideoBlock.mock.calls[0];
+      const options = callArgs[4];
+      expect(options.layout.startX).toBe(5);
+      expect(options.layout.endX).toBe(20);
+    });
+
+    it('should return error on page resolve failure', async () => {
+      vi.mocked(resolvePageIds).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_add_video', {
+        siteId: 'bad-site',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        videoUrl: 'https://www.youtube.com/watch?v=abc',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Could not resolve page');
+    });
+  });
+
+  // ── sq_update_video ────────────────────────────────────────────────────
+  describe('sq_update_video', () => {
+    it('should update video URL', async () => {
+      mockClient.updateVideoBlock.mockResolvedValue({ success: true });
+
+      const result = await server.callTool('sq_update_video', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        searchText: 'youtube.com',
+        videoUrl: 'https://www.youtube.com/watch?v=newvid',
+      });
+
+      expect(mockClient.updateVideoBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 'youtube.com', { url: 'https://www.youtube.com/watch?v=newvid' },
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+
+    it('should update title and description', async () => {
+      mockClient.updateVideoBlock.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_update_video', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        searchText: 'Our Story',
+        title: 'Updated Title',
+        description: 'Updated description',
+      });
+
+      expect(mockClient.updateVideoBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 'Our Story', { title: 'Updated Title', description: 'Updated description' },
+      );
+    });
+
+    it('should return error on page resolve failure', async () => {
+      vi.mocked(resolvePageIds).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_update_video', {
+        siteId: 'bad-site',
+        pageSlug: 'home',
+        searchText: 'X',
+      });
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── sq_add_embed ───────────────────────────────────────────────────────
+  describe('sq_add_embed', () => {
+    it('should add an embed block with HTML', async () => {
+      mockClient.addEmbedBlock.mockResolvedValue({ success: true, blockId: 'emb-1' });
+
+      const result = await server.callTool('sq_add_embed', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'contact',
+        sectionIndex: 1,
+        html: '<iframe src="https://calendly.com/example"></iframe>',
+      });
+
+      expect(mockClient.addEmbedBlock).toHaveBeenCalledWith(
+        'psi-contact', 'col-contact', 1, '<iframe src="https://calendly.com/example"></iframe>', undefined,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(data.blockId).toBe('emb-1');
+    });
+
+    it('should add blank embed when html omitted', async () => {
+      mockClient.addEmbedBlock.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_add_embed', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 0,
+      });
+
+      expect(mockClient.addEmbedBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 0, undefined, undefined,
+      );
+    });
+
+    it('should resolve offsetColumns to startX/endX', async () => {
+      mockClient.addEmbedBlock.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_add_embed', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        html: '<div>test</div>',
+        layout: { columns: 12, offsetColumns: 12 },
+      });
+
+      const callArgs = mockClient.addEmbedBlock.mock.calls[0];
+      const passedLayout = callArgs[4];
+      expect(passedLayout.startX).toBe(13);
+      expect(passedLayout.endX).toBe(25);
+    });
+
+    it('should return error on page resolve failure', async () => {
+      vi.mocked(resolvePageIds).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_add_embed', {
+        siteId: 'bad-site',
+        pageSlug: 'home',
+        sectionIndex: 0,
+      });
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── sq_update_embed ────────────────────────────────────────────────────
+  describe('sq_update_embed', () => {
+    it('should update embed HTML', async () => {
+      mockClient.updateEmbedBlock.mockResolvedValue({ success: true });
+
+      const result = await server.callTool('sq_update_embed', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'contact',
+        searchText: 'calendly',
+        html: '<iframe src="https://calendly.com/new-link"></iframe>',
+      });
+
+      expect(mockClient.updateEmbedBlock).toHaveBeenCalledWith(
+        'psi-contact', 'col-contact', 'calendly', '<iframe src="https://calendly.com/new-link"></iframe>',
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+
+    it('should return error on page resolve failure', async () => {
+      vi.mocked(resolvePageIds).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_update_embed', {
+        siteId: 'bad-site',
+        pageSlug: 'home',
+        searchText: 'X',
+        html: '<div>test</div>',
       });
 
       expect(result.isError).toBe(true);

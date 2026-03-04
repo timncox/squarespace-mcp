@@ -381,12 +381,13 @@ export function registerBlockTools(server: McpServer) {
       }
       const client = getClient(siteId);
 
-      // Resolve offsetColumns to startX/endX
+      // Resolve offsetColumns to startX/endX, then strip convenience keys
       const resolvedLayout = layout ? { ...layout } : undefined;
       if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
         resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
         resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 24);
       }
+      if (resolvedLayout) delete resolvedLayout.offsetColumns;
 
       const options: Record<string, any> = {};
       if (title !== undefined) options.title = title;
@@ -468,12 +469,13 @@ export function registerBlockTools(server: McpServer) {
       }
       const client = getClient(siteId);
 
-      // Resolve offsetColumns to startX/endX
+      // Resolve offsetColumns to startX/endX, then strip convenience keys
       const resolvedLayout = layout ? { ...layout } : undefined;
       if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
         resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
         resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 12);
       }
+      if (resolvedLayout) delete resolvedLayout.offsetColumns;
 
       const result = await client.addEmbedBlock(ids.pageSectionsId, ids.collectionId, sectionIndex, html, resolvedLayout);
 

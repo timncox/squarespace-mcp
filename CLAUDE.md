@@ -23,7 +23,7 @@ Entry point: `src/index.ts` — starts Fastify server + Gmail polling loop (60s 
 
 All task execution routes through the **MCP orchestrator** — autonomous Claude CLI agents backed by ~40 MCP tools wrapping the Content Save API. No browser agent or legacy pipeline.
 
-- **MCP server** (`src/mcp-server/`) wraps ContentSaveClient as ~40 tools
+- **MCP server** (`src/mcp-server/`) wraps ContentSaveClient as ~44 tools
 - **Autonomous Claude CLI agents** spawned via `claude -p --mcp-config --output-format stream-json`
 - **Orchestrator** (`src/orchestrator/`) runs the full pipeline: classify → research → analyze → strategize → [approve] → execute → supervise
 - **Self-improving loop**: browser fallbacks logged → dashboard → new API tools created
@@ -36,7 +36,7 @@ All task execution routes through the **MCP orchestrator** — autonomous Claude
 2. **Tasks created** → `conversation-handler.ts` sends summary to Tim via WhatsApp
 3. **Tim confirms** → conversation state machine routes to `executeTasks()`
 4. **MCP Orchestrator pipeline**: classify → research (web search) → analyze (site snapshot) → strategize (structured ContentPlan) → [plan approval if configured] → execute (MCP tools) → supervise (verify result)
-5. All edits via Content Save API through MCP tools (~40 tools)
+5. All edits via Content Save API through MCP tools (~44 tools)
 
 ### Directory Structure
 
@@ -49,7 +49,7 @@ src/
   routes/           # Fastify routes (dashboard, webhooks, screenshots, health)
   services/         # Business logic (whatsapp, gmail, email-processor, conversation-handler, content-save)
     conversation/   # Conversation sub-modules (message-handlers, execution, helpers)
-  mcp-server/       # MCP server — ~40 tools across 8 modules (text, section, blocks, pages, site, content, screenshot, web-search)
+  mcp-server/       # MCP server — ~44 tools across 8 modules (text, section, blocks, pages, site, content, screenshot, web-search)
     tools/          # Tool modules (registerXxxTools pattern)
     session.ts      # Client cache + resolvePageIds (shared by all tools)
     index.ts        # Tool registration entry point
@@ -72,7 +72,7 @@ storage/            # Runtime data (uploads/, screenshots/) — not committed
 | `src/orchestrator/orchestrator.ts` | MCP orchestrator — 6-stage pipeline with structured planning, per-operation tracking, and SSE events |
 | `src/orchestrator/cli-runner.ts` | Claude CLI spawner (stream-json NDJSON parsing) |
 | `src/orchestrator/prompts/` | 6 agent prompts (executor, supervisor, classifier, researcher, analyst, strategist) |
-| `src/mcp-server/index.ts` | MCP server — ~40 tools registration entry point |
+| `src/mcp-server/index.ts` | MCP server — ~44 tools registration entry point |
 | `src/mcp-server/tools/web-search.ts` | Web search MCP tools (`sq_web_search`, `sq_fetch_url`) |
 | `src/mcp-server/session.ts` | Client cache + resolvePageIds (shared by all tools) |
 | `src/services/conversation-handler.ts` | Message router — delegates to conversation sub-modules |
