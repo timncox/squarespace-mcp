@@ -23,7 +23,7 @@ Entry point: `src/index.ts` — starts Fastify server + Gmail polling loop (60s 
 
 All task execution routes through the **MCP orchestrator** — autonomous Claude CLI agents backed by ~40 MCP tools wrapping the Content Save API. No browser agent or legacy pipeline.
 
-- **MCP server** (`src/mcp-server/`) wraps ContentSaveClient as ~48 tools
+- **MCP server** (`src/mcp-server/`) wraps ContentSaveClient as ~54 tools
 - **Autonomous Claude CLI agents** spawned via `claude -p --mcp-config --output-format stream-json`
 - **Orchestrator** (`src/orchestrator/`) runs the full pipeline: classify → research → analyze → strategize → [approve] → execute → supervise
 - **Self-improving loop**: browser fallbacks logged → dashboard → new API tools created
@@ -36,7 +36,7 @@ All task execution routes through the **MCP orchestrator** — autonomous Claude
 2. **Tasks created** → `conversation-handler.ts` sends summary to Tim via WhatsApp
 3. **Tim confirms** → conversation state machine routes to `executeTasks()`
 4. **MCP Orchestrator pipeline**: classify → research (web search) → analyze (site snapshot) → strategize (structured ContentPlan) → [plan approval if configured] → execute (MCP tools) → supervise (verify result)
-5. All edits via Content Save API through MCP tools (~48 tools)
+5. All edits via Content Save API through MCP tools (~54 tools)
 
 ### Directory Structure
 
@@ -49,7 +49,7 @@ src/
   routes/           # Fastify routes (dashboard, webhooks, screenshots, health)
   services/         # Business logic (whatsapp, gmail, email-processor, conversation-handler, content-save)
     conversation/   # Conversation sub-modules (message-handlers, execution, helpers)
-  mcp-server/       # MCP server — ~48 tools across 9 modules (text, section, blocks, pages, site, content, screenshot, web-search, links)
+  mcp-server/       # MCP server — ~54 tools across 12 modules (text, section, blocks, pages, site, content, screenshot, web-search, forms, divider, links, gmail)
     tools/          # Tool modules (registerXxxTools pattern)
     session.ts      # Client cache + resolvePageIds (shared by all tools)
     index.ts        # Tool registration entry point
@@ -72,8 +72,9 @@ storage/            # Runtime data (uploads/, screenshots/) — not committed
 | `src/orchestrator/orchestrator.ts` | MCP orchestrator — 6-stage pipeline with structured planning, per-operation tracking, and SSE events |
 | `src/orchestrator/cli-runner.ts` | Claude CLI spawner (stream-json NDJSON parsing) |
 | `src/orchestrator/prompts/` | 6 agent prompts (executor, supervisor, classifier, researcher, analyst, strategist) |
-| `src/mcp-server/index.ts` | MCP server — ~48 tools registration entry point |
+| `src/mcp-server/index.ts` | MCP server — ~54 tools registration entry point |
 | `src/mcp-server/tools/web-search.ts` | Web search MCP tools (`sq_web_search`, `sq_fetch_url`) |
+| `src/mcp-server/tools/gmail.ts` | Gmail MCP tools (`sq_list_emails`, `sq_read_email`, `sq_process_email`, `sq_download_attachment`, `sq_list_processed_emails`, `sq_parse_pdf_menu`) |
 | `src/mcp-server/session.ts` | Client cache + resolvePageIds (shared by all tools) |
 | `src/services/conversation-handler.ts` | Message router — delegates to conversation sub-modules |
 | `src/services/conversation/execution.ts` | Task execution — routes all tasks through MCP orchestrator + multi-site expansion |
@@ -122,6 +123,8 @@ The Content Save API is the primary execution mechanism, exposed as MCP tools. U
 - `reorderGalleryImages(galleryCollectionId, itemIds)` — `POST /api/commondata/ReorderItems` (form-encoded)
 
 **MCP gallery tools**: `sq_list_gallery_images` (discover image IDs/filenames/order), `sq_remove_gallery_image` (delete by itemId), `sq_reorder_gallery_images` (reorder by passing itemIds array). List/reorder accept `pageSlug` + optional `searchText`; remove just needs `itemId`.
+
+**Gmail MCP tools**: `sq_list_emails` (list inbox with limit/unreadOnly), `sq_read_email` (full message + attachment metadata by messageId), `sq_process_email` (trigger task extraction pipeline), `sq_download_attachment` (save to storage/uploads/), `sq_list_processed_emails` (query email history DB with status filter), `sq_parse_pdf_menu` (download PDF → extractPdfText → parseMenuText → structured MenuTab[] or raw text fallback). Site-independent — no siteId or resolvePageIds needed.
 
 **Site-wide methods**: `getNavigation()`, `getSettings()`, `getCodeInjection()`, `saveCodeInjection()`.
 
@@ -240,6 +243,7 @@ Image uploads use `MediaUploadClient` to upload files to Squarespace's asset ser
 - `src/services/__tests__/content-save-design-nav.test.ts` — design write + navigation tests (30 tests)
 - `src/orchestrator/__tests__/orchestrator.test.ts` — MCP orchestrator pipeline tests
 - `src/mcp-server/__tests__/` — MCP tool registration + handler tests
+- `src/mcp-server/__tests__/gmail-tools.test.ts` — Gmail MCP tools tests
 - Run: `npx vitest run --exclude '.claude/**' --exclude 'dist/**' --exclude 'src/archive/**'`
 - Old browser agent and pipeline tests are in `src/archive/` — excluded from test runs
 - **operationType union** includes 23 types: `create_page`, `delete_page`, `update_page_metadata`, `add_section`, `add_block`, `add_gallery`, `modify_text`, `replace_image`, `remove_block`, `modify_block`, `modify_style`, `edit_footer`, `edit_css`, `reorder_sections`, `move_block`, `resize_block`, `create_blog_post`, `update_blog_post`, `edit_code_injection`, `modify_gallery_settings`, `duplicate_block`, `duplicate_section`, `swap_blocks`. Site-wide ops (footer/CSS/code-injection/blog) skip `resolvePageContext()` in the api-executor.
