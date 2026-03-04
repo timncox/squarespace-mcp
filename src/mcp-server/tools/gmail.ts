@@ -20,9 +20,8 @@ export function registerGmailTools(server: McpServer) {
       'List recent unread emails from the Gmail inbox. Returns summary info (no body) for each message. Use sq_read_email to get full content.',
     inputSchema: {
       limit: z.number().optional().describe('Max emails to return (default 10)'),
-      unreadOnly: z.boolean().optional().describe('Only return unread emails (default true)'),
     },
-  }, async ({ limit, unreadOnly }) => {
+  }, async ({ limit }) => {
     try {
       const { fetchNewMessages } = await import('../../services/gmail.js');
       const messages = await fetchNewMessages();

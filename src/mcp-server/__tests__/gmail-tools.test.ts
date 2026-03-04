@@ -136,6 +136,16 @@ describe('Gmail Tools', () => {
       expect(data).toHaveLength(2);
     });
 
+    it('should return empty array when no messages', async () => {
+      mockFetchNewMessages.mockResolvedValue([]);
+
+      const result = await server.callTool('sq_list_emails', {});
+
+      expect(result.isError).toBeUndefined();
+      const data = JSON.parse(result.content[0].text);
+      expect(data).toHaveLength(0);
+    });
+
     it('should return error on thrown exception', async () => {
       mockFetchNewMessages.mockRejectedValue(new Error('Gmail API not configured'));
 
