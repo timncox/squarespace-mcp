@@ -10,6 +10,11 @@ const mockClient = {
   updateMenuBlock: vi.fn(),
   addMenuBlock: vi.fn(),
   updateGallerySettings: vi.fn(),
+  getPageSections: vi.fn(),
+  findGalleryBlock: vi.fn(),
+  getGalleryItems: vi.fn(),
+  removeGalleryImage: vi.fn(),
+  reorderGalleryImages: vi.fn(),
 };
 
 vi.mock('../session.js', () => ({
@@ -48,7 +53,7 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
     registerContentTools(server as any);
   });
 
-  it('should register all 8 content tools', () => {
+  it('should register all 11 content tools', () => {
     expect(server.tools.has('sq_create_blog_post')).toBe(true);
     expect(server.tools.has('sq_update_blog_post')).toBe(true);
     expect(server.tools.has('sq_list_blog_posts')).toBe(true);
@@ -57,6 +62,9 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
     expect(server.tools.has('sq_update_menu')).toBe(true);
     expect(server.tools.has('sq_add_menu')).toBe(true);
     expect(server.tools.has('sq_update_gallery')).toBe(true);
+    expect(server.tools.has('sq_list_gallery_images')).toBe(true);
+    expect(server.tools.has('sq_remove_gallery_image')).toBe(true);
+    expect(server.tools.has('sq_reorder_gallery_images')).toBe(true);
   });
 
   // ── Blog Tools ──────────────────────────────────────────────────────────────
@@ -515,6 +523,115 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('No gallery block found');
+    });
+  });
+
+  // ── Gallery Image Management Tools ──────────────────────────────────────
+
+  describe('sq_list_gallery_images', () => {
+    it('lists gallery images on a page', async () => {
+      mockClient.getPageSections.mockResolvedValue({
+        sections: [{ id: 'sec-1' }],
+        updatedOn: Date.now(),
+      });
+      mockClient.findGalleryBlock.mockReturnValue({
+        galleryCollectionId: 'gal-col-1',
+        sectionIndex: 0,
+        blockIndex: 0,
+        gridContent: {},
+      });
+      mockClient.getGalleryItems.mockResolvedValue({
+        success: true,
+        items: [
+          { id: 'img-1', displayIndex: 0, filename: 'photo1.jpg', assetUrl: 'https://cdn/photo1.jpg' },
+          { id: 'img-2', displayIndex: 1, filename: 'photo2.jpg', assetUrl: 'https://cdn/photo2.jpg' },
+        ],
+      });
+
+      const result = await server.callTool('sq_list_gallery_images', {
+        siteId: 'test-site',
+        pageSlug: 'gallery',
+      });
+
+      expect(result.isError).toBeUndefined();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(data.items).toHaveLength(2);
+    });
+
+    it('returns error when no gallery block found', async () => {
+      mockClient.getPageSections.mockResolvedValue({
+        sections: [{ id: 'sec-1' }],
+        updatedOn: Date.now(),
+      });
+      mockClient.findGalleryBlock.mockReturnValue(null);
+
+      const result = await server.callTool('sq_list_gallery_images', {
+        siteId: 'test-site',
+        pageSlug: 'no-gallery',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('No gallery block found');
+    });
+  });
+
+  describe('sq_remove_gallery_image', () => {
+    it('removes a gallery image', async () => {
+      mockClient.removeGalleryImage.mockResolvedValue({ success: true, itemId: 'img-1' });
+
+      const result = await server.callTool('sq_remove_gallery_image', {
+        siteId: 'test-site',
+        itemId: 'img-1',
+      });
+
+      expect(result.isError).toBeUndefined();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+
+    it('returns error on failure', async () => {
+      mockClient.removeGalleryImage.mockResolvedValue({ success: false, error: 'Not found' });
+
+      const result = await server.callTool('sq_remove_gallery_image', {
+        siteId: 'test-site',
+        itemId: 'bad-id',
+      });
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  describe('sq_reorder_gallery_images', () => {
+    it('reorders gallery images', async () => {
+      mockClient.getPageSections.mockResolvedValue({
+        sections: [{ id: 'sec-1' }],
+        updatedOn: Date.now(),
+      });
+      mockClient.findGalleryBlock.mockReturnValue({
+        galleryCollectionId: 'gal-col-1',
+        sectionIndex: 0,
+        blockIndex: 0,
+        gridContent: {},
+      });
+      mockClient.reorderGalleryImages.mockResolvedValue({
+        success: true,
+        items: [
+          { id: 'img-2', displayIndex: 0 },
+          { id: 'img-1', displayIndex: 1 },
+        ],
+      });
+
+      const result = await server.callTool('sq_reorder_gallery_images', {
+        siteId: 'test-site',
+        pageSlug: 'gallery',
+        itemIds: ['img-2', 'img-1'],
+      });
+
+      expect(result.isError).toBeUndefined();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(mockClient.reorderGalleryImages).toHaveBeenCalledWith('gal-col-1', ['img-2', 'img-1']);
     });
   });
 });
