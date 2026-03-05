@@ -181,7 +181,10 @@ export function registerBlockTools(server: McpServer) {
   // ── sq_upload_image ─────────────────────────────────────────────────────────
   server.registerTool('sq_upload_image', {
     description:
-      'Upload an image to the Squarespace media library. Accepts a local file path or an HTTP/HTTPS URL (downloads and uploads automatically). ' +
+      'Upload an image to the Squarespace media library. Accepts a LOCAL file path on the user\'s machine (e.g. /Users/.../photo.jpg) ' +
+      'or an HTTP/HTTPS URL (downloads and uploads automatically). ' +
+      'IMPORTANT: /mnt/user-data/ paths from your cloud environment do NOT work — this tool runs on the user\'s local machine. ' +
+      'Ask the user for a local Mac path or a public URL instead. ' +
       'Returns an assetUrl + assetId for use with sq_add_image, sq_update_image, or sq_attach_product_image.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
@@ -209,7 +212,8 @@ export function registerBlockTools(server: McpServer) {
   // ── sq_upload_images (batch) ─────────────────────────────────────────────────
   server.registerTool('sq_upload_images', {
     description:
-      'Upload multiple images to the Squarespace media library in parallel. Accepts local file paths and/or HTTP/HTTPS URLs (mixed). ' +
+      'Upload multiple images to the Squarespace media library in parallel. Accepts LOCAL file paths on the user\'s machine and/or HTTP/HTTPS URLs (mixed). ' +
+      'IMPORTANT: /mnt/user-data/ paths do NOT work — this runs locally. Ask for Mac paths or public URLs. ' +
       'Returns an array of results (assetUrl + assetId) in the same order as the input. Partial failures are reported per-image.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),

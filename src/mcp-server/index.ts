@@ -120,6 +120,15 @@ Commerce tools use session cookies (same auth as all other tools — no separate
 ### Product Images
 - sq_attach_product_image — attach uploaded image to a product (use sq_upload_image first)
 - sq_set_product_thumbnail — set a product's thumbnail image
+
+## Image Uploads — IMPORTANT
+sq_upload_image runs on the user's LOCAL machine. It can access:
+- Local file paths (e.g. /Users/timcox/Downloads/photo.jpg) ✅
+- HTTP/HTTPS URLs (downloads and uploads automatically) ✅
+- /mnt/user-data/ or /tmp/user-data/ paths ❌ — these are YOUR cloud container, NOT the user's machine
+
+If the user uploads an image to this conversation, you CANNOT pass that file path to sq_upload_image.
+Instead: ask the user where the file is on their Mac, or ask for a public URL to the image.
 `.trim();
 
 const server = new McpServer(
