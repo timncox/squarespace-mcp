@@ -84,13 +84,27 @@ All API calls require valid Squarespace editor session cookies. If you get 401 o
 ## Grid System
 Squarespace uses a 24-column desktop grid. Coordinates: X ranges 1-24, start is inclusive, end is exclusive. Mobile layout auto-reflows from desktop — you only control desktop positioning.
 
+## Forms & Contact Pages
+When the user wants a contact form, inquiry form, or any form that collects user input:
+1. Call sq_list_forms to discover available forms on the site.
+2. **If NO forms exist:** Use sq_create_form to create a default contact form (Name, Email, Message). It returns a formId.
+3. Use sq_add_form_block with the formId to add the form to a page section.
+4. Use offsetColumns and columns to center the form (e.g. offsetColumns: 4, columns: 16 for a centered form).
+5. Customize the submit button with buttonVariant (primary/secondary/tertiary) and buttonAlignment (left/center/right).
+6. Tell the user to set the recipient email in Squarespace Settings → Forms → Email Notification.
+
+**Form CRUD tools:** sq_create_form (create), sq_get_form (read details), sq_update_form (update name/fields/button text).
+
+**IMPORTANT:** Always use native Squarespace forms. Do NOT use sq_add_embed with third-party form services (FormSubmit, Typeform, Google Forms, etc.) — native forms match the site's design and handle email delivery automatically.
+
 ## Building a New Page
 When the user asks you to create a new page (contact, about, services, etc.):
 1. Use sq_create_page to create the page, or ask the user for the page slug if it already exists.
 2. Use sq_add_section to create sections with initial content blocks (text, embed, button, image, video). This is preferred over sq_add_blank_section + separate block adds.
 3. Use sq_add_template_section to add pre-designed template sections (call sq_list_section_templates to see available templates).
-4. Use sq_update_text, sq_update_image to customize content after creation.
-5. Screenshot to verify.
+4. For contact pages, use sq_add_form_block to add a native Squarespace form (see "Forms & Contact Pages" above).
+5. Use sq_update_text, sq_update_image to customize content after creation.
+6. Screenshot to verify.
 
 ## Commerce (Products, Store Pages, Images)
 Commerce tools use session cookies (same auth as all other tools — no separate API key needed).
@@ -186,6 +200,15 @@ server.registerPrompt('squarespace-guide', {
 - sq_list_blog_posts — list posts in a blog collection
 - sq_find_blog_post — find post by title
 
+### Forms & Contact Pages
+- sq_list_forms — discover available forms on a site (call first to get formId)
+- sq_create_form — create a new form (default: contact form with Name, Email, Message)
+- sq_get_form — get full form details by ID (fields, connected backends)
+- sq_update_form — update form name, fields, or submit button text
+- sq_add_form_block — add a native Squarespace form block to a section (contact forms, inquiry forms, etc.)
+- sq_update_form_block — update form button appearance or lightbox setting
+**IMPORTANT:** Always use these native form tools instead of sq_add_embed for contact/inquiry forms. Native forms match the site design and handle email delivery automatically.
+
 ### Menus
 - sq_get_menu — read menu block data
 - sq_update_menu — update menu block (full MenuTab[] JSON)
@@ -224,6 +247,8 @@ Uses session cookies (same auth as all other tools — no separate API key neede
 **Deleting a page:** sq_delete_page is best-effort. If it fails, ask the user to delete it manually.
 
 **Blog post body:** The create endpoint ignores body — sq_create_blog_post handles this via create-then-update, but check the result for errors.
+
+**Adding a contact form:** Use sq_list_forms → if no forms exist, sq_create_form → sq_add_form_block. The full flow is automated — no need to ask the user to create forms manually. NEVER use sq_add_embed with third-party form services as a workaround.
 
 **Always read before writing:** Call sq_get_page_sections before making changes so you understand the current structure.
 

@@ -1913,7 +1913,7 @@ describe('ContentSaveClient', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('Session age:');
-      expect(result.error).toContain('Run a browser session to refresh cookies');
+      expect(result.error).toContain('Call sq_login to check session health and re-authenticate');
 
       fetchSpy.mockRestore();
     });

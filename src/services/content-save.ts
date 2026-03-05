@@ -96,6 +96,9 @@ export type {
   FormBlockAddResult,
   FormBlockUpdateResult,
   FormListResult,
+  FormCreateResult,
+  FormGetResult,
+  FormUpdateResult,
   SiteIdentityData,
   SiteIdentityUpdateOptions,
   SiteIdentityResult,
@@ -211,6 +214,9 @@ import type {
   FormBlockAddResult,
   FormBlockUpdateResult,
   FormListResult,
+  FormCreateResult,
+  FormGetResult,
+  FormUpdateResult,
   SiteIdentityData,
   SiteIdentityUpdateOptions,
   SiteIdentityResult,
@@ -448,9 +454,8 @@ export class ContentSaveClient {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      throw new Error(
-        `Failed to fetch page sections: ${response.status} ${response.statusText}. Body: ${body}`,
-      );
+      const baseError = `Failed to fetch page sections: ${response.status} ${response.statusText}. Body: ${body}`;
+      throw new Error(this.enhanceWriteError(response.status, body, baseError));
     }
 
     const data = (await response.json()) as PageSectionsData;
@@ -494,7 +499,8 @@ export class ContentSaveClient {
     const responseBody = await response.text().catch(() => '');
 
     if (!response.ok) {
-      const error = `Save failed: ${response.status} ${response.statusText}. Body: ${responseBody}`;
+      const baseError = `Save failed: ${response.status} ${response.statusText}. Body: ${responseBody}`;
+      const error = this.enhanceWriteError(response.status, responseBody, baseError);
       logger.error({ pageSectionsId, status: response.status }, error);
       return { success: false, pageSectionsId, collectionId, sectionsCount: sections.length, error };
     }
@@ -502,7 +508,7 @@ export class ContentSaveClient {
     // Check for crumb failure (Squarespace returns 200 with error in body)
     if (responseBody.includes('"crumbFail":true') || responseBody.includes('Invalid session crumb')) {
       const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
-      const error = `Save rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.`;
+      const error = `Save rejected: invalid or expired session crumb.${ageInfo} Call sq_login to check session health and re-authenticate.`;
       logger.error({ pageSectionsId }, error);
       return { success: false, pageSectionsId, collectionId, sectionsCount: sections.length, error };
     }
@@ -2833,7 +2839,7 @@ export class ContentSaveClient {
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      return { success: false, error: `${response.status} ${response.statusText}: ${body}` };
+      return { success: false, error: this.enhanceWriteError(response.status, body, `${response.status} ${response.statusText}: ${body}`) };
     }
 
     return { success: true };
@@ -2915,7 +2921,8 @@ export class ContentSaveClient {
       const responseBody = await response.text().catch(() => '');
 
       if (!response.ok) {
-        const error = `CSS save failed: ${response.status} ${response.statusText}. Body: ${responseBody}`;
+        const baseError = `CSS save failed: ${response.status} ${response.statusText}. Body: ${responseBody}`;
+        const error = this.enhanceWriteError(response.status, responseBody, baseError);
         logger.error({ status: response.status }, error);
         return { success: false, error };
       }
@@ -3046,7 +3053,7 @@ export class ContentSaveClient {
         });
         if (!putRes.ok) {
           const body = await putRes.text().catch(() => '');
-          return { success: false, error: `PUT /api/rest/websites/mine failed: ${putRes.status} ${body}` };
+          return { success: false, error: this.enhanceWriteError(putRes.status, body, `PUT /api/rest/websites/mine failed: ${putRes.status} ${body}`) };
         }
       }
 
@@ -3077,7 +3084,7 @@ export class ContentSaveClient {
         });
         if (!putRes.ok) {
           const body = await putRes.text().catch(() => '');
-          return { success: false, error: `PUT /api/settings failed: ${putRes.status} ${body}` };
+          return { success: false, error: this.enhanceWriteError(putRes.status, body, `PUT /api/settings failed: ${putRes.status} ${body}`) };
         }
       }
 
@@ -5993,6 +6000,135 @@ export class ContentSaveClient {
     }
   }
 
+  /**
+   * Create a new form on the site.
+   * Endpoint: POST /api/rest/forms (JSON body, X-CSRF-Token header)
+   * If no fields provided, creates a standard contact form (Name, Email, Message).
+   * Never throws.
+   */
+  async createForm(
+    name?: string,
+    fields?: string[],
+    options?: { submitButtonText?: string },
+  ): Promise<FormCreateResult> {
+    this.ensureCookies();
+    const url = this.buildApiUrl('/api/rest/forms');
+
+    // Default contact form fields
+    const defaultFields = [
+      JSON.stringify({ type: 'name', id: `name-${randomBytes(8).toString('hex')}`, title: 'Name', description: '', required: true }),
+      JSON.stringify({ type: 'email', id: `email-${randomBytes(8).toString('hex')}`, title: 'Email', description: '', required: true }),
+      JSON.stringify({ type: 'textarea', id: `textarea-${randomBytes(8).toString('hex')}`, title: 'Message', description: '', required: true }),
+    ];
+
+    const body = {
+      name: name ?? 'Contact Form',
+      fields: fields ?? defaultFields,
+      submitButtonText: options?.submitButtonText ?? 'Submit',
+    };
+
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+          ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        return { success: false, error: this.enhanceWriteError(response.status, text, `POST /api/rest/forms failed: ${response.status} ${text}`) };
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+      const formId = String(data.id ?? '');
+      if (!formId) {
+        return { success: false, error: 'Form created but no id returned' };
+      }
+
+      logger.info({ siteSubdomain: this.siteSubdomain, formId, name: body.name }, 'Form created');
+      return { success: true, formId };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Get a form by ID.
+   * Endpoint: GET /api/rest/forms/{formId}
+   * Returns full form object (fields, parsedFields, connectedBackends, etc.)
+   * Never throws.
+   */
+  async getForm(formId: string): Promise<FormGetResult> {
+    this.ensureCookies();
+    const url = this.buildApiUrl(`/api/rest/forms/${formId}`);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        return { success: false, error: `GET /api/rest/forms/${formId} failed: ${response.status} ${text}` };
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update a form by ID.
+   * Endpoint: PUT /api/rest/forms/{formId} (JSON body, X-CSRF-Token header)
+   * Accepts partial updates: name, fields, submitButtonText, submissionMessage.
+   * Never throws.
+   */
+  async updateForm(
+    formId: string,
+    updates: {
+      name?: string;
+      fields?: string[];
+      submitButtonText?: string;
+      submissionMessage?: string;
+    },
+  ): Promise<FormUpdateResult> {
+    this.ensureCookies();
+    const url = this.buildApiUrl(`/api/rest/forms/${formId}`);
+
+    try {
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+          ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+        },
+        body: JSON.stringify(updates),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        return { success: false, error: this.enhanceWriteError(response.status, text, `PUT /api/rest/forms/${formId} failed: ${response.status} ${text}`) };
+      }
+
+      const data = (await response.json()) as Record<string, unknown>;
+      logger.info({ siteSubdomain: this.siteSubdomain, formId }, 'Form updated');
+      return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
   // ── Social Links Block (type 54) ────────────────────────────────────────
 
   /**
@@ -7051,16 +7187,17 @@ export class ContentSaveClient {
         return {
           success: false,
           endpointAvailable: true,
-          error: 'Session expired — re-authenticate via browser to refresh cookies',
+          error: 'Session expired — call sq_login to check session health and re-authenticate.',
         };
       }
 
       if (!response.ok) {
         const errBody = await response.text().catch(() => '');
+        const baseError = `SaveCollectionSettings returned ${response.status}: ${errBody.slice(0, 200)}`;
         return {
           success: false,
           endpointAvailable: true,
-          error: `SaveCollectionSettings returned ${response.status}: ${errBody.slice(0, 200)}`,
+          error: this.enhanceWriteError(response.status, errBody, baseError),
         };
       }
 
@@ -7072,7 +7209,7 @@ export class ContentSaveClient {
         return {
           success: false,
           endpointAvailable: true,
-          error: `createPageViaApi rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.`,
+          error: `createPageViaApi rejected: invalid or expired session crumb.${ageInfo} Call sq_login to check session health and re-authenticate.`,
         };
       }
 
@@ -7269,7 +7406,7 @@ export class ContentSaveClient {
         return {
           success: false,
           endpointAvailable: true,
-          error: `API returned ${response.status}: ${errBody.slice(0, 200)}`,
+          error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`),
         };
       }
 
@@ -7378,19 +7515,19 @@ export class ContentSaveClient {
       });
 
       if (response.status === 401) {
-        return { success: false, itemId, updatedFields: [], error: 'Session expired' };
+        return { success: false, itemId, updatedFields: [], error: 'Session expired — call sq_login to check session health and re-authenticate.' };
       }
       if (response.status === 404) {
         return { success: false, itemId, updatedFields: [], error: 'Blog post not found' };
       }
       if (!response.ok) {
         const text = await response.text().catch(() => '');
-        return { success: false, itemId, updatedFields: [], error: `HTTP ${response.status}: ${text}` };
+        return { success: false, itemId, updatedFields: [], error: this.enhanceWriteError(response.status, text, `HTTP ${response.status}: ${text}`) };
       }
 
       const data = (await response.json()) as Record<string, unknown>;
       if (data.crumbFail || (typeof data.error === 'string' && data.error.includes('Invalid session crumb'))) {
-        return { success: false, itemId, updatedFields: [], error: 'Session crumb invalid — re-authenticate' };
+        return { success: false, itemId, updatedFields: [], error: 'Session crumb invalid — call sq_login to check session health and re-authenticate.' };
       }
 
       logger.info({ collectionId, itemId, updatedFields }, 'updateBlogPost: post updated');
@@ -7447,7 +7584,7 @@ export class ContentSaveClient {
         return {
           success: false,
           collectionId,
-          error: 'Session expired — re-authenticate via browser to refresh cookies',
+          error: 'Session expired — call sq_login to check session health and re-authenticate.',
         };
       }
 
@@ -7626,7 +7763,7 @@ export class ContentSaveClient {
           success: false,
           collectionId,
           updatedFields: [],
-          error: 'Session expired — re-authenticate via browser to refresh cookies',
+          error: 'Session expired — call sq_login to check session health and re-authenticate.',
         };
       }
 
@@ -7647,7 +7784,7 @@ export class ContentSaveClient {
           success: false,
           collectionId,
           updatedFields: [],
-          error: `updatePageMetadata rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.`,
+          error: `updatePageMetadata rejected: invalid or expired session crumb.${ageInfo} Call sq_login to check session health and re-authenticate.`,
         };
       }
 
@@ -8060,6 +8197,34 @@ export class ContentSaveClient {
     if (!this.siteCookieHeader) {
       throw new Error('Session cookies not loaded. Call loadSessionCookies() first.');
     }
+  }
+
+  /**
+   * Detect if an HTTP error is likely caused by an expired/invalid session.
+   * Squarespace returns 500 "Something went wrong" for many auth failures
+   * instead of a proper 401.
+   */
+  private isLikelyAuthError(status: number, body: string): boolean {
+    if (status === 401 || status === 403) return true;
+    if (status === 500) {
+      // Squarespace's generic error pattern for auth failures
+      if (body.includes('"cleaned":true') && body.includes('"Something went wrong"')) return true;
+      if (body.includes('"Something went wrong."') && body.includes('"errorKey"')) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Enhance a write error message with session context when the error
+   * looks auth-related. Helps Claude Desktop diagnose stale sessions
+   * instead of retrying blindly.
+   */
+  private enhanceWriteError(status: number, body: string, baseError: string): string {
+    if (!this.isLikelyAuthError(status, body)) return baseError;
+    const ageStr = this.sessionAgeHours !== null
+      ? ` Session is ${Math.round(this.sessionAgeHours)}h old (max 24h).`
+      : '';
+    return `${baseError} — THIS IS LIKELY AN EXPIRED SESSION.${ageStr} Call sq_login to check session health and re-authenticate.`;
   }
 
   /**
@@ -8668,7 +8833,7 @@ export class ContentSaveClient {
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        return { success: false, error: `Failed to copy template section: ${response.status}. ${body}` };
+        return { success: false, error: this.enhanceWriteError(response.status, body, `Failed to copy template section: ${response.status}. ${body}`) };
       }
 
       const data = await response.json().catch(() => ({})) as Record<string, unknown>;
@@ -8714,7 +8879,7 @@ export class ContentSaveClient {
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        return { success: false, error: `Failed to fetch section catalog: ${response.status}. ${body}` };
+        return { success: false, error: this.enhanceWriteError(response.status, body, `Failed to fetch section catalog: ${response.status}. ${body}`) };
       }
 
       const data = await response.json() as Record<string, unknown>;
@@ -9254,7 +9419,7 @@ export class ContentSaveClient {
       });
       if (!putRes.ok) {
         const body = await putRes.text().catch(() => '');
-        return { success: false, error: `PUT /api/settings failed: ${putRes.status} ${body}` };
+        return { success: false, error: this.enhanceWriteError(putRes.status, body, `PUT /api/settings failed: ${putRes.status} ${body}`) };
       }
 
       logger.info({ siteSubdomain: this.siteSubdomain, updatedFields: fieldKeys }, 'Settings updated');
@@ -9340,7 +9505,8 @@ export class ContentSaveClient {
       const responseBody = await response.text().catch(() => '');
 
       if (!response.ok) {
-        const error = `Code injection save failed: ${response.status} ${response.statusText}. Body: ${responseBody}`;
+        const baseError = `Code injection save failed: ${response.status} ${response.statusText}. Body: ${responseBody}`;
+        const error = this.enhanceWriteError(response.status, responseBody, baseError);
         logger.error({ status: response.status }, error);
         return { success: false, error };
       }
@@ -9540,7 +9706,7 @@ export class ContentSaveClient {
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        return { success: false, error: `PUT /api/website-fonts failed: ${response.status} ${body}` };
+        return { success: false, error: this.enhanceWriteError(response.status, body, `PUT /api/website-fonts failed: ${response.status} ${body}`) };
       }
 
       logger.info({ siteSubdomain: this.siteSubdomain, fontPack: data.name }, 'Website fonts updated');
@@ -9569,7 +9735,7 @@ export class ContentSaveClient {
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        return { success: false, error: `PUT /api/website-colors failed: ${response.status} ${body}` };
+        return { success: false, error: this.enhanceWriteError(response.status, body, `PUT /api/website-colors failed: ${response.status} ${body}`) };
       }
 
       const responseData = await response.json().catch(() => null) as WebsiteColorsData | null;
@@ -9608,7 +9774,7 @@ export class ContentSaveClient {
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        return { success: false, error: `POST /api/config/SaveAdvancedSettings failed: ${response.status} ${body}` };
+        return { success: false, error: this.enhanceWriteError(response.status, body, `POST /api/config/SaveAdvancedSettings failed: ${response.status} ${body}`) };
       }
 
       logger.info({ siteSubdomain: this.siteSubdomain }, 'Advanced settings saved');
@@ -9682,7 +9848,7 @@ export class ContentSaveClient {
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        return { success: false, error: `POST /api/template/SetTemplateTweakSettings failed: ${response.status} ${body}` };
+        return { success: false, error: this.enhanceWriteError(response.status, body, `POST /api/template/SetTemplateTweakSettings failed: ${response.status} ${body}`) };
       }
 
       logger.info(
@@ -9837,7 +10003,7 @@ export class ContentSaveClient {
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        return { success: false, error: `POST CreateNonOAuthAccount failed: ${response.status} ${body}` };
+        return { success: false, error: this.enhanceWriteError(response.status, body, `POST CreateNonOAuthAccount failed: ${response.status} ${body}`) };
       }
 
       const raw = (await response.json()) as { account?: SocialAccount };
@@ -10025,7 +10191,7 @@ export class ContentSaveClient {
 
       if (!response.ok) {
         const errBody = await response.text().catch(() => '');
-        return { success: false, error: `API returned ${response.status}: ${errBody.slice(0, 200)}` };
+        return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
       }
 
       const data = (await response.json()) as InternalProduct;
@@ -10077,7 +10243,7 @@ export class ContentSaveClient {
       });
       if (!response.ok) {
         const errBody = await response.text().catch(() => '');
-        return { success: false, error: `API returned ${response.status}: ${errBody.slice(0, 200)}` };
+        return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
       }
       const data = (await response.json()) as InternalProduct;
       logger.info({ productId, name: data.name }, 'updateProduct: product updated');
@@ -10102,7 +10268,7 @@ export class ContentSaveClient {
       });
       if (!response.ok && response.status !== 204) {
         const errBody = await response.text().catch(() => '');
-        return { success: false, error: `API returned ${response.status}: ${errBody.slice(0, 200)}` };
+        return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
       }
       logger.info({ productId }, 'deleteProduct: product deleted');
       return { success: true };
@@ -10134,7 +10300,7 @@ export class ContentSaveClient {
       });
       if (!response.ok) {
         const errBody = await response.text().catch(() => '');
-        return { success: false, error: `API returned ${response.status}: ${errBody.slice(0, 200)}` };
+        return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
       }
       const data = (await response.json()) as AssetReferenceResponse;
       logger.info({ productId, imageId: data.id }, 'attachProductImage: image attached');
@@ -10167,7 +10333,7 @@ export class ContentSaveClient {
       });
       if (!response.ok) {
         const errBody = await response.text().catch(() => '');
-        return { success: false, error: `API returned ${response.status}: ${errBody.slice(0, 200)}` };
+        return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
       }
       const data = (await response.json()) as AssetReferenceResponse;
       return { success: true, data };
@@ -10197,7 +10363,7 @@ export class ContentSaveClient {
       });
       if (!response.ok) {
         const errBody = await response.text().catch(() => '');
-        return { success: false, error: `API returned ${response.status}: ${errBody.slice(0, 200)}` };
+        return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
       }
       const data = (await response.json()) as InternalProductImage;
       return { success: true, data };
@@ -10229,7 +10395,7 @@ export class ContentSaveClient {
       });
       if (!copyResponse.ok) {
         const errBody = await copyResponse.text().catch(() => '');
-        return { success: false, error: `Create store failed ${copyResponse.status}: ${errBody.slice(0, 200)}` };
+        return { success: false, error: this.enhanceWriteError(copyResponse.status, errBody, `Create store failed ${copyResponse.status}: ${errBody.slice(0, 200)}`) };
       }
       const storeData = (await copyResponse.json()) as { id: string; urlId: string };
 
