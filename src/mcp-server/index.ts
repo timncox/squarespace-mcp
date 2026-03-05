@@ -121,14 +121,28 @@ Commerce tools use session cookies (same auth as all other tools — no separate
 - sq_attach_product_image — attach uploaded image to a product (use sq_upload_image first)
 - sq_set_product_thumbnail — set a product's thumbnail image
 
-## Image Uploads — IMPORTANT
-sq_upload_image runs on the user's LOCAL machine. It can access:
-- Local file paths (e.g. /Users/timcox/Downloads/photo.jpg) ✅
-- HTTP/HTTPS URLs (downloads and uploads automatically) ✅
-- /mnt/user-data/ or /tmp/user-data/ paths ❌ — these are YOUR cloud container, NOT the user's machine
+## Image Uploads
+sq_upload_image runs on the user's LOCAL machine. It accepts local Mac paths and HTTP/HTTPS URLs.
 
-If the user uploads an image to this conversation, you CANNOT pass that file path to sq_upload_image.
-Instead: ask the user where the file is on their Mac, or ask for a public URL to the image.
+### From the user's Mac (preferred — zero overhead)
+If the user says "use the photo on my Desktop", ask for the full path (e.g. /Users/timcox/Desktop/photo.jpg) and pass it directly to sq_upload_image.
+
+### From this conversation (uploaded images)
+Files uploaded to this conversation live at /mnt/user-data/ in YOUR cloud environment — the local MCP server cannot access them. To bridge the gap:
+1. Upload the file to a temporary public URL using bash:
+   curl -s -F 'file=@/mnt/user-data/uploads/photo.jpg' https://0x0.st
+   This returns a URL like https://0x0.st/Hxyz.jpg
+2. Pass that URL to sq_upload_image — it downloads and uploads to Squarespace automatically.
+3. For multiple files, run curl for each, then use sq_upload_images with the URLs.
+
+If 0x0.st is unavailable, alternatives:
+- curl -s --upload-file FILE https://transfer.sh/filename
+- curl -s -F 'file=@FILE' https://file.io (returns JSON, extract .link)
+
+### NEVER do
+- Pass /mnt/user-data/ paths directly to sq_upload_image (will fail)
+- Base64-encode images (wastes tokens)
+- Ask the user to manually re-upload somewhere
 `.trim();
 
 const server = new McpServer(

@@ -319,6 +319,31 @@ describe('Block Tools', () => {
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Upload failed: 413');
     });
+
+    it('should detect cloud container paths and return curl instructions', async () => {
+      const result = await server.callTool('sq_upload_image', {
+        siteId: 'smyth-tavern',
+        imageUrl: '/mnt/user-data/uploads/photo.jpg',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('cloud environment');
+      expect(result.content[0].text).toContain('curl');
+      expect(result.content[0].text).toContain('0x0.st');
+      expect(result.content[0].text).toContain('/mnt/user-data/uploads/photo.jpg');
+      // Should NOT attempt the actual upload
+      expect(mockMediaClient.uploadImage).not.toHaveBeenCalled();
+    });
+
+    it('should detect /home/user/ paths as cloud container', async () => {
+      const result = await server.callTool('sq_upload_image', {
+        siteId: 'smyth-tavern',
+        imageUrl: '/home/user/uploads/image.png',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('cloud environment');
+    });
   });
 
   // ── sq_remove_block ───────────────────────────────────────────────────────

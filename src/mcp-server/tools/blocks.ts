@@ -192,6 +192,22 @@ export function registerBlockTools(server: McpServer) {
     },
   }, async ({ siteId, imageUrl }) => {
     try {
+      // Detect cloud container paths — these exist in Claude's cloud env, not on the user's Mac
+      if (imageUrl.startsWith('/mnt/') || imageUrl.startsWith('/tmp/user-data') || imageUrl.startsWith('/home/user/')) {
+        const escapedPath = imageUrl.replace(/'/g, "'\\''");
+        return {
+          content: [{ type: 'text' as const, text:
+            `This path is in YOUR cloud environment, not on the user's local machine where this tool runs.\n\n` +
+            `To upload this image, first make it available via a public URL:\n` +
+            `1. Run in bash: curl -s -F 'file=@${escapedPath}' https://0x0.st\n` +
+            `2. That returns a public URL (e.g. https://0x0.st/Hxyz.jpg)\n` +
+            `3. Call sq_upload_image again with that URL — it will download and upload to Squarespace automatically.\n\n` +
+            `Alternative: ask the user where the file is on their Mac (e.g. /Users/.../Downloads/photo.jpg) and use that local path.`
+          }],
+          isError: true,
+        };
+      }
+
       const mediaClient = getMediaClient(siteId);
       const isUrl = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
       const result = isUrl
@@ -221,6 +237,26 @@ export function registerBlockTools(server: McpServer) {
     },
   }, async ({ siteId, images }) => {
     try {
+      // Detect cloud container paths before attempting uploads
+      const cloudPaths = images.filter(img =>
+        img.startsWith('/mnt/') || img.startsWith('/tmp/user-data') || img.startsWith('/home/user/')
+      );
+      if (cloudPaths.length > 0) {
+        const cmds = cloudPaths.map(p => {
+          const escaped = p.replace(/'/g, "'\\''");
+          return `curl -s -F 'file=@${escaped}' https://0x0.st`;
+        }).join('\n');
+        return {
+          content: [{ type: 'text' as const, text:
+            `${cloudPaths.length} path(s) are in YOUR cloud environment, not on the user's local machine.\n\n` +
+            `First, upload them to a temporary URL using bash:\n${cmds}\n\n` +
+            `Each returns a public URL. Then call sq_upload_images again with those URLs.\n\n` +
+            `Alternative: ask the user where the files are on their Mac and use those local paths.`
+          }],
+          isError: true,
+        };
+      }
+
       const mediaClient = getMediaClient(siteId);
       const results = [];
 
