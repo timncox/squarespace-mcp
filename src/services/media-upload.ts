@@ -13,6 +13,7 @@
 
 import { readFileSync, statSync, existsSync, writeFileSync, mkdirSync } from 'fs';
 import { basename, extname, join } from 'path';
+import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
@@ -470,8 +471,8 @@ export class MediaUploadClient {
       throw new Error(`Downloaded image too large: ${(buffer.length / 1024 / 1024).toFixed(1)}MB (max 20MB)`);
     }
 
-    // Write to temp file
-    const tmpDir = join(process.cwd(), 'storage', 'uploads');
+    // Write to temp file (use OS temp dir — process.cwd() may be / in Claude Desktop)
+    const tmpDir = tmpdir();
     mkdirSync(tmpDir, { recursive: true });
     const tmpFile = join(tmpDir, `url-download-${randomUUID()}${ext}`);
     writeFileSync(tmpFile, buffer);

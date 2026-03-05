@@ -783,6 +783,27 @@ export interface FormListResult {
   error?: string;
 }
 
+/** Result of creating a form */
+export interface FormCreateResult {
+  success: boolean;
+  formId?: string;
+  error?: string;
+}
+
+/** Result of getting a form */
+export interface FormGetResult {
+  success: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+}
+
+/** Result of updating a form */
+export interface FormUpdateResult {
+  success: boolean;
+  data?: Record<string, unknown>;
+  error?: string;
+}
+
 /** Result of adding a social links block */
 export interface SocialLinksBlockAddResult {
   success: boolean;

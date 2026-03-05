@@ -1,7 +1,10 @@
 /**
- * MCP Tools — Form blocks
+ * MCP Tools — Form blocks + Form CRUD
  *
  * sq_list_forms: List available forms on a site
+ * sq_create_form: Create a new form (default: contact form)
+ * sq_get_form: Get full form details by ID
+ * sq_update_form: Update form name, fields, or submit button text
  * sq_add_form_block: Add a form block to a section
  * sq_update_form_block: Update an existing form block
  */
@@ -41,15 +44,130 @@ export function registerFormTools(server: McpServer) {
     }
   });
 
+  // ── sq_create_form ────────────────────────────────────────────────────────
+  server.registerTool('sq_create_form', {
+    description:
+      'Create a new native Squarespace form. If no fields specified, creates a standard contact form (Name, Email, Message). Returns formId for use with sq_add_form_block.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      name: z.string().optional().describe('Form name (default: "Contact Form")'),
+      fields: z.string().optional().describe('JSON array of field objects. Each field: {type, title, required?, description?, placeholder?}. Types: name, email, text, textarea, date, time, radio, address, website, file. Omit for default contact form.'),
+      submitButtonText: z.string().optional().describe('Submit button label (default: "Submit")'),
+    },
+  }, async ({ siteId, name, fields, submitButtonText }) => {
+    try {
+      const client = getClient(siteId);
+
+      // Parse fields JSON if provided
+      let parsedFields: string[] | undefined;
+      if (fields) {
+        try {
+          parsedFields = JSON.parse(fields);
+          if (!Array.isArray(parsedFields)) {
+            return { content: [{ type: 'text' as const, text: 'Error: fields must be a JSON array' }], isError: true };
+          }
+        } catch {
+          return { content: [{ type: 'text' as const, text: 'Error: fields is not valid JSON' }], isError: true };
+        }
+      }
+
+      const result = await client.createForm(
+        name,
+        parsedFields,
+        submitButtonText ? { submitButtonText } : undefined,
+      );
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        ...(result.success ? {} : { isError: true }),
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_get_form ───────────────────────────────────────────────────────────
+  server.registerTool('sq_get_form', {
+    description:
+      'Get full form details including fields and connected backends. Use the formId from sq_list_forms or sq_create_form.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      formId: z.string().describe('Form ID'),
+    },
+  }, async ({ siteId, formId }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.getForm(formId);
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        ...(result.success ? {} : { isError: true }),
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_update_form ────────────────────────────────────────────────────────
+  server.registerTool('sq_update_form', {
+    description:
+      'Update a form\'s name, fields, submit button text, or submission message.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      formId: z.string().describe('Form ID'),
+      name: z.string().optional().describe('New form name'),
+      fields: z.string().optional().describe('JSON array of field objects (replaces all fields)'),
+      submitButtonText: z.string().optional().describe('New submit button label'),
+    },
+  }, async ({ siteId, formId, name, fields, submitButtonText }) => {
+    try {
+      const client = getClient(siteId);
+
+      const updates: Record<string, unknown> = {};
+      if (name !== undefined) updates.name = name;
+      if (submitButtonText !== undefined) updates.submitButtonText = submitButtonText;
+
+      if (fields) {
+        try {
+          const parsedFields = JSON.parse(fields);
+          if (!Array.isArray(parsedFields)) {
+            return { content: [{ type: 'text' as const, text: 'Error: fields must be a JSON array' }], isError: true };
+          }
+          updates.fields = parsedFields;
+        } catch {
+          return { content: [{ type: 'text' as const, text: 'Error: fields is not valid JSON' }], isError: true };
+        }
+      }
+
+      const result = await client.updateForm(formId, updates);
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        ...(result.success ? {} : { isError: true }),
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
   // ── sq_add_form_block ─────────────────────────────────────────────────────
   server.registerTool('sq_add_form_block', {
     description:
-      'Add a form block to a section on a Squarespace page. Call sq_list_forms first to get the formId.',
+      'Add a form block to a section on a Squarespace page. Requires a formId — if the site has no forms, use sq_create_form first to create one.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
       pageSlug: z.string().describe('Page URL slug'),
       sectionIndex: z.number().describe('0-based section index to add the form to'),
-      formId: z.string().describe('Form ID (from sq_list_forms)'),
+      formId: z.string().describe('Form ID (from sq_list_forms or sq_create_form)'),
       buttonVariant: z.enum(['primary', 'secondary', 'tertiary']).optional().describe('Submit button style variant'),
       buttonAlignment: z.enum(['left', 'center', 'right']).optional().describe('Submit button alignment'),
       useLightbox: z.boolean().optional().describe('Display form in a lightbox overlay'),

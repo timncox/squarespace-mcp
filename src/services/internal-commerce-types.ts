@@ -59,7 +59,7 @@ export interface UpdateProductRequest {
 export interface UpdateVariantRequest {
   id: string;
   sku: string;
-  price: { decimalValue: string; currencyCode: string };
+  price?: { decimalValue: string; currencyCode: string };
   salePrice?: { decimalValue: string; currencyCode: string };
   onSale?: boolean;
   quantityChange?: number;

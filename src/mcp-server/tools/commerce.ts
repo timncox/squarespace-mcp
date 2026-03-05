@@ -81,6 +81,7 @@ export function registerCommerceTools(server: McpServer) {
         price: z.string().describe('Variant price as decimal string'),
         sku: z.string().optional().describe('SKU (auto-generated if omitted)'),
         unlimited: z.boolean().optional().describe('Unlimited stock (default: true)'),
+        quantityInStock: z.number().optional().describe('Stock quantity (only used when unlimited is false)'),
       })).optional().describe('Custom variants — if provided, the default variant is replaced'),
     },
   }, async ({ siteId, collectionId, name, price, description, productType, imageAssetId, visible, slug, tags, categories, variants }) => {
@@ -122,6 +123,7 @@ export function registerCommerceTools(server: McpServer) {
             salePrice: { decimalValue: '0', currencyCode: 'USD' },
             onSale: false,
             unlimited: v.unlimited !== false,
+            ...(v.quantityInStock !== undefined ? { quantityInStock: v.quantityInStock } : {}),
             optionValues: Object.entries(v.attributes).map(([optionName, value]) => ({ optionName, value })),
           };
         });
@@ -168,12 +170,16 @@ export function registerCommerceTools(server: McpServer) {
       updatedVariants: z.array(z.object({
         id: z.string().describe('Variant ID'),
         sku: z.string().describe('Variant SKU'),
-        price: z.string().describe('New price as decimal string'),
-      })).optional().describe('Variants to update with new prices'),
+        price: z.string().optional().describe('New price as decimal string'),
+        unlimited: z.boolean().optional().describe('Toggle unlimited stock'),
+        quantityChange: z.number().optional().describe('Stock quantity delta (+5 adds 5, -3 removes 3). Only applies when unlimited is false.'),
+      })).optional().describe('Variants to update (price, stock, etc.)'),
       createdVariants: z.array(z.object({
         attributes: z.record(z.string()).describe('Variant attributes'),
         price: z.string().describe('Variant price'),
         sku: z.string().optional().describe('SKU (auto-generated if omitted)'),
+        unlimited: z.boolean().optional().describe('Unlimited stock (default: true)'),
+        quantityInStock: z.number().optional().describe('Stock quantity (only used when unlimited is false)'),
       })).optional().describe('New variants to add'),
       deletedVariants: z.array(z.string()).optional().describe('Variant IDs to delete'),
     },
@@ -193,7 +199,9 @@ export function registerCommerceTools(server: McpServer) {
         update.updatedVariants = updatedVariants.map(v => ({
           id: v.id,
           sku: v.sku,
-          price: { decimalValue: v.price, currencyCode: 'USD' },
+          ...(v.price !== undefined ? { price: { decimalValue: v.price, currencyCode: 'USD' } } : {}),
+          ...(v.unlimited !== undefined ? { unlimited: v.unlimited } : {}),
+          ...(v.quantityChange !== undefined ? { quantityChange: v.quantityChange } : {}),
         }));
       }
 
@@ -203,7 +211,8 @@ export function registerCommerceTools(server: McpServer) {
           price: { decimalValue: v.price, currencyCode: 'USD' },
           salePrice: { decimalValue: '0', currencyCode: 'USD' },
           onSale: false,
-          unlimited: true,
+          unlimited: v.unlimited !== false,
+          ...(v.quantityInStock !== undefined ? { quantityInStock: v.quantityInStock } : {}),
           optionValues: Object.entries(v.attributes).map(([optionName, value]) => ({ optionName, value })),
         }));
       }
