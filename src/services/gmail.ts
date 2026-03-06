@@ -1,7 +1,7 @@
 /**
- * Gmail service — cookie-based attachment download.
- * Uses saved Playwright session cookies to fetch raw MIME messages
- * from Gmail's web interface and extract attachments.
+ * Gmail service — OAuth2-based attachment download.
+ * Uses Google OAuth2 tokens to call the Gmail API for downloading
+ * email attachments.
  *
  * Search/read handled by Claude.ai Gmail MCP — we only fill the attachment gap.
  */
@@ -13,165 +13,208 @@ import { logger } from '../utils/logger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
-const SESSION_PATH = join(PROJECT_ROOT, 'storage', 'auth', 'gmail-session.json');
+const AUTH_DIR = join(PROJECT_ROOT, 'storage', 'auth');
+const CREDENTIALS_PATH = join(AUTH_DIR, 'gmail-credentials.json');
+const TOKENS_PATH = join(AUTH_DIR, 'gmail-oauth.json');
 
-export interface GmailCookie {
-  name: string;
-  value: string;
-  domain: string;
-  path: string;
-  httpOnly?: boolean;
-  secure?: boolean;
-  sameSite?: string;
-  expires?: number;
+const GMAIL_API_BASE = 'https://www.googleapis.com/gmail/v1/users/me';
+const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
+
+// ── Credentials ──────────────────────────────────────────────────────────────
+
+export interface GmailCredentials {
+  client_id: string;
+  client_secret: string;
 }
 
-interface MimeAttachment {
-  filename: string;
-  mimeType: string;
-  encoding: string;
-  body: string;
+export interface GmailTokens {
+  access_token: string;
+  refresh_token: string;
+  expiry: number;
 }
 
-// ── Cookie management ────────────────────────────────────────────────────────
-
-export function loadGmailCookies(): GmailCookie[] {
-  if (!existsSync(SESSION_PATH)) {
+export function loadCredentials(): GmailCredentials {
+  if (!existsSync(CREDENTIALS_PATH)) {
     throw new Error(
-      'Gmail session not found. Use sq_login_gmail to log into Gmail first.',
+      'Gmail credentials not found. Save your Google OAuth client_id and client_secret ' +
+      'to storage/auth/gmail-credentials.json as { "client_id": "...", "client_secret": "..." }',
     );
   }
 
-  const raw = readFileSync(SESSION_PATH, 'utf-8');
-  const session = JSON.parse(raw);
-  const cookies: GmailCookie[] = session.cookies ?? [];
+  const raw = readFileSync(CREDENTIALS_PATH, 'utf-8');
+  const creds = JSON.parse(raw);
 
-  if (cookies.length === 0) {
-    throw new Error('Gmail session has no cookies. Use sq_login_gmail to log in again.');
+  if (!creds.client_id || !creds.client_secret) {
+    throw new Error(
+      'Gmail credentials must contain both client_id and client_secret.',
+    );
   }
 
-  return cookies;
+  return { client_id: creds.client_id, client_secret: creds.client_secret };
 }
 
-export function formatCookieHeader(cookies: GmailCookie[]): string {
-  return cookies.map((c) => `${c.name}=${c.value}`).join('; ');
-}
+// ── Token management ─────────────────────────────────────────────────────────
 
-// ── MIME parsing ─────────────────────────────────────────────────────────────
-
-function parseMimeParts(body: string, boundary: string): MimeAttachment[] {
-  const attachments: MimeAttachment[] = [];
-  const parts = body.split(`--${boundary}`);
-
-  for (const part of parts) {
-    if (part.trim() === '' || part.trim() === '--') continue;
-
-    const headerEnd = part.indexOf('\r\n\r\n');
-    if (headerEnd === -1) continue;
-
-    const headerSection = part.substring(0, headerEnd);
-    const bodySection = part.substring(headerEnd + 4).trim();
-
-    // Check for nested multipart
-    const ctMatch = headerSection.match(/Content-Type:\s*multipart\/\S+;\s*boundary="?([^"\r\n]+)"?/i);
-    if (ctMatch) {
-      attachments.push(...parseMimeParts(part.substring(headerEnd + 4), ctMatch[1]));
-      continue;
-    }
-
-    // Extract filename from Content-Disposition or Content-Type
-    const cdMatch = headerSection.match(/filename="?([^"\r\n;]+)"?/i);
-    if (!cdMatch) continue;
-
-    const filename = cdMatch[1].trim();
-
-    // Extract MIME type
-    const mimeMatch = headerSection.match(/Content-Type:\s*([^\s;]+)/i);
-    const mimeType = mimeMatch?.[1] ?? 'application/octet-stream';
-
-    // Extract encoding
-    const encMatch = headerSection.match(/Content-Transfer-Encoding:\s*(\S+)/i);
-    const encoding = encMatch?.[1]?.toLowerCase() ?? '7bit';
-
-    attachments.push({ filename, mimeType, encoding, body: bodySection });
+export function loadTokens(): GmailTokens {
+  if (!existsSync(TOKENS_PATH)) {
+    throw new Error(
+      'Gmail not authorized. Run sq_login_gmail to complete OAuth2 authorization.',
+    );
   }
 
-  return attachments;
+  const raw = readFileSync(TOKENS_PATH, 'utf-8');
+  return JSON.parse(raw);
 }
 
-// ── Attachment download ──────────────────────────────────────────────────────
+export function saveTokens(tokens: GmailTokens): void {
+  mkdirSync(AUTH_DIR, { recursive: true });
+  writeFileSync(TOKENS_PATH, JSON.stringify(tokens, null, 2), 'utf-8');
+}
 
-export async function fetchAndExtractAttachment(
-  messageId: string,
-  targetFilename: string,
-): Promise<{ buffer: Buffer; filename: string; mimeType: string }> {
-  const cookies = loadGmailCookies();
-  const cookieHeader = formatCookieHeader(cookies);
+export async function refreshAccessToken(): Promise<string> {
+  const creds = loadCredentials();
+  const tokens = loadTokens();
 
-  // Fetch raw MIME message from Gmail web
-  const url = `https://mail.google.com/mail/u/0/?ui=2&view=om&th=${messageId}`;
-  const response = await fetch(url, {
-    headers: {
-      Cookie: cookieHeader,
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    },
-    redirect: 'manual',
+  const response = await fetch(TOKEN_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: creds.client_id,
+      client_secret: creds.client_secret,
+      refresh_token: tokens.refresh_token,
+      grant_type: 'refresh_token',
+    }),
   });
 
   if (!response.ok) {
-    const hint = response.status === 302 || response.status === 401
-      ? ' Session may have expired — use sq_login_gmail to log in again.'
-      : '';
-    throw new Error(`Gmail request failed (${response.status}).${hint}`);
+    const body = await response.text();
+    throw new Error(`Token refresh failed (${response.status}): ${body}`);
   }
 
-  const rawMime = await response.text();
+  const data = await response.json() as { access_token: string; expires_in: number };
 
-  // Extract boundary from top-level Content-Type
-  const boundaryMatch = rawMime.match(/Content-Type:\s*multipart\/\S+;\s*boundary="?([^"\r\n]+)"?/i);
-  if (!boundaryMatch) {
-    throw new Error('Could not parse MIME message — no multipart boundary found.');
+  const updated: GmailTokens = {
+    access_token: data.access_token,
+    refresh_token: tokens.refresh_token,
+    expiry: Date.now() + data.expires_in * 1000,
+  };
+
+  saveTokens(updated);
+  logger.info('Gmail access token refreshed');
+
+  return data.access_token;
+}
+
+async function getAccessToken(): Promise<string> {
+  const creds = loadCredentials(); // validate credentials exist
+  const tokens = loadTokens();
+
+  // Refresh if expired or expiring within 5 minutes
+  if (tokens.expiry < Date.now() + 300_000) {
+    return refreshAccessToken();
   }
 
-  const attachments = parseMimeParts(rawMime, boundaryMatch[1]);
+  return tokens.access_token;
+}
 
-  // Find attachment by filename (case-insensitive)
-  const match = attachments.find(
-    (a) => a.filename.toLowerCase() === targetFilename.toLowerCase(),
+// ── Gmail API ────────────────────────────────────────────────────────────────
+
+interface GmailPart {
+  filename?: string;
+  mimeType: string;
+  body: { attachmentId?: string; size: number; data?: string };
+  parts?: GmailPart[];
+}
+
+function findAttachmentPart(
+  parts: GmailPart[],
+  targetFilename: string,
+): GmailPart | undefined {
+  for (const part of parts) {
+    if (
+      part.filename &&
+      part.filename.toLowerCase() === targetFilename.toLowerCase() &&
+      part.body.attachmentId
+    ) {
+      return part;
+    }
+    if (part.parts) {
+      const nested = findAttachmentPart(part.parts, targetFilename);
+      if (nested) return nested;
+    }
+  }
+  return undefined;
+}
+
+function collectFilenames(parts: GmailPart[]): string[] {
+  const filenames: string[] = [];
+  for (const part of parts) {
+    if (part.filename && part.body.attachmentId) {
+      filenames.push(part.filename);
+    }
+    if (part.parts) {
+      filenames.push(...collectFilenames(part.parts));
+    }
+  }
+  return filenames;
+}
+
+export async function downloadAttachment(
+  messageId: string,
+  targetFilename: string,
+): Promise<string> {
+  const accessToken = await getAccessToken();
+
+  const headers = { Authorization: `Bearer ${accessToken}` };
+
+  // 1. Get message to find attachment ID
+  const msgResponse = await fetch(
+    `${GMAIL_API_BASE}/messages/${messageId}`,
+    { headers },
   );
 
-  if (!match) {
-    const available = attachments.map((a) => a.filename).join(', ');
+  if (!msgResponse.ok) {
+    throw new Error(`Gmail API messages.get failed (${msgResponse.status})`);
+  }
+
+  const message = await msgResponse.json() as { payload: GmailPart };
+  const parts = message.payload.parts ?? [message.payload];
+
+  const attachmentPart = findAttachmentPart(parts, targetFilename);
+
+  if (!attachmentPart) {
+    const available = collectFilenames(parts).join(', ');
     throw new Error(
       `No attachment named "${targetFilename}" in message. Available: ${available || 'none'}`,
     );
   }
 
-  // Decode body
-  let buffer: Buffer;
-  if (match.encoding === 'base64') {
-    buffer = Buffer.from(match.body.replace(/\s/g, ''), 'base64');
-  } else {
-    buffer = Buffer.from(match.body, 'utf-8');
+  // 2. Download attachment data
+  const attResponse = await fetch(
+    `${GMAIL_API_BASE}/messages/${messageId}/attachments/${attachmentPart.body.attachmentId}`,
+    { headers },
+  );
+
+  if (!attResponse.ok) {
+    throw new Error(`Gmail API attachments.get failed (${attResponse.status})`);
   }
 
-  logger.info({ messageId, filename: match.filename, size: buffer.length }, 'Attachment extracted from MIME');
+  const attData = await attResponse.json() as { data: string };
+  const buffer = Buffer.from(attData.data, 'base64url');
 
-  return { buffer, filename: match.filename, mimeType: match.mimeType };
-}
-
-export async function downloadAttachment(messageId: string, filename: string): Promise<string> {
-  const { buffer, filename: resolvedName } = await fetchAndExtractAttachment(messageId, filename);
-
+  // 3. Save to disk
   const uploadsDir = join(PROJECT_ROOT, 'storage', 'uploads');
-  if (!existsSync(uploadsDir)) mkdirSync(uploadsDir, { recursive: true });
+  mkdirSync(uploadsDir, { recursive: true });
 
   const timestamp = Date.now();
-  const safeName = resolvedName.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safeName = attachmentPart.filename!.replace(/[^a-zA-Z0-9._-]/g, '_');
   const filePath = join(uploadsDir, `${timestamp}-${safeName}`);
 
   writeFileSync(filePath, buffer);
-  logger.info({ filePath, filename: resolvedName, size: buffer.length }, 'Attachment downloaded');
+  logger.info(
+    { messageId, filename: attachmentPart.filename, size: buffer.length },
+    'Attachment downloaded via Gmail API',
+  );
 
   return filePath;
 }

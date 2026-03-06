@@ -22,210 +22,344 @@ const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
 import {
-  loadGmailCookies,
-  formatCookieHeader,
-  fetchAndExtractAttachment,
+  loadCredentials,
+  loadTokens,
+  saveTokens,
+  refreshAccessToken,
+  downloadAttachment,
 } from '../gmail.js';
 
 // ── Test data ────────────────────────────────────────────────────────────────
 
-const SAMPLE_SESSION = {
-  cookies: [
-    { name: 'GMAIL_AT', value: 'af-token-123', domain: '.mail.google.com', path: '/' },
-    { name: 'SID', value: 'sid-abc', domain: '.google.com', path: '/' },
-    { name: 'HSID', value: 'hsid-def', domain: '.google.com', path: '/' },
-    { name: '__Secure-1PSID', value: 'psid-ghi', domain: '.google.com', path: '/' },
-  ],
-  origins: [],
+const SAMPLE_CREDENTIALS = {
+  client_id: 'test-client-id.apps.googleusercontent.com',
+  client_secret: 'test-client-secret',
 };
 
-// Minimal multipart MIME message with one text/plain body and one attachment
-function buildMimeMessage(filename: string, contentBase64: string): string {
-  const boundary = '----=_Part_123_456.789';
-  return [
-    `MIME-Version: 1.0`,
-    `Content-Type: multipart/mixed; boundary="${boundary}"`,
-    `Subject: Test email`,
-    `From: sender@example.com`,
-    ``,
-    `--${boundary}`,
-    `Content-Type: text/plain; charset="UTF-8"`,
-    ``,
-    `Hello world`,
-    `--${boundary}`,
-    `Content-Type: application/pdf; name="${filename}"`,
-    `Content-Disposition: attachment; filename="${filename}"`,
-    `Content-Transfer-Encoding: base64`,
-    ``,
-    contentBase64,
-    `--${boundary}--`,
-  ].join('\r\n');
-}
+const SAMPLE_TOKENS = {
+  access_token: 'ya29.test-access-token',
+  refresh_token: '1//test-refresh-token',
+  expiry: Date.now() + 3600_000,
+};
+
+const EXPIRED_TOKENS = {
+  access_token: 'ya29.expired-token',
+  refresh_token: '1//test-refresh-token',
+  expiry: Date.now() - 60_000,
+};
+
+// Gmail API message response with attachment
+const GMAIL_MESSAGE_RESPONSE = {
+  id: 'msg-abc123',
+  payload: {
+    parts: [
+      {
+        mimeType: 'text/plain',
+        body: { size: 100 },
+      },
+      {
+        filename: 'menu.pdf',
+        mimeType: 'application/pdf',
+        body: {
+          attachmentId: 'att-id-xyz',
+          size: 53595,
+        },
+      },
+    ],
+  },
+};
+
+// Gmail API attachment response (base64url-encoded)
+const PDF_BYTES = Buffer.from('fake-pdf-bytes');
+const GMAIL_ATTACHMENT_RESPONSE = {
+  size: PDF_BYTES.length,
+  data: PDF_BYTES.toString('base64url'),
+};
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
-describe('Gmail Service (cookie-based)', () => {
+describe('Gmail Service (OAuth2)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe('loadGmailCookies', () => {
-    it('should load cookies from gmail-session.json', () => {
+  describe('loadCredentials', () => {
+    it('should load client_id and client_secret from gmail-credentials.json', () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_SESSION));
+      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_CREDENTIALS));
 
-      const cookies = loadGmailCookies();
-      expect(cookies).toEqual(SAMPLE_SESSION.cookies);
+      const creds = loadCredentials();
+      expect(creds.client_id).toBe(SAMPLE_CREDENTIALS.client_id);
+      expect(creds.client_secret).toBe(SAMPLE_CREDENTIALS.client_secret);
     });
 
-    it('should throw when session file does not exist', () => {
+    it('should throw when credentials file does not exist', () => {
       mockExistsSync.mockReturnValue(false);
-      expect(() => loadGmailCookies()).toThrow('Gmail session not found');
+      expect(() => loadCredentials()).toThrow('Gmail credentials not found');
     });
 
-    it('should throw when session has no cookies', () => {
+    it('should throw when credentials are missing client_id', () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({ cookies: [] }));
-      expect(() => loadGmailCookies()).toThrow('Gmail session has no cookies');
+      mockReadFileSync.mockReturnValue(JSON.stringify({ client_secret: 'x' }));
+      expect(() => loadCredentials()).toThrow('client_id');
     });
   });
 
-  describe('formatCookieHeader', () => {
-    it('should format cookies as semicolon-separated header string', () => {
-      const header = formatCookieHeader(SAMPLE_SESSION.cookies as any);
-      expect(header).toContain('GMAIL_AT=af-token-123');
-      expect(header).toContain('SID=sid-abc');
-      expect(header).toContain('; ');
+  describe('loadTokens', () => {
+    it('should load tokens from gmail-oauth.json', () => {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_TOKENS));
+
+      const tokens = loadTokens();
+      expect(tokens.access_token).toBe(SAMPLE_TOKENS.access_token);
+      expect(tokens.refresh_token).toBe(SAMPLE_TOKENS.refresh_token);
+    });
+
+    it('should throw when tokens file does not exist', () => {
+      mockExistsSync.mockReturnValue(false);
+      expect(() => loadTokens()).toThrow('not authorized');
     });
   });
 
-  describe('fetchAndExtractAttachment', () => {
-    it('should fetch raw MIME and extract attachment by filename', async () => {
-      const pdfContent = Buffer.from('fake-pdf-bytes');
-      const pdfBase64 = pdfContent.toString('base64');
-      const mime = buildMimeMessage('menu.pdf', pdfBase64);
+  describe('saveTokens', () => {
+    it('should write tokens to gmail-oauth.json', () => {
+      saveTokens(SAMPLE_TOKENS);
 
+      expect(mockMkdirSync).toHaveBeenCalled();
+      expect(mockWriteFileSync).toHaveBeenCalledWith(
+        expect.stringContaining('gmail-oauth.json'),
+        expect.any(String),
+        'utf-8',
+      );
+
+      const written = JSON.parse(mockWriteFileSync.mock.calls[0][1]);
+      expect(written.access_token).toBe(SAMPLE_TOKENS.access_token);
+      expect(written.refresh_token).toBe(SAMPLE_TOKENS.refresh_token);
+    });
+  });
+
+  describe('refreshAccessToken', () => {
+    it('should exchange refresh token for new access token', async () => {
+      // loadCredentials
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_SESSION));
+      mockReadFileSync
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))  // credentials
+        .mockReturnValueOnce(JSON.stringify(EXPIRED_TOKENS));      // tokens
+
       mockFetch.mockResolvedValue({
         ok: true,
-        status: 200,
-        text: () => Promise.resolve(mime),
+        json: () => Promise.resolve({
+          access_token: 'ya29.new-token',
+          expires_in: 3600,
+        }),
       });
 
-      const result = await fetchAndExtractAttachment('msg-abc123', 'menu.pdf');
+      const newToken = await refreshAccessToken();
+      expect(newToken).toBe('ya29.new-token');
 
-      expect(result.buffer.toString()).toBe('fake-pdf-bytes');
-      expect(result.filename).toBe('menu.pdf');
-      expect(result.mimeType).toBe('application/pdf');
+      // Should save updated tokens
+      expect(mockWriteFileSync).toHaveBeenCalled();
+      const saved = JSON.parse(mockWriteFileSync.mock.calls[0][1]);
+      expect(saved.access_token).toBe('ya29.new-token');
+      expect(saved.refresh_token).toBe(EXPIRED_TOKENS.refresh_token);
     });
 
-    it('should match filename case-insensitively', async () => {
-      const content = Buffer.from('data').toString('base64');
-      const mime = buildMimeMessage('Menu.PDF', content);
-
+    it('should throw on token refresh failure', async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_SESSION));
+      mockReadFileSync
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))
+        .mockReturnValueOnce(JSON.stringify(EXPIRED_TOKENS));
+
       mockFetch.mockResolvedValue({
-        ok: true,
-        status: 200,
-        text: () => Promise.resolve(mime),
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('invalid_grant'),
       });
 
-      const result = await fetchAndExtractAttachment('msg-1', 'menu.pdf');
-      expect(result.filename).toBe('Menu.PDF');
+      await expect(refreshAccessToken()).rejects.toThrow('refresh failed');
+    });
+  });
+
+  describe('downloadAttachment', () => {
+    it('should download attachment via Gmail API and save to disk', async () => {
+      // Two readFileSync calls: credentials then tokens
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))  // credentials (for getAccessToken)
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_TOKENS));       // tokens
+
+      // First fetch: messages.get to find attachmentId
+      // Second fetch: messages.attachments.get to get data
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve(GMAIL_MESSAGE_RESPONSE),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve(GMAIL_ATTACHMENT_RESPONSE),
+        });
+
+      const filePath = await downloadAttachment('msg-abc123', 'menu.pdf');
+
+      expect(filePath).toMatch(/menu\.pdf$/);
+      expect(mockWriteFileSync).toHaveBeenCalled();
+
+      // Verify the buffer written matches original bytes
+      const writeCall = mockWriteFileSync.mock.calls.find(
+        (c: any[]) => c[0].includes('menu') || c[0].includes('upload'),
+      );
+      expect(writeCall).toBeDefined();
+      expect(Buffer.isBuffer(writeCall![1])).toBe(true);
+      expect(writeCall![1].toString()).toBe('fake-pdf-bytes');
     });
 
-    it('should throw when attachment not found in MIME', async () => {
-      const content = Buffer.from('data').toString('base64');
-      const mime = buildMimeMessage('other.pdf', content);
-
+    it('should throw when attachment filename not found in message', async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_SESSION));
-      mockFetch.mockResolvedValue({
+      mockReadFileSync
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_TOKENS));
+
+      mockFetch.mockResolvedValueOnce({
         ok: true,
-        status: 200,
-        text: () => Promise.resolve(mime),
+        json: () => Promise.resolve(GMAIL_MESSAGE_RESPONSE),
       });
 
-      await expect(fetchAndExtractAttachment('msg-1', 'missing.pdf'))
+      await expect(downloadAttachment('msg-1', 'missing.pdf'))
         .rejects.toThrow('No attachment named "missing.pdf"');
     });
 
-    it('should throw on HTTP error (likely auth expired)', async () => {
+    it('should include available filenames in error', async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_SESSION));
-      mockFetch.mockResolvedValue({
-        ok: false,
-        status: 302,
-        text: () => Promise.resolve('Redirect to login'),
+      mockReadFileSync
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_TOKENS));
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(GMAIL_MESSAGE_RESPONSE),
       });
 
-      await expect(fetchAndExtractAttachment('msg-1', 'file.pdf'))
-        .rejects.toThrow('Gmail request failed (302)');
+      await expect(downloadAttachment('msg-1', 'missing.pdf'))
+        .rejects.toThrow('Available: menu.pdf');
     });
 
-    it('should include available filenames in error when attachment not found', async () => {
-      const mime = buildMimeMessage('invoice.pdf', Buffer.from('x').toString('base64'));
-
+    it('should match filename case-insensitively', async () => {
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_SESSION));
-      mockFetch.mockResolvedValue({ ok: true, status: 200, text: () => Promise.resolve(mime) });
+      mockReadFileSync
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_TOKENS));
 
-      await expect(fetchAndExtractAttachment('msg-1', 'missing.pdf'))
-        .rejects.toThrow('Available: invoice.pdf');
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve(GMAIL_MESSAGE_RESPONSE),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve(GMAIL_ATTACHMENT_RESPONSE),
+        });
+
+      const filePath = await downloadAttachment('msg-abc123', 'Menu.PDF');
+      expect(filePath).toBeDefined();
     });
 
-    it('should send cookies in request header', async () => {
-      const mime = buildMimeMessage('f.pdf', Buffer.from('x').toString('base64'));
+    it('should auto-refresh expired token before API call', async () => {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))  // credentials for getAccessToken
+        .mockReturnValueOnce(JSON.stringify(EXPIRED_TOKENS))       // expired tokens
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS));  // credentials for refresh
+
+      // First fetch: token refresh
+      // Second fetch: messages.get
+      // Third fetch: attachments.get
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ access_token: 'ya29.refreshed', expires_in: 3600 }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve(GMAIL_MESSAGE_RESPONSE),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve(GMAIL_ATTACHMENT_RESPONSE),
+        });
+
+      const filePath = await downloadAttachment('msg-abc123', 'menu.pdf');
+      expect(filePath).toBeDefined();
+
+      // Verify token was refreshed (first fetch call is to token endpoint)
+      expect(mockFetch.mock.calls[0][0]).toContain('oauth2.googleapis.com/token');
+    });
+
+    it('should send Authorization header with access token', async () => {
+      mockExistsSync.mockReturnValue(true);
+      mockReadFileSync
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_TOKENS));
+
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve(GMAIL_MESSAGE_RESPONSE),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve(GMAIL_ATTACHMENT_RESPONSE),
+        });
+
+      await downloadAttachment('msg-abc123', 'menu.pdf');
+
+      // messages.get call should have Bearer token
+      expect(mockFetch.mock.calls[0][1].headers.Authorization)
+        .toBe(`Bearer ${SAMPLE_TOKENS.access_token}`);
+    });
+
+    it('should handle nested multipart message parts', async () => {
+      const nestedMessage = {
+        id: 'msg-nested',
+        payload: {
+          mimeType: 'multipart/mixed',
+          parts: [
+            {
+              mimeType: 'multipart/alternative',
+              parts: [
+                { mimeType: 'text/plain', body: { size: 10 } },
+                { mimeType: 'text/html', body: { size: 50 } },
+              ],
+            },
+            {
+              filename: 'data.bin',
+              mimeType: 'application/octet-stream',
+              body: { attachmentId: 'att-nested', size: 100 },
+            },
+          ],
+        },
+      };
 
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_SESSION));
-      mockFetch.mockResolvedValue({ ok: true, status: 200, text: () => Promise.resolve(mime) });
+      mockReadFileSync
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))
+        .mockReturnValueOnce(JSON.stringify(SAMPLE_TOKENS));
 
-      await fetchAndExtractAttachment('msg-1', 'f.pdf');
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        expect.stringContaining('msg-1'),
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            Cookie: expect.stringContaining('GMAIL_AT=af-token-123'),
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve(nestedMessage),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({
+            size: 4,
+            data: Buffer.from('test').toString('base64url'),
           }),
-        }),
-      );
-    });
+        });
 
-    it('should handle nested multipart MIME', async () => {
-      const boundary1 = '----=_Outer_123';
-      const boundary2 = '----=_Inner_456';
-      const content = Buffer.from('nested-data').toString('base64');
-      const mime = [
-        `MIME-Version: 1.0`,
-        `Content-Type: multipart/mixed; boundary="${boundary1}"`,
-        ``,
-        `--${boundary1}`,
-        `Content-Type: multipart/alternative; boundary="${boundary2}"`,
-        ``,
-        `--${boundary2}`,
-        `Content-Type: text/plain`,
-        ``,
-        `Body text`,
-        `--${boundary2}--`,
-        `--${boundary1}`,
-        `Content-Type: application/octet-stream; name="data.bin"`,
-        `Content-Disposition: attachment; filename="data.bin"`,
-        `Content-Transfer-Encoding: base64`,
-        ``,
-        content,
-        `--${boundary1}--`,
-      ].join('\r\n');
-
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_SESSION));
-      mockFetch.mockResolvedValue({ ok: true, status: 200, text: () => Promise.resolve(mime) });
-
-      const result = await fetchAndExtractAttachment('msg-1', 'data.bin');
-      expect(result.buffer.toString()).toBe('nested-data');
+      const filePath = await downloadAttachment('msg-nested', 'data.bin');
+      expect(filePath).toBeDefined();
     });
   });
 });
