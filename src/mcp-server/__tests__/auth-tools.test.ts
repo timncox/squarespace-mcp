@@ -14,10 +14,13 @@ const mockReloadAllSessions = vi.fn();
 const mockListSites = vi.fn();
 const mockGetClient = vi.fn();
 
+const mockSaveSite = vi.fn();
+
 vi.mock('../session.js', () => ({
   reloadAllSessions: () => mockReloadAllSessions(),
   listSites: (...args: any[]) => mockListSites(...args),
   getClient: (...args: any[]) => mockGetClient(...args),
+  saveSite: (...args: any[]) => mockSaveSite(...args),
 }));
 
 const mockExistsSync = vi.fn();
@@ -70,11 +73,12 @@ describe('Auth Tools', () => {
     registerAuthTools(server as any);
   });
 
-  it('should register all three auth tools', () => {
+  it('should register all four auth tools', () => {
     expect(server.tools.has('sq_login')).toBe(true);
     expect(server.tools.has('sq_save_session')).toBe(true);
+    expect(server.tools.has('sq_discover_sites')).toBe(true);
     expect(server.tools.has('sq_restore_session')).toBe(true);
-    expect(server.tools.size).toBe(3);
+    expect(server.tools.size).toBe(4);
   });
 
   // ── sq_login ──────────────────────────────────────────────────────────────

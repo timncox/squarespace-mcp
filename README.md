@@ -25,7 +25,9 @@ BRAVE_API_KEY=...          # Optional: for sq_web_search
 ANTHROPIC_API_KEY=sk-ant-... # Optional: for menu merge LLM
 ```
 
-Site configuration via `config/sites.json` — maps site IDs/aliases to Squarespace subdomains:
+Sites are auto-discovered after `sq_login_browser` or `sq_save_session` — no manual config needed. Discovered sites are stored in SQLite and persist across sessions.
+
+Optionally, create `config/sites.json` for custom aliases/names:
 
 ```json
 {
@@ -54,7 +56,6 @@ Add to `claude_desktop_config.json`:
     "args": ["tsx", "/path/to/squarespace-mcp/src/mcp-server/index.ts"],
     "env": {
       "SESSION_DIR": "/path/to/squarespace-mcp/storage/auth",
-      "SITES_CONFIG": "/path/to/squarespace-mcp/config/sites.json",
       "DB_PATH": "/path/to/squarespace-mcp/data/sqhelper.db"
     }
   }
