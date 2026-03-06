@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ContentSaveClient } from '../content-save.js';
-import type { UpdateNavigationItem, WebsiteFontsData, WebsiteColorsData } from '../content-save-types.js';
+import type { UpdateNavigationItem, WebsiteFontsData, WebsiteColorsData } from '../content-save/types.js';
 
 // ── Mock session file ─────────────────────────────────────────────────────
 
