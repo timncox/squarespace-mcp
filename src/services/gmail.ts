@@ -48,14 +48,25 @@ export function loadCredentials(): GmailCredentials {
 // ── Token management ─────────────────────────────────────────────────────────
 
 export function loadTokens(): GmailTokens {
-  if (!existsSync(TOKENS_PATH)) {
-    throw new Error(
-      'Gmail not authorized. Run sq_login_gmail to complete OAuth2 authorization.',
-    );
+  // Try saved tokens file first (has fresh access_token)
+  if (existsSync(TOKENS_PATH)) {
+    const raw = readFileSync(TOKENS_PATH, 'utf-8');
+    return JSON.parse(raw);
   }
 
-  const raw = readFileSync(TOKENS_PATH, 'utf-8');
-  return JSON.parse(raw);
+  // Fall back to GMAIL_REFRESH_TOKEN from .env (bootstrap — no access_token yet)
+  const refreshToken = process.env.GMAIL_REFRESH_TOKEN;
+  if (refreshToken) {
+    return {
+      access_token: '',
+      refresh_token: refreshToken,
+      expiry: 0, // forces immediate refresh
+    };
+  }
+
+  throw new Error(
+    'Gmail not authorized. Set GMAIL_REFRESH_TOKEN in .env or run sq_login_gmail.',
+  );
 }
 
 export function saveTokens(tokens: GmailTokens): void {

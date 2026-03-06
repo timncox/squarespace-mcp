@@ -129,8 +129,21 @@ describe('Gmail Service (OAuth2)', () => {
       expect(tokens.refresh_token).toBe(SAMPLE_TOKENS.refresh_token);
     });
 
-    it('should throw when tokens file does not exist', () => {
+    it('should fall back to GMAIL_REFRESH_TOKEN from env when file missing', () => {
       mockExistsSync.mockReturnValue(false);
+      process.env.GMAIL_REFRESH_TOKEN = '1//env-refresh-token';
+
+      const tokens = loadTokens();
+      expect(tokens.refresh_token).toBe('1//env-refresh-token');
+      expect(tokens.access_token).toBe('');
+      expect(tokens.expiry).toBe(0);
+
+      delete process.env.GMAIL_REFRESH_TOKEN;
+    });
+
+    it('should throw when no file and no env var', () => {
+      mockExistsSync.mockReturnValue(false);
+      delete process.env.GMAIL_REFRESH_TOKEN;
       expect(() => loadTokens()).toThrow('not authorized');
     });
   });
