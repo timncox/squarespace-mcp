@@ -15,6 +15,8 @@ const mockClient = {
   updateVideoBlock: vi.fn(),
   addEmbedBlock: vi.fn(),
   updateEmbedBlock: vi.fn(),
+  addAccordionBlock: vi.fn(),
+  updateAccordionBlock: vi.fn(),
 };
 
 const mockMediaClient = {
@@ -798,6 +800,146 @@ describe('Block Tools', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('unexpected string error');
+    });
+  });
+
+  // ── sq_add_accordion ──────────────────────────────────────────────────────
+  describe('sq_add_accordion', () => {
+    it('should register sq_add_accordion tool', () => {
+      expect(server.tools.has('sq_add_accordion')).toBe(true);
+    });
+
+    it('should add an accordion block', async () => {
+      mockClient.addAccordionBlock.mockResolvedValue({ success: true, blockId: 'acc-1', sectionIndex: 0 });
+
+      const result = await server.callTool('sq_add_accordion', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'faq',
+        sectionIndex: 0,
+        items: [
+          { title: 'What are your hours?', description: 'Mon-Sat 5pm-11pm' },
+          { title: 'Do you take reservations?', description: 'Yes, via OpenTable.' },
+        ],
+      });
+
+      expect(mockClient.addAccordionBlock).toHaveBeenCalledWith(
+        'psi-faq', 'col-faq', 0,
+        [
+          { title: 'What are your hours?', description: 'Mon-Sat 5pm-11pm' },
+          { title: 'Do you take reservations?', description: 'Yes, via OpenTable.' },
+        ],
+        { isExpandedFirstItem: undefined, shouldAllowMultipleOpenItems: undefined },
+        undefined,
+      );
+      expect(result.content[0].text).toContain('acc-1');
+    });
+
+    it('should pass expandFirst and allowMultipleOpen options', async () => {
+      mockClient.addAccordionBlock.mockResolvedValue({ success: true, blockId: 'acc-2', sectionIndex: 0 });
+
+      await server.callTool('sq_add_accordion', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'faq',
+        sectionIndex: 0,
+        items: [{ title: 'Q1', description: 'A1' }],
+        expandFirst: true,
+        allowMultipleOpen: true,
+      });
+
+      expect(mockClient.addAccordionBlock).toHaveBeenCalledWith(
+        'psi-faq', 'col-faq', 0,
+        [{ title: 'Q1', description: 'A1' }],
+        { isExpandedFirstItem: true, shouldAllowMultipleOpenItems: true },
+        undefined,
+      );
+    });
+
+    it('should resolve offsetColumns for accordion', async () => {
+      mockClient.addAccordionBlock.mockResolvedValue({ success: true, blockId: 'acc-3', sectionIndex: 0 });
+
+      await server.callTool('sq_add_accordion', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'faq',
+        sectionIndex: 0,
+        items: [{ title: 'Q', description: 'A' }],
+        layout: { offsetColumns: 6, columns: 12 },
+      });
+
+      const call = mockClient.addAccordionBlock.mock.calls[0];
+      const layout = call[5];
+      expect(layout.startX).toBe(7);
+      expect(layout.endX).toBe(19);
+      expect(layout.offsetColumns).toBeUndefined();
+    });
+
+    it('should handle page resolution failure', async () => {
+      (resolvePageIds as any).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_add_accordion', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'missing',
+        sectionIndex: 0,
+        items: [{ title: 'Q', description: 'A' }],
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Could not resolve page');
+    });
+  });
+
+  // ── sq_update_accordion ───────────────────────────────────────────────────
+  describe('sq_update_accordion', () => {
+    it('should register sq_update_accordion tool', () => {
+      expect(server.tools.has('sq_update_accordion')).toBe(true);
+    });
+
+    it('should update accordion items', async () => {
+      mockClient.updateAccordionBlock.mockResolvedValue({ success: true, blockId: 'acc-1' });
+
+      const result = await server.callTool('sq_update_accordion', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'faq',
+        searchText: 'hours',
+        items: [
+          { title: 'Updated Q1', description: 'Updated A1' },
+        ],
+      });
+
+      expect(mockClient.updateAccordionBlock).toHaveBeenCalledWith(
+        'psi-faq', 'col-faq', 'hours',
+        { items: [{ title: 'Updated Q1', description: 'Updated A1' }] },
+      );
+      expect(result.content[0].text).toContain('acc-1');
+    });
+
+    it('should pass expandFirst and allowMultipleOpen', async () => {
+      mockClient.updateAccordionBlock.mockResolvedValue({ success: true, blockId: 'acc-1' });
+
+      await server.callTool('sq_update_accordion', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'faq',
+        searchText: 'hours',
+        expandFirst: true,
+        allowMultipleOpen: false,
+      });
+
+      expect(mockClient.updateAccordionBlock).toHaveBeenCalledWith(
+        'psi-faq', 'col-faq', 'hours',
+        { isExpandedFirstItem: true, shouldAllowMultipleOpenItems: false },
+      );
+    });
+
+    it('should handle errors', async () => {
+      mockClient.updateAccordionBlock.mockRejectedValue(new Error('block not found'));
+
+      const result = await server.callTool('sq_update_accordion', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'faq',
+        searchText: 'missing',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('block not found');
     });
   });
 });

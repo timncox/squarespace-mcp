@@ -647,4 +647,100 @@ export function registerBlockTools(server: McpServer) {
       };
     }
   });
+
+  // ── sq_add_accordion ──────────────────────────────────────────────────────
+  server.registerTool('sq_add_accordion', {
+    description:
+      'Add an accordion (expandable FAQ/content) block to a section. Each item has a title and description that expands on click. Great for FAQs, service details, pricing breakdowns.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      sectionIndex: z.number().describe('0-based section index to add the accordion to'),
+      items: z.array(z.object({
+        title: z.string().describe('Accordion item heading'),
+        description: z.string().describe('Expandable content (plain text or HTML)'),
+      })).describe('Array of accordion items (title + description)'),
+      expandFirst: z.boolean().optional().describe('Expand the first item by default (default: false)'),
+      allowMultipleOpen: z.boolean().optional().describe('Allow multiple items open at once (default: false)'),
+      layout: z.object({
+        columns: z.number().optional().describe('Grid columns to span (default: 24 = full width)'),
+        offsetColumns: z.number().optional().describe('Push block right by N columns'),
+        rowHeight: z.number().optional().describe('Rows tall (default: auto based on item count)'),
+        startX: z.number().optional().describe('Absolute grid start X (overrides columns/offset)'),
+        endX: z.number().optional().describe('Absolute grid end X'),
+        startY: z.number().optional().describe('Absolute grid start Y'),
+        endY: z.number().optional().describe('Absolute grid end Y'),
+      }).optional().describe('Optional grid layout settings'),
+    },
+  }, async ({ siteId, pageSlug, sectionIndex, items, expandFirst, allowMultipleOpen, layout }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+
+      const resolvedLayout = layout ? { ...layout } : undefined;
+      if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
+        resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
+        resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 24);
+      }
+      if (resolvedLayout) delete resolvedLayout.offsetColumns;
+
+      const result = await client.addAccordionBlock(
+        ids.pageSectionsId, ids.collectionId, sectionIndex, items,
+        { isExpandedFirstItem: expandFirst, shouldAllowMultipleOpenItems: allowMultipleOpen },
+        resolvedLayout,
+      );
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_update_accordion ───────────────────────────────────────────────────
+  server.registerTool('sq_update_accordion', {
+    description:
+      'Update an existing accordion block. Replace items, toggle expand-first, or allow multiple open. Finds the block by matching item titles/descriptions.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      searchText: z.string().describe('Text to find the accordion block (matches item titles or descriptions)'),
+      items: z.array(z.object({
+        title: z.string().describe('Accordion item heading'),
+        description: z.string().describe('Expandable content'),
+      })).optional().describe('New items to replace existing ones'),
+      expandFirst: z.boolean().optional().describe('Expand the first item by default'),
+      allowMultipleOpen: z.boolean().optional().describe('Allow multiple items open at once'),
+    },
+  }, async ({ siteId, pageSlug, searchText, items, expandFirst, allowMultipleOpen }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+      const updates: Record<string, any> = {};
+      if (items !== undefined) updates.items = items;
+      if (expandFirst !== undefined) updates.isExpandedFirstItem = expandFirst;
+      if (allowMultipleOpen !== undefined) updates.shouldAllowMultipleOpenItems = allowMultipleOpen;
+
+      const result = await client.updateAccordionBlock(ids.pageSectionsId, ids.collectionId, searchText, updates);
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
 }
