@@ -257,7 +257,7 @@ export function registerContentTools(server: McpServer) {
             description: z.string().optional().nullable(),
             variants: z.array(z.object({
               price: z.string(),
-            })).optional().default([]),
+            })).optional().nullable().default([]),
           })).optional().default([]),
         })).optional().default([]),
       })).describe('Full MenuTab[] structure to set'),
@@ -283,6 +283,73 @@ export function registerContentTools(server: McpServer) {
         content: [{
           type: 'text' as const,
           text: JSON.stringify(result, null, 2),
+        }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_add_menu_tab ────────────────────────────────────────────────────────
+  server.registerTool('sq_add_menu_tab', {
+    description:
+      'Insert a single menu tab into an existing menu block at a specific position. ' +
+      'Much simpler than sq_update_menu when you only need to add one tab — no need to pass all existing tabs.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug containing the menu'),
+      searchText: z.string().describe('Text to find the menu block (e.g. any existing tab name)'),
+      index: z.number().describe('0-based position to insert the new tab. Use -1 to append at the end.'),
+      tab: z.object({
+        title: z.string(),
+        description: z.string().optional().nullable(),
+        sections: z.array(z.object({
+          title: z.string().nullable(),
+          items: z.array(z.object({
+            title: z.string(),
+            description: z.string().optional().nullable(),
+            variants: z.array(z.object({
+              price: z.string(),
+            })).optional().nullable().default([]),
+          })).optional().default([]),
+        })).optional().default([]),
+      }).describe('The menu tab to insert'),
+    },
+  }, async ({ siteId, pageSlug, searchText, index, tab }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+
+      // Read existing menu
+      const existing = await client.getMenuBlock(ids.pageSectionsId, searchText);
+      if (!existing.success) {
+        return { content: [{ type: 'text' as const, text: `Error: ${existing.error ?? 'Menu block not found'}` }], isError: true };
+      }
+
+      const menus = [...(existing.menus || [])];
+      const insertAt = index < 0 ? menus.length : Math.min(index, menus.length);
+      menus.splice(insertAt, 0, tab);
+
+      // Write back
+      const result = await client.updateMenuBlock(ids.pageSectionsId, ids.collectionId, searchText, menus);
+      if (!result.success) {
+        return { content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Menu update failed'}` }], isError: true };
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            ...result,
+            insertedAt: insertAt,
+            tabTitle: tab.title,
+          }, null, 2),
         }],
       };
     } catch (err) {
