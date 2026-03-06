@@ -10,11 +10,16 @@
 
 import { config } from 'dotenv';
 import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 
-// Load .env from project root (MCP server spawned by Claude Desktop has cwd=/)
+// Load .env from project root — works from both src/ and dist/
 const __dirname = dirname(fileURLToPath(import.meta.url));
-config({ path: join(__dirname, '..', '..', '..', '.env') });
+let projectRoot = __dirname;
+while (projectRoot !== '/' && !existsSync(join(projectRoot, 'package.json'))) {
+  projectRoot = dirname(projectRoot);
+}
+config({ path: join(projectRoot, '.env') });
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -34,6 +39,8 @@ import { registerCommerceTools } from './tools/commerce.js';
 import { registerAnnouncementBarTools } from './tools/announcement-bar.js';
 import { registerPdfMenuTools } from './tools/pdf-menu.js';
 import { registerGmailTools } from './tools/gmail.js';
+import { registerSnapshotTools } from './tools/snapshot.js';
+import { registerWaybackTools } from './tools/wayback.js';
 
 // ── Server instructions — sent to Claude Desktop during MCP handshake ───────
 const INSTRUCTIONS = `
@@ -164,6 +171,8 @@ registerCommerceTools(server);
 registerAnnouncementBarTools(server);
 registerPdfMenuTools(server);
 registerGmailTools(server);
+registerSnapshotTools(server);
+registerWaybackTools(server);
 
 // ── MCP Prompts — on-demand guidance Claude Desktop can invoke ───────────────
 server.registerPrompt('squarespace-guide', {

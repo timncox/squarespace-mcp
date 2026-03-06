@@ -10,6 +10,7 @@ export default defineConfig({
       '**/dist/**',
       '**/*.integration.test.ts',
       '.claude/**',
+      '.worktrees/**',
     ],
   },
 });

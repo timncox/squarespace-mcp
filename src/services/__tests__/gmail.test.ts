@@ -7,11 +7,17 @@ const mockWriteFileSync = vi.fn();
 const mockMkdirSync = vi.fn();
 
 vi.mock('fs', async () => {
-  const actual = await vi.importActual('fs');
+  const actual = await vi.importActual<typeof import('fs')>('fs');
   return {
     ...actual,
     readFileSync: (...args: any[]) => mockReadFileSync(...args),
-    existsSync: (...args: any[]) => mockExistsSync(...args),
+    existsSync: (...args: any[]) => {
+      // Pass through package.json lookups (used by PROJECT_ROOT walk-up at module load)
+      if (typeof args[0] === 'string' && args[0].endsWith('package.json')) {
+        return actual.existsSync(...args as Parameters<typeof actual.existsSync>);
+      }
+      return mockExistsSync(...args);
+    },
     writeFileSync: (...args: any[]) => mockWriteFileSync(...args),
     mkdirSync: (...args: any[]) => mockMkdirSync(...args),
   };

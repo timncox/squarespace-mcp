@@ -30,7 +30,7 @@ export function registerAnnouncementBarTools(server: McpServer) {
         };
       }
 
-      const abs = result.data?.announcementBarSettings ?? {};
+      const abs: Record<string, any> = result.data?.announcementBarSettings ?? {};
 
       // Normalize the raw API shape into a clean response
       const enabled = abs.style === 2;
@@ -81,7 +81,7 @@ export function registerAnnouncementBarTools(server: McpServer) {
         };
       }
 
-      const currentAbs = current.data?.announcementBarSettings ?? {};
+      const currentAbs: Record<string, any> = current.data?.announcementBarSettings ?? {};
 
       // Build merged announcement bar settings
       const merged: Record<string, any> = { ...currentAbs };

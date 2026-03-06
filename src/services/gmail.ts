@@ -12,7 +12,10 @@ import { fileURLToPath } from 'url';
 import { logger } from '../utils/logger.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = join(__dirname, '..', '..');
+let PROJECT_ROOT = __dirname;
+while (PROJECT_ROOT !== '/' && !existsSync(join(PROJECT_ROOT, 'package.json'))) {
+  PROJECT_ROOT = dirname(PROJECT_ROOT);
+}
 const AUTH_DIR = join(PROJECT_ROOT, 'storage', 'auth');
 const TOKENS_PATH = join(AUTH_DIR, 'gmail-oauth.json');
 

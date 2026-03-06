@@ -86,6 +86,8 @@ export interface MediaUploadResult {
   libraryId: string;
   status: 'success' | 'failed';
   failureReason?: string;
+  success?: boolean;
+  error?: string;
 }
 
 export interface BatchUploadResult {

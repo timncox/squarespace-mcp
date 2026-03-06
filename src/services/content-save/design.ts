@@ -110,7 +110,7 @@ ContentSaveClient.prototype.updateFont = async function (
   const updatedFields: string[] = [];
   for (const [key, val] of Object.entries(updates)) {
     if (val !== undefined) {
-      (font.fontValue as Record<string, unknown>)[key] = val;
+      (font.fontValue as unknown as Record<string, unknown>)[key] = val;
       updatedFields.push(key);
     }
   }

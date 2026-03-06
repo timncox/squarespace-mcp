@@ -708,13 +708,13 @@ describe('ContentSaveClient — Section Operations', () => {
       expect(content.value.definitionName).toBe('website.components.button');
     });
 
-    it('buildImageBlockContent creates type 1337 without definitionName', () => {
+    it('buildImageBlockContent creates type 1337 with imageFluid definitionName', () => {
       const content = ContentSaveClient.buildImageBlockContent('blk-4', 'https://images.squarespace-cdn.com/test.jpg', 'A photo');
       expect(content.value.id).toBe('blk-4');
       expect(content.value.type).toBe(1337);
       expect(content.value.value.assetUrl).toBe('https://images.squarespace-cdn.com/test.jpg');
       expect(content.value.altText).toBe('A photo');
-      expect(content.value.definitionName).toBeUndefined();
+      expect(content.value.definitionName).toBe('website.components.imageFluid');
     });
 
     it('buildVideoBlockContent creates type 32 block content', () => {

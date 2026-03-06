@@ -3544,15 +3544,16 @@ ContentSaveClient.prototype.updateMapBlock = async function (
     const blockValue = foundBlock.content.value;
     const blockId = blockValue.id;
 
-    // Update location
-    if (updates.lat !== undefined) blockValue.value.location.mapLat = updates.lat;
-    if (updates.lng !== undefined) blockValue.value.location.mapLng = updates.lng;
-    if (updates.zoom !== undefined) blockValue.value.location.mapZoom = updates.zoom;
+    // Update location (value is guaranteed to exist — we found this block by checking value.location.mapLat)
+    const bvVal = blockValue.value!;
+    if (updates.lat !== undefined) bvVal.location.mapLat = updates.lat;
+    if (updates.lng !== undefined) bvVal.location.mapLng = updates.lng;
+    if (updates.zoom !== undefined) bvVal.location.mapZoom = updates.zoom;
 
     // Update display options
-    if (updates.style !== undefined) blockValue.value.style = updates.style;
-    if (updates.labels !== undefined) blockValue.value.labels = updates.labels;
-    if (updates.terrain !== undefined) blockValue.value.terrain = updates.terrain;
+    if (updates.style !== undefined) bvVal.style = updates.style;
+    if (updates.labels !== undefined) bvVal.labels = updates.labels;
+    if (updates.terrain !== undefined) bvVal.terrain = updates.terrain;
 
     logger.info(
       { blockId, searchText, updates },

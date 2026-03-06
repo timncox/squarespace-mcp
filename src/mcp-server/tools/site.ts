@@ -189,7 +189,7 @@ export function registerSiteTools(server: McpServer) {
       const results: Record<string, any> = {};
 
       if (font) {
-        const fontResult = await client.updateFont(font.fontName, font.updates);
+        const fontResult = await client.updateFont(font.fontName, font.updates as any);
         results.font = { success: fontResult.success, error: fontResult.error ?? null };
       }
 

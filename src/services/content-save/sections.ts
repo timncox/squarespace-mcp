@@ -656,8 +656,8 @@ ContentSaveClient.prototype.addSectionWithBlocks = async function (
           columnGap: { unit: 'px', value: 11 },
           rowStretch: false,
           breakpointSettings: {
-            mobile: { rows: Math.max(2, maxMobileY), columns: 8, rowSize: { unit: 'vw', value: 6 } },
-            desktop: { rows: Math.max(8, maxY), columns: 24, rowSize: { unit: 'vw', value: 2 } },
+            mobile: { rows: Math.max(2, maxMobileY + 1), columns: 8, rowSize: { unit: 'vw', value: 6 } },
+            desktop: { rows: Math.max(8, maxY + 1), columns: 24, rowSize: { unit: 'vw', value: 2 } },
           },
         },
       },

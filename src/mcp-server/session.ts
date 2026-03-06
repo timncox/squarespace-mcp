@@ -242,6 +242,7 @@ export function getClient(siteId: string): ContentSaveClient {
 
   const subdomain = getSubdomain(siteId);
   const client = createContentSaveClient(subdomain);
+  client._snapshotSiteId = cacheKey;
   clientCache.set(cacheKey, client);
   return client;
 }

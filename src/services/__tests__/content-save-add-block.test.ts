@@ -1176,9 +1176,9 @@ describe('ContentSaveClient — fillLastTextBlockInSection', () => {
       const putBody = JSON.parse(putOptions.body as string);
       const bps = putBody.sections[0].fluidEngineContext.gridSettings.breakpointSettings;
 
-      // Block goes to y=0..3, so rows should be set to 3
-      expect(bps.desktop.rows).toBe(3);
-      expect(bps.mobile.rows).toBe(3);
+      // Block goes to y=0..3, so rows should be set to endY+1=4
+      expect(bps.desktop.rows).toBe(4);
+      expect(bps.mobile.rows).toBe(4);
 
       fetchSpy.mockRestore();
     });

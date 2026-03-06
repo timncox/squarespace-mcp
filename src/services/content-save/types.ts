@@ -196,10 +196,10 @@ export interface GridContent {
         title?: string;
         description?: string;
         subtitle?: string;
-        [key: string]: unknown;
+        [key: string]: any;
       };
       containerStyles?: unknown;
-      [key: string]: unknown;
+      [key: string]: any;
     };
   };
   [key: string]: unknown;
@@ -208,9 +208,10 @@ export interface GridContent {
 /** Grid settings within a section's fluidEngineContext */
 export interface GridSettings {
   breakpointSettings?: {
-    desktop?: { columns?: number };
-    mobile?: { columns?: number };
+    desktop?: { columns?: number; rows?: number; rowSize?: { unit: string; value: number }; [key: string]: unknown };
+    mobile?: { columns?: number; rows?: number; rowSize?: { unit: string; value: number }; [key: string]: unknown };
   };
+  [key: string]: unknown;
 }
 
 /** A section in the page-sections data */

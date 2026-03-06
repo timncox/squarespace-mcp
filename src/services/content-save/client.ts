@@ -326,6 +326,8 @@ export class ContentSaveClient {
   sessionLoadedAt: Date | null = null;
   websiteIdCache: string | null = null;
   memberAccountIdCache: string | null = null;
+  _preWriteCache: Map<string, PageSection[]> = new Map();
+  _snapshotSiteId: string | null = null;
 
   constructor(siteSubdomain: string) {
     this.siteSubdomain = siteSubdomain;
@@ -468,6 +470,9 @@ export class ContentSaveClient {
     }
 
     const data = (await response.json()) as PageSectionsData;
+    if (data.sections) {
+      this._preWriteCache.set(pageSectionsId, structuredClone(data.sections));
+    }
     logger.info(
       { pageSectionsId, sectionsCount: data.sections?.length ?? 0 },
       'Page sections fetched',
@@ -484,6 +489,27 @@ export class ContentSaveClient {
     collectionId: string,
     sections: PageSection[],
   ): Promise<ContentSaveResult> {
+    // Auto-snapshot: save pre-edit state before writing
+    const cachedBefore = this._preWriteCache.get(pageSectionsId);
+    this._preWriteCache.delete(pageSectionsId);
+
+    if (cachedBefore && this._snapshotSiteId) {
+      try {
+        const { shouldAutoSnapshot, saveSnapshot, cleanupOldSnapshots } =
+          await import('../snapshot.js');
+        if (shouldAutoSnapshot(this._snapshotSiteId, pageSectionsId)) {
+          saveSnapshot({
+            siteId: this._snapshotSiteId,
+            pageSectionsId,
+            collectionId,
+            sections: cachedBefore,
+            isAuto: true,
+          });
+          if (Math.random() < 0.01) cleanupOldSnapshots(7);
+        }
+      } catch { /* snapshot failure must never block saves */ }
+    }
+
     this.ensureCookies();
 
     const url = this.buildPutUrl(pageSectionsId, collectionId);
@@ -539,8 +565,8 @@ export class ContentSaveClient {
    */
   updateSectionRows(section: PageSection, desktopEndY: number, mobileEndY: number): void {
     const gs = section.fluidEngineContext?.gridSettings?.breakpointSettings;
-    if (gs?.desktop) gs.desktop.rows = Math.max(gs.desktop.rows ?? 0, desktopEndY);
-    if (gs?.mobile) gs.mobile.rows = Math.max(gs.mobile.rows ?? 0, mobileEndY);
+    if (gs?.desktop) gs.desktop.rows = Math.max(gs.desktop.rows ?? 0, desktopEndY + 1);
+    if (gs?.mobile) gs.mobile.rows = Math.max(gs.mobile.rows ?? 0, mobileEndY + 1);
   }
 
   /**
@@ -746,7 +772,7 @@ export class ContentSaveClient {
 
         // Newsletter blocks (type 51): match description.html, title, submitButtonText
         if (bv.type === BLOCK_TYPE_NEWSLETTER) {
-          const descHtml = bv.value?.description?.html ?? '';
+          const descHtml = (bv.value?.description as any)?.html ?? '';
           const fields = [descHtml, bv.value?.title, bv.value?.submitButtonText].filter(Boolean);
           for (const field of fields) {
             if (this.stripHtml(String(field)).toLowerCase().includes(needle))
@@ -1168,6 +1194,7 @@ export class ContentSaveClient {
       id: blockId,
       type: 1337, // BLOCK_TYPE_IMAGE
       value: { assetUrl, layout: 'caption-below', linkTo: '' },
+      definitionName: 'website.components.imageFluid',
     };
     if (altText !== undefined) blockContent.altText = altText;
     return { value: blockContent as GridContent['content']['value'] };

@@ -7,7 +7,7 @@
  * Search/read handled by Claude.ai Gmail MCP — we only fill the attachment gap.
  */
 
-import { mkdirSync } from 'fs';
+import { mkdirSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { execSync } from 'child_process';
@@ -16,7 +16,10 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PROJECT_ROOT = join(__dirname, '..', '..', '..');
+let PROJECT_ROOT = __dirname;
+while (PROJECT_ROOT !== '/' && !existsSync(join(PROJECT_ROOT, 'package.json'))) {
+  PROJECT_ROOT = dirname(PROJECT_ROOT);
+}
 const AUTH_DIR = join(PROJECT_ROOT, 'storage', 'auth');
 
 const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
@@ -66,9 +69,10 @@ export function registerGmailTools(server: McpServer) {
           if (authCode) {
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end('<h1>Gmail authorized!</h1><p>You can close this tab and return to Claude.</p>');
+            const resolvedPort = (httpServer!.address() as any).port;
             clearTimeout(timeoutId);
             httpServer!.close();
-            resolve({ port: (httpServer!.address() as any).port, code: authCode });
+            resolve({ port: resolvedPort, code: authCode });
             return;
           }
 
@@ -76,9 +80,9 @@ export function registerGmailTools(server: McpServer) {
           res.end();
         });
 
-        httpServer.listen(0, '127.0.0.1', () => {
+        httpServer.listen(0, 'localhost', () => {
           const addr = httpServer!.address() as { port: number };
-          const redirectUri = `http://127.0.0.1:${addr.port}`;
+          const redirectUri = `http://localhost:${addr.port}`;
 
           const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
           authUrl.searchParams.set('client_id', creds.client_id);
@@ -98,7 +102,7 @@ export function registerGmailTools(server: McpServer) {
       });
 
       // Exchange auth code for tokens
-      const redirectUri = `http://127.0.0.1:${port}`;
+      const redirectUri = `http://localhost:${port}`;
       const tokenResponse = await fetch(TOKEN_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -138,7 +142,7 @@ export function registerGmailTools(server: McpServer) {
       };
     } catch (err) {
       if (httpServer) {
-        try { httpServer.close(); } catch { /* best effort */ }
+        try { (httpServer as http.Server).close(); } catch { /* best effort */ }
       }
 
       const msg = err instanceof Error ? err.message : String(err);

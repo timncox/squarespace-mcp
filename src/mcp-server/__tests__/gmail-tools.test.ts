@@ -16,10 +16,15 @@ const mockWriteFileSync = vi.fn();
 const mockReadFileSync = vi.fn();
 
 vi.mock('fs', async () => {
-  const actual = await vi.importActual('fs');
+  const actual = await vi.importActual<typeof import('fs')>('fs');
   return {
     ...actual,
-    existsSync: (...args: any[]) => mockExistsSync(...args),
+    existsSync: (...args: any[]) => {
+      if (typeof args[0] === 'string' && args[0].endsWith('package.json')) {
+        return actual.existsSync(...args as Parameters<typeof actual.existsSync>);
+      }
+      return mockExistsSync(...args);
+    },
     mkdirSync: (...args: any[]) => mockMkdirSync(...args),
     writeFileSync: (...args: any[]) => mockWriteFileSync(...args),
     readFileSync: (...args: any[]) => mockReadFileSync(...args),

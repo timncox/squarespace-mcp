@@ -323,6 +323,25 @@ function migrate(db: Database.Database): void {
     );
   `);
 
+  // Phase 21 migrations — Section snapshots (undo/recovery)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS section_snapshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      site_id TEXT NOT NULL,
+      page_sections_id TEXT NOT NULL,
+      collection_id TEXT,
+      sections_json TEXT NOT NULL,
+      label TEXT,
+      is_auto INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_snapshots_site_page
+      ON section_snapshots(site_id, page_sections_id);
+    CREATE INDEX IF NOT EXISTS idx_snapshots_created
+      ON section_snapshots(created_at);
+  `);
+
   logger.debug('Database migrations applied');
 }
 
