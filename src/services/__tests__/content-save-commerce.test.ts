@@ -185,6 +185,45 @@ describe('ContentSaveClient — Commerce', () => {
     });
   });
 
+  describe('removeProductImage', () => {
+    it('sends DELETE request with correct URL', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, status: 204, text: async () => '' });
+
+      const client = makeClient();
+      const result = await client.removeProductImage('prod-abc', 'img-123');
+
+      expect(result.success).toBe(true);
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toBe('https://test-site.squarespace.com/api/commerce/products/prod-abc/images/img-123');
+      expect(opts.method).toBe('DELETE');
+      expect(opts.headers['X-CSRF-Token']).toBe('test-crumb');
+    });
+
+    it('returns error on non-204 failure', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: async () => 'Not found',
+      });
+
+      const client = makeClient();
+      const result = await client.removeProductImage('prod-abc', 'img-bad');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('404');
+    });
+
+    it('returns error on network failure', async () => {
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      const client = makeClient();
+      const result = await client.removeProductImage('prod-abc', 'img-123');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Network error');
+    });
+  });
+
   describe('createStorePage', () => {
     it('creates store collection and adds to navigation', async () => {
       // First call: copy/collection
