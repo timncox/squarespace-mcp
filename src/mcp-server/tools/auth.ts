@@ -2,6 +2,7 @@
  * MCP Tools — Squarespace session authentication
  *
  * sq_login: Check session health (file + active API probe) and return login instructions
+ * sq_login_browser: Launch headful Chromium, user logs in, auto-capture all cookies
  * sq_save_session: Accept session cookies JSON, validate quality, and save as session
  * sq_restore_session: Recover previous session from .bak backup after bad cookie save
  */
@@ -100,6 +101,112 @@ export function registerAuthTools(server: McpServer) {
         content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
         isError: true,
       };
+    }
+  });
+
+  // ── sq_login_browser ─────────────────────────────────────────────────────
+  server.registerTool('sq_login_browser', {
+    description:
+      'Launch a visible Chromium browser for Squarespace login. ' +
+      'The user logs in manually. The tool polls for the member-session cookie ' +
+      '(HTTP-only, cannot be captured via document.cookie) and automatically saves ' +
+      'all cookies as a session file. This is the recommended way to authenticate.',
+    inputSchema: {
+      loginUrl: z.string().optional().describe(
+        'Custom login URL (default: https://login.squarespace.com). ' +
+        'Use with ?redirect= to land on a specific page after login.',
+      ),
+      timeoutMs: z.number().optional().describe(
+        'Login timeout in milliseconds (default: 300000 = 5 minutes)',
+      ),
+    },
+  }, async ({ loginUrl, timeoutMs }) => {
+    let browser: any = null;
+    try {
+      const { chromium } = await import('playwright');
+
+      browser = await chromium.launch({ headless: false });
+      const context = await browser.newContext();
+      const page = await context.newPage();
+
+      await page.goto(loginUrl ?? 'https://login.squarespace.com');
+
+      // Poll for member-session cookie (HTTP-only, set after successful login)
+      const timeout = timeoutMs ?? 300_000;
+      const pollInterval = 2_000;
+      const startTime = Date.now();
+
+      while (true) {
+        const cookies = await context.cookies();
+        const hasMemberSession = cookies.some(
+          (c: { name: string }) => c.name === 'member-session',
+        );
+
+        if (hasMemberSession) {
+          // Save session
+          mkdirSync(SESSION_DIR, { recursive: true });
+
+          if (existsSync(SESSION_PATH)) {
+            copyFileSync(SESSION_PATH, SESSION_PATH + '.bak');
+          }
+
+          const storageState = { cookies, origins: [] as any[] };
+          writeFileSync(
+            SESSION_PATH,
+            JSON.stringify(storageState, null, 2),
+            'utf-8',
+          );
+
+          reloadAllSessions();
+
+          const hasCrumb = cookies.some(
+            (c: { name: string }) => c.name === 'crumb',
+          );
+
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify({
+                status: 'saved',
+                cookieCount: cookies.length,
+                hasCrumb,
+                hasMemberSession: true,
+                sessionPath: SESSION_PATH,
+                message: `Session saved with ${cookies.length} cookies. Squarespace API is ready.`,
+              }, null, 2),
+            }],
+          };
+        }
+
+        if (Date.now() - startTime >= timeout) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify({
+                status: 'timeout',
+                message: `Login timed out after ${timeout / 1000}s. No member-session cookie detected. ` +
+                  'The user may not have completed login.',
+                cookiesFound: cookies.length,
+              }, null, 2),
+            }],
+            isError: true,
+          };
+        }
+
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      }
+    } catch (err) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Error: ${err instanceof Error ? err.message : String(err)}`,
+        }],
+        isError: true,
+      };
+    } finally {
+      if (browser) {
+        try { await browser.close(); } catch { /* ensure cleanup */ }
+      }
     }
   });
 
