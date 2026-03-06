@@ -18,6 +18,43 @@ import { randomUUID } from 'crypto';
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
 
+// ── Path normalization ───────────────────────────────────────────────────────
+
+/**
+ * Regex matching all Unicode whitespace characters that are NOT a regular
+ * ASCII space (U+0020). macOS Screenshot filenames and copy-pasted paths
+ * frequently contain U+00A0 (non-breaking space) instead of regular spaces.
+ */
+const UNICODE_WHITESPACE_RE =
+  /[\u00a0\u1680\u2000-\u200a\u2007\u202f\u205f\u3000\ufeff]/g;
+
+/**
+ * Resolve a local file path, handling macOS Unicode whitespace quirks.
+ *
+ * Strategy:
+ * 1. Try the path exactly as given.
+ * 2. NFC-normalize + replace all Unicode whitespace → regular space.
+ * 3. The reverse: replace regular spaces → U+00A0 (macOS screenshot default).
+ *
+ * Returns the first variant that exists on disk, or the NFC-normalized path
+ * (so the caller gets a clear ENOENT with a clean path).
+ */
+export function resolveFilePath(filePath: string): string {
+  // 1. Try as-is
+  if (existsSync(filePath)) return filePath;
+
+  // 2. NFC + Unicode whitespace → regular space
+  const normalized = filePath.normalize('NFC').replace(UNICODE_WHITESPACE_RE, ' ');
+  if (normalized !== filePath && existsSync(normalized)) return normalized;
+
+  // 3. Regular spaces → non-breaking space (U+00A0) — macOS screenshot names
+  const withNbsp = normalized.replace(/ /g, '\u00a0');
+  if (withNbsp !== normalized && existsSync(withNbsp)) return withNbsp;
+
+  // None matched — return the cleaned-up path for a clear error message
+  return normalized;
+}
+
 // ── Config ──────────────────────────────────────────────────────────────────
 
 const MEDIA_API_BASE = 'https://media-api.squarespace.com';
@@ -360,8 +397,8 @@ export class MediaUploadClient {
   async uploadImage(filePath: string, altText?: string): Promise<MediaUploadResult> {
     await this.ensureAuthorized();
 
-    // Normalize Unicode (macOS uses NFD for filenames, e.g. non-breaking spaces)
-    filePath = filePath.normalize('NFC').replace(/[\u00a0\u2007\u202f]/g, ' ');
+    // Resolve macOS Unicode whitespace quirks (e.g. non-breaking spaces in Screenshot filenames)
+    filePath = resolveFilePath(filePath);
 
     // Validate file
     const ext = extname(filePath).toLowerCase();
