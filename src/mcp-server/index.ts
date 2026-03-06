@@ -30,10 +30,10 @@ import { registerWebSearchTools } from './tools/web-search.js';
 import { registerFormTools } from './tools/forms.js';
 import { registerDividerTools } from './tools/divider.js';
 import { registerLinkTools } from './tools/links.js';
-import { registerGmailTools } from './tools/gmail.js';
 import { registerAuthTools } from './tools/auth.js';
 import { registerCommerceTools } from './tools/commerce.js';
 import { registerAnnouncementBarTools } from './tools/announcement-bar.js';
+import { registerPdfMenuTools } from './tools/pdf-menu.js';
 
 // ── Server instructions — sent to Claude Desktop during MCP handshake ───────
 const INSTRUCTIONS = `
@@ -67,20 +67,12 @@ Blank sections created via API may reject subsequent block insertions (500 error
 The blog creation endpoint ignores the body field. sq_create_blog_post handles this automatically via a create-then-update pattern, but if the follow-up update fails (e.g. session expired), the post will be created with an empty body. Check the result for errors.
 
 ### Session Cookies
-All API calls require valid Squarespace editor session cookies. If you get 401 or "session expired" errors, call sq_login to check session health and get login instructions. Use sq_login + Playwright MCP + sq_save_session to capture a fresh session without leaving the conversation.
+All API calls require valid Squarespace editor session cookies. If you get 401 or "session expired" errors, call sq_login to check session health. Use sq_login_browser to launch a visible Chromium browser — the user logs in manually and the tool automatically captures all cookies (including HTTP-only member-session) and saves the session.
 
 ## Content Editing Workflow
 1. **Read first**: Always call sq_get_page_sections to see current content before editing.
 2. **Edit specifically**: Use sq_update_text for text changes, sq_update_image for images, etc.
 3. **Verify**: Call sq_take_screenshot after changes to confirm the result looks correct.
-
-## Email & PDF Menu Processing
-1. Call sq_list_emails to check for new client emails.
-2. Call sq_read_email to see full content and attachments.
-3. For PDF menu attachments, use sq_parse_pdf_menu to extract structured MenuTab[] JSON.
-4. If parsing succeeds, pass the menus directly to sq_update_menu.
-5. If parsing fails (returns rawText), format the text yourself and use sq_update_menu.
-6. Use sq_process_email to run the full task extraction pipeline on an email.
 
 ## Grid System
 Squarespace uses a 24-column desktop grid. Coordinates: X ranges 1-24, start is inclusive, end is exclusive. Mobile layout auto-reflows from desktop — you only control desktop positioning.
@@ -168,10 +160,10 @@ registerWebSearchTools(server);
 registerFormTools(server);
 registerDividerTools(server);
 registerLinkTools(server);
-registerGmailTools(server);
 registerAuthTools(server);
 registerCommerceTools(server);
 registerAnnouncementBarTools(server);
+registerPdfMenuTools(server);
 
 // ── MCP Prompts — on-demand guidance Claude Desktop can invoke ───────────────
 server.registerPrompt('squarespace-guide', {

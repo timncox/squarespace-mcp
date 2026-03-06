@@ -8,7 +8,47 @@
  * All functions are pure (no API calls, no side effects).
  */
 
-import type { TextStyles, GridSpan, ExtractedLink, SectionDesignProperties } from '../agents/types.js';
+// ─── Types (formerly in agents/types.ts) ─────────────────────────────────────
+
+export interface TextStyles {
+  alignment?: 'left' | 'center' | 'right';
+  color?: string;
+  fontSize?: string;
+  fontFamily?: string;
+  fontWeight?: string;
+  letterSpacing?: string;
+  lineHeight?: string;
+  textTransform?: string;
+  headingTag?: 'h1' | 'h2' | 'h3' | 'h4' | 'p';
+  bold?: boolean;
+  italic?: boolean;
+}
+
+export interface GridSpan {
+  columns: number;
+  rows: number;
+  startX: number;
+  endX: number;
+  startY: number;
+  endY: number;
+}
+
+export interface ExtractedLink {
+  text: string;
+  href: string;
+  target?: string;
+}
+
+export interface SectionDesignProperties {
+  theme?: string;
+  backgroundColor?: string;
+  hasBackgroundImage?: boolean;
+  sectionHeight?: string;
+  contentWidth?: string;
+  verticalAlignment?: string;
+  sectionPadding?: string;
+  blockSpacing?: string;
+}
 
 // ─── CSS Inline Parser ──────────────────────────────────────────────────────
 

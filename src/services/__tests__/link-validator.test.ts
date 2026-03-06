@@ -10,7 +10,7 @@ import {
   type LinkValidationSummary,
   type LinkValidationResult,
 } from '../link-validator.js';
-import type { ExtractedLink } from '../../agents/types.js';
+import type { ExtractedLink } from '../design-property-extractor.js';
 
 // ── classifyLink ────────────────────────────────────────────────────────────
 

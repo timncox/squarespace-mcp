@@ -1,15 +1,15 @@
-# Squarespace MCP Server — CLAUDE.md
+# Squarespace MCP — CLAUDE.md
 
 ## What This Project Is
 
-MCP server that edits Squarespace websites via the Content Save API. Exposes ~88 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, and more. Used from Claude Desktop.
+MCP server that edits Squarespace websites via the Content Save API. Exposes ~84 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, and more. Used from Claude Desktop.
 
 ## Commands
 
 ```bash
 npm run mcp     # Start MCP server (tsx src/mcp-server/index.ts)
 npm run build   # TypeScript compile
-npm test        # vitest run (~1339 tests, 54 files)
+npm test        # vitest run (~1343 tests, 55 files)
 ```
 
 ## Architecture
@@ -22,7 +22,7 @@ Entry point: `src/mcp-server/index.ts` — registers all tools, starts stdio tra
 
 ```
 src/
-  mcp-server/       # MCP server — ~88 tools across 15 modules
+  mcp-server/       # MCP server — ~84 tools across 15 modules
     tools/          # Tool modules (registerXxxTools pattern)
     session.ts      # Client cache + resolvePageIds (shared by all tools)
     index.ts        # Tool registration entry point
@@ -32,18 +32,15 @@ src/
     page-id-resolver.ts # Page slug → API IDs
     menu-parser.ts  # Menu text ↔ structured JSON
     menu-merger.ts  # Menu merge (LLM + deterministic)
-    gmail.ts        # Gmail OAuth client
     brave-search.ts # Web search via Brave API
     link-validator.ts # HTTP link validation
     geocoding.ts    # Address → lat/long (Nominatim)
     section-catalog.ts # Template section lookup + cache
     pdf-extractor.ts # PDF text extraction
-    design-property-extractor.ts # CSS/design value parsing
-  agents/types.ts   # Shared types (ContentPlan, ContentOperation, etc.)
+    design-property-extractor.ts # CSS/design value parsing + shared types
   config/           # Model IDs, section template catalog
   db/database.ts    # SQLite (page ID cache, template cache)
   utils/            # Logger (pino), errors, anthropic-client
-  archive/          # Old code — excluded from build + tests
 data/               # Runtime SQLite database
 storage/            # Session cookies, uploads, screenshots
 ```
@@ -52,7 +49,7 @@ storage/            # Session cookies, uploads, screenshots
 
 | File | Purpose |
 |------|---------|
-| `src/mcp-server/index.ts` | MCP server entry — ~88 tools across 15 modules |
+| `src/mcp-server/index.ts` | MCP server entry — ~84 tools across 15 modules |
 | `src/mcp-server/session.ts` | Client cache + `resolvePageIds` + `listSites` |
 | `src/services/content-save.ts` | Content Save API client (86+ methods) |
 | `src/services/media-upload.ts` | Image upload to Squarespace asset service |
@@ -70,7 +67,7 @@ Primary execution mechanism. Uses `PUT /api/page-sections/{pageId}/collection/{c
 
 ### Auth
 
-Session cookies from `storage/auth/sqsp-session.json`. The critical `member-session` cookie is HTTP-only. Currently requires manual cookie export from browser. Planning to add Playwright-based `sq_login_browser` tool for seamless login.
+Session cookies from `storage/auth/sqsp-session.json`. The `sq_login_browser` tool launches headful Chromium via Playwright — user logs in, tool captures all cookies (including HTTP-only `member-session`) via `context.cookies()` and saves the session.
 
 ## Conventions
 
@@ -90,8 +87,8 @@ Session cookies from `storage/auth/sqsp-session.json`. The critical `member-sess
 
 ## Testing
 
-- `npm test` runs vitest with archive/dist excluded
-- 54 test files, 1339 tests
+- `npm test` runs vitest with dist excluded
+- 55 test files, 1343 tests
 - Service tests in `src/services/__tests__/`
 - MCP tool tests in `src/mcp-server/__tests__/`
 

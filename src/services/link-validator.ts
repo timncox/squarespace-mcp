@@ -7,7 +7,7 @@
  */
 
 import { extractLinks } from './design-property-extractor.js';
-import type { ExtractedLink } from '../agents/types.js';
+import type { ExtractedLink } from './design-property-extractor.js';
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
 

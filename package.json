@@ -1,21 +1,21 @@
 {
-  "name": "squarespace-helper",
+  "name": "squarespace-mcp",
   "version": "0.2.0",
   "description": "MCP server for editing Squarespace websites via the Content Save API",
   "type": "module",
   "scripts": {
     "build": "tsc",
     "mcp": "npx tsx src/mcp-server/index.ts",
-    "test": "vitest run --exclude '.claude/**' --exclude 'dist/**' --exclude 'src/archive/**'"
+    "test": "vitest run --exclude '.claude/**' --exclude 'dist/**'"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "better-sqlite3": "^11.7.0",
     "dotenv": "^16.4.7",
-    "googleapis": "^144.0.0",
     "pdf-parse": "^1.1.1",
     "pino": "^9.6.0",
+    "playwright": "^1.58.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {
