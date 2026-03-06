@@ -655,6 +655,167 @@ export class ContentSaveClient {
     return null;
   }
 
+  /**
+   * Search all sections for ANY block type matching the given searchText (case-insensitive).
+   * Searches text blocks, buttons, code blocks, form blocks, image blocks,
+   * quote blocks, video blocks, newsletter blocks, accordion blocks, marquee blocks,
+   * menu blocks, and falls back to block ID prefix match.
+   */
+  findBlock(
+    sections: PageSection[],
+    searchText: string,
+  ): {
+    section: PageSection;
+    gridContent: GridContent;
+    sectionIndex: number;
+    blockIndex: number;
+    gridSettings?: GridSettings;
+  } | null {
+    const needle = searchText.toLowerCase();
+
+    for (let si = 0; si < sections.length; si++) {
+      const section = sections[si];
+      const ctx = section.fluidEngineContext;
+      if (!ctx?.gridContents) continue;
+
+      for (let bi = 0; bi < ctx.gridContents.length; bi++) {
+        const gc = ctx.gridContents[bi];
+        const bv = gc.content?.value;
+        if (!bv) continue;
+
+        // Text blocks (type 2): match stripped HTML
+        if (bv.type === BLOCK_TYPE_TEXT) {
+          const html = bv.value?.html ?? bv.value?.source ?? '';
+          if (html && this.stripHtml(html).toLowerCase().includes(needle)) {
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
+        // Type 1337 buttons: check definitionName before falling into image/code/form checks
+        if (bv.type === BLOCK_TYPE_IMAGE && bv.definitionName === BUTTON_DEFINITION_NAME) {
+          const btnText = bv.value?.buttonText ?? '';
+          const btnLink = bv.value?.buttonLink ?? '';
+          if ((btnText && String(btnText).toLowerCase().includes(needle)) ||
+              (btnLink && String(btnLink).toLowerCase().includes(needle))) {
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
+        // Type 1337: Code HTML blocks, Form blocks, or Image blocks (same outer type, different value structure)
+        if (bv.type === BLOCK_TYPE_IMAGE && bv.definitionName !== BUTTON_DEFINITION_NAME) {
+          if (bv.value?.wysiwyg?.engine === CODE_BLOCK_ENGINE) {
+            // Code HTML block: match on html content
+            const html = bv.value?.html ?? '';
+            if (html && html.toLowerCase().includes(needle)) {
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+            }
+          } else if (bv.value?.[FORM_BLOCK_DISCRIMINATOR] !== undefined) {
+            // Form block: match by formId
+            if (bv.value?.formId && String(bv.value.formId).toLowerCase().includes(needle))
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          } else {
+            // Image block: match title/description/subtitle
+            const fields = [bv.value?.title, bv.value?.description, bv.value?.subtitle].filter(Boolean);
+            for (const field of fields) {
+              if (this.stripHtml(String(field)).toLowerCase().includes(needle)) {
+                return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+              }
+            }
+          }
+        }
+
+        // Quote blocks (type 31): match quote text and source (attribution)
+        if (bv.type === BLOCK_TYPE_QUOTE) {
+          const quoteText = bv.value?.quote ?? '';
+          const source = bv.value?.source ?? '';
+          if ((quoteText && quoteText.toLowerCase().includes(needle)) ||
+              (source && source.toLowerCase().includes(needle))) {
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
+        // Video blocks (type 32): match url, title, description
+        if (bv.type === BLOCK_TYPE_VIDEO) {
+          const fields = [bv.value?.url, bv.value?.title, bv.value?.description].filter(Boolean);
+          for (const field of fields) {
+            if (String(field).toLowerCase().includes(needle)) {
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+            }
+          }
+        }
+
+        // Newsletter blocks (type 51): match description.html, title, submitButtonText
+        if (bv.type === BLOCK_TYPE_NEWSLETTER) {
+          const descHtml = bv.value?.description?.html ?? '';
+          const fields = [descHtml, bv.value?.title, bv.value?.submitButtonText].filter(Boolean);
+          for (const field of fields) {
+            if (this.stripHtml(String(field)).toLowerCase().includes(needle))
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
+        // Accordion blocks (type 69): match accordionItems[].title and .description
+        if (bv.type === BLOCK_TYPE_ACCORDION) {
+          for (const item of (bv.value?.accordionItems ?? [])) {
+            if ((item.title && String(item.title).toLowerCase().includes(needle)) ||
+                (item.description && String(item.description).toLowerCase().includes(needle)))
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
+        // Marquee blocks (type 70): match marqueeItems[].text
+        if (bv.type === BLOCK_TYPE_MARQUEE) {
+          for (const item of (bv.value?.marqueeItems ?? [])) {
+            if (item.text && String(item.text).toLowerCase().includes(needle))
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
+        // Menu blocks (type 18): match raw text, tab titles, section titles, item titles
+        if (bv.type === BLOCK_TYPE_MENU) {
+          const menuVal = bv.value;
+          // Search raw text field
+          if (menuVal?.raw && String(menuVal.raw).toLowerCase().includes(needle)) {
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+          // Search structured menus
+          if (menuVal?.menus && Array.isArray(menuVal.menus)) {
+            for (const tab of menuVal.menus) {
+              if (tab.title?.toLowerCase().includes(needle)) {
+                return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+              }
+              for (const sec of tab.sections || []) {
+                if (sec.title?.toLowerCase().includes(needle)) {
+                  return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+                }
+                for (const item of sec.items || []) {
+                  if (item.title?.toLowerCase().includes(needle)) {
+                    return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        // Any block with value.text or value.label
+        if (bv.value?.text && String(bv.value.text).toLowerCase().includes(needle)) {
+          return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+        }
+        if (bv.value?.label && String(bv.value.label).toLowerCase().includes(needle)) {
+          return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+        }
+
+        // Fallback: match block ID prefix
+        if (bv.id.toLowerCase().startsWith(needle)) {
+          return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+        }
+      }
+    }
+
+    return null;
+  }
+
   /** Formatting options for text block HTML generation */
   static readonly FormattingDefaults = {
     tag: 'p' as const,
