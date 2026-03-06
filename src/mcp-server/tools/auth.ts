@@ -346,6 +346,34 @@ export function registerAuthTools(server: McpServer) {
         reloadAllSessions();
       }
 
+      // ── Detect sites missing member-session cookies ─────────────────────────
+      const missingSites: Array<{ subdomain: string; name: string; adminUrl: string }> = [];
+      try {
+        const allSites = listSites();
+        for (const site of allSites) {
+          const hasMemberSession = parsed.cookies.some((c: { name: string; domain: string }) =>
+            c.name === 'member-session' &&
+            c.domain.replace(/^\./, '').includes(site.subdomain),
+          );
+          if (!hasMemberSession) {
+            missingSites.push({
+              subdomain: site.subdomain,
+              name: site.name,
+              adminUrl: `https://${site.subdomain}.squarespace.com/config/website`,
+            });
+          }
+        }
+      } catch { /* listSites may fail if no DB yet */ }
+
+      if (missingSites.length > 0) {
+        const siteNames = missingSites.map(s => s.name).join(', ');
+        const navUrls = missingSites.map(s => s.adminUrl).join(' , ');
+        warnings.push(
+          `Missing site-specific cookies for: ${siteNames}. ` +
+          `Navigate to ${navUrls} in the Playwright browser, then re-capture cookies and call sq_save_session again.`,
+        );
+      }
+
       const status = warnings.length > 0 ? 'saved_with_warnings' : 'saved';
       const baseMessage = hasCrumb
         ? `Session saved with ${parsed.cookies.length} cookies. Squarespace API is ready to use.`
@@ -358,6 +386,7 @@ export function registerAuthTools(server: McpServer) {
           hasCrumb,
           sites: Array.from(sqspDomains),
           discoveredSites,
+          ...(missingSites.length > 0 ? { missingSites } : {}),
           sessionPath: SESSION_PATH,
           ...(warnings.length > 0 ? { warnings } : {}),
           message: warnings.length > 0

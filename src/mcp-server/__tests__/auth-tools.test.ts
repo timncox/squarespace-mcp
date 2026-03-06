@@ -496,6 +496,102 @@ describe('Auth Tools', () => {
       expect(data.status).toBe('saved');
       expect(data.warnings).toBeUndefined();
     });
+
+    // ── Missing site-specific member-session cookie tests ───────────────────
+
+    it('should include missingSites when member-session cookie is absent for a configured site', async () => {
+      mockExistsSync.mockReturnValue(false);
+      mockListSites.mockReturnValue([
+        { id: 'grey-yellow-hbxc', name: 'Smyth Tavern', subdomain: 'grey-yellow-hbxc', aliases: [], adminUrl: 'https://grey-yellow-hbxc.squarespace.com' },
+      ]);
+      // Session has site cookies but NO member-session for the site
+      const sessionWithoutMemberSession = JSON.stringify({
+        cookies: [
+          { name: 'crumb', value: 'abc', domain: '.squarespace.com' },
+          { name: 'SS_MID', value: 'mid', domain: '.squarespace.com' },
+          { name: 'JSESSIONID', value: 'j1', domain: '.grey-yellow-hbxc.squarespace.com' },
+        ],
+        origins: [],
+      });
+
+      const result = await server.callTool('sq_save_session', { sessionData: sessionWithoutMemberSession });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.status).toBe('saved_with_warnings');
+      expect(data.missingSites).toBeInstanceOf(Array);
+      expect(data.missingSites).toHaveLength(1);
+      expect(data.missingSites[0].subdomain).toBe('grey-yellow-hbxc');
+      expect(data.missingSites[0].name).toBe('Smyth Tavern');
+      expect(data.missingSites[0].adminUrl).toBe('https://grey-yellow-hbxc.squarespace.com/config/website');
+      expect(data.warnings.some((w: string) => w.includes('Missing site-specific cookies for: Smyth Tavern'))).toBe(true);
+      expect(data.warnings.some((w: string) => w.includes('Navigate to'))).toBe(true);
+    });
+
+    it('should not include missingSites when member-session cookie exists for all configured sites', async () => {
+      mockExistsSync.mockReturnValue(false);
+      mockListSites.mockReturnValue([
+        { id: 'grey-yellow-hbxc', name: 'Smyth Tavern', subdomain: 'grey-yellow-hbxc', aliases: [], adminUrl: 'https://grey-yellow-hbxc.squarespace.com' },
+      ]);
+      const sessionWithMemberSession = JSON.stringify({
+        cookies: [
+          { name: 'crumb', value: 'abc', domain: '.squarespace.com' },
+          { name: 'SS_MID', value: 'mid', domain: '.squarespace.com' },
+          { name: 'JSESSIONID', value: 'j1', domain: '.grey-yellow-hbxc.squarespace.com' },
+          { name: 'member-session', value: 'ms-123', domain: '.grey-yellow-hbxc.squarespace.com' },
+        ],
+        origins: [],
+      });
+
+      const result = await server.callTool('sq_save_session', { sessionData: sessionWithMemberSession });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.status).toBe('saved');
+      expect(data.missingSites).toBeUndefined();
+    });
+
+    it('should detect multiple missing sites individually', async () => {
+      mockExistsSync.mockReturnValue(false);
+      mockListSites.mockReturnValue([
+        { id: 'grey-yellow-hbxc', name: 'Smyth Tavern', subdomain: 'grey-yellow-hbxc', aliases: [], adminUrl: 'https://grey-yellow-hbxc.squarespace.com' },
+        { id: 'blue-red-wxyz', name: 'Other Site', subdomain: 'blue-red-wxyz', aliases: [], adminUrl: 'https://blue-red-wxyz.squarespace.com' },
+      ]);
+      // Only has member-session for first site, not the second
+      const sessionPartial = JSON.stringify({
+        cookies: [
+          { name: 'crumb', value: 'abc', domain: '.squarespace.com' },
+          { name: 'SS_MID', value: 'mid', domain: '.squarespace.com' },
+          { name: 'JSESSIONID', value: 'j1', domain: '.squarespace.com' },
+          { name: 'member-session', value: 'ms-1', domain: '.grey-yellow-hbxc.squarespace.com' },
+        ],
+        origins: [],
+      });
+
+      const result = await server.callTool('sq_save_session', { sessionData: sessionPartial });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.missingSites).toHaveLength(1);
+      expect(data.missingSites[0].subdomain).toBe('blue-red-wxyz');
+      expect(data.missingSites[0].name).toBe('Other Site');
+      expect(data.warnings.some((w: string) => w.includes('Other Site'))).toBe(true);
+    });
+
+    it('should not include missingSites when no sites are configured', async () => {
+      mockExistsSync.mockReturnValue(false);
+      mockListSites.mockReturnValue([]);
+      const session = JSON.stringify({
+        cookies: [
+          { name: 'crumb', value: 'abc', domain: '.squarespace.com' },
+          { name: 'SS_MID', value: 'mid', domain: '.squarespace.com' },
+          { name: 'JSESSIONID', value: 'j1', domain: '.squarespace.com' },
+        ],
+        origins: [],
+      });
+
+      const result = await server.callTool('sq_save_session', { sessionData: session });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.missingSites).toBeUndefined();
+    });
   });
 
   // ── sq_restore_session ─────────────────────────────────────────────────────
