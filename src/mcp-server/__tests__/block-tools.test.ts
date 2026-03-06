@@ -320,7 +320,7 @@ describe('Block Tools', () => {
       expect(result.content[0].text).toContain('Upload failed: 413');
     });
 
-    it('should detect cloud container paths and return curl instructions', async () => {
+    it('should detect cloud container paths and return base64 instructions', async () => {
       const result = await server.callTool('sq_upload_image', {
         siteId: 'smyth-tavern',
         imageUrl: '/mnt/user-data/uploads/photo.jpg',
@@ -328,9 +328,8 @@ describe('Block Tools', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('cloud environment');
-      expect(result.content[0].text).toContain('curl');
-      expect(result.content[0].text).toContain('0x0.st');
-      expect(result.content[0].text).toContain('/mnt/user-data/uploads/photo.jpg');
+      expect(result.content[0].text).toContain('imageData');
+      expect(result.content[0].text).toContain('base64');
       // Should NOT attempt the actual upload
       expect(mockMediaClient.uploadImage).not.toHaveBeenCalled();
     });
@@ -343,6 +342,33 @@ describe('Block Tools', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('cloud environment');
+    });
+
+    it('should require either imageUrl or imageData', async () => {
+      const result = await server.callTool('sq_upload_image', {
+        siteId: 'smyth-tavern',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Either imageUrl or imageData is required');
+    });
+
+    it('should upload from base64 imageData', async () => {
+      mockMediaClient.uploadImage.mockResolvedValue({ assetUrl: 'https://images.sqcdn.com/abc.jpg', assetId: 'abc123' });
+
+      const result = await server.callTool('sq_upload_image', {
+        siteId: 'smyth-tavern',
+        imageData: Buffer.from('fake-image-data').toString('base64'),
+        filename: 'test-photo.jpg',
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(mockMediaClient.uploadImage).toHaveBeenCalledTimes(1);
+      // Should have been called with a temp file path
+      const callPath = mockMediaClient.uploadImage.mock.calls[0][0];
+      expect(callPath).toContain('test-photo.jpg');
+      const data = JSON.parse(result.content[0].text);
+      expect(data.assetUrl).toBe('https://images.sqcdn.com/abc.jpg');
     });
   });
 

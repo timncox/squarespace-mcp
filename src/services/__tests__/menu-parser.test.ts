@@ -906,3 +906,65 @@ Fresh catch of the day`;
     expect(reparsed).toEqual(parsed);
   });
 });
+
+// ── serializeMenu defensive handling ──────────────────────────────────────────
+
+describe('serializeMenu defensive handling', () => {
+  it('handles tab with undefined sections', () => {
+    const menus = [{ title: 'Lunch' }] as MenuTab[];
+    const result = serializeMenu(menus);
+    expect(result).toBe('Lunch\n========');
+  });
+
+  it('handles tab with empty sections array', () => {
+    const menus: MenuTab[] = [{ title: 'Lunch', sections: [] }];
+    const result = serializeMenu(menus);
+    expect(result).toBe('Lunch\n========');
+  });
+
+  it('handles section with undefined items', () => {
+    const menus = [{
+      title: 'Lunch',
+      sections: [{ title: 'Mains' }],
+    }] as MenuTab[];
+    const result = serializeMenu(menus);
+    expect(result).toContain('Mains');
+    expect(result).toContain('-------');
+  });
+
+  it('handles section with empty items array', () => {
+    const menus: MenuTab[] = [{
+      title: 'Lunch',
+      sections: [{ title: 'Mains', items: [] }],
+    }];
+    const result = serializeMenu(menus);
+    expect(result).toContain('Mains');
+    expect(result).toContain('-------');
+  });
+
+  it('handles item with undefined title', () => {
+    const menus = [{
+      title: 'Lunch',
+      sections: [{
+        title: null,
+        items: [{ description: 'A tasty dish', variants: [{ price: '10' }] }],
+      }],
+    }] as MenuTab[];
+    const result = serializeMenu(menus);
+    expect(result).toContain('$10');
+  });
+
+  it('handles item with undefined variants', () => {
+    const menus = [{
+      title: 'Lunch',
+      sections: [{
+        title: null,
+        items: [{ title: 'Burger', description: 'Beef patty' }],
+      }],
+    }] as MenuTab[];
+    const result = serializeMenu(menus);
+    expect(result).toContain('Burger');
+    expect(result).toContain('Beef patty');
+    expect(result).not.toContain('$');
+  });
+});

@@ -79,8 +79,26 @@ function makeSections(...blocks: GridContent[]): PageSection[] {
         gridContents: blocks,
         gridSettings: {
           breakpointSettings: {
-            desktop: { columns: 24 },
-            mobile: { columns: 8 },
+            desktop: { columns: 24, rows: 8 },
+            mobile: { columns: 8, rows: 6 },
+          },
+        },
+      },
+    },
+  ];
+}
+
+function makeSectionsWithRows(rows: { desktop: number; mobile: number }, ...blocks: GridContent[]): PageSection[] {
+  return [
+    {
+      id: 'section-1',
+      sectionName: 'FLUID_ENGINE',
+      fluidEngineContext: {
+        gridContents: blocks,
+        gridSettings: {
+          breakpointSettings: {
+            desktop: { columns: 24, rows: rows.desktop },
+            mobile: { columns: 8, rows: rows.mobile },
           },
         },
       },
@@ -1076,6 +1094,94 @@ describe('ContentSaveClient — fillLastTextBlockInSection', () => {
     expect(result.error).toContain('Network error');
 
     fetchSpy.mockRestore();
+  });
+
+  // ── Section rows update after addBlock ─────────────────────────────
+
+  describe('updateSectionRows — rows expanded after block insertion', () => {
+    it('addTextBlock expands section rows when block endY exceeds current rows', async () => {
+      // Section has rows=8 but existing blocks end at y=6, new block will end at y=11
+      const existingBlocks = [
+        makeBlockWithLayout('b1', '<p>First</p>', { x: 1, y: 0 }, { x: 25, y: 6 }),
+      ];
+      const sections = makeSectionsWithRows({ desktop: 8, mobile: 6 }, ...existingBlocks);
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      const result = await client.addTextBlock('psid-1', 'cid-1', 0, '<p>New block</p>');
+      expect(result.success).toBe(true);
+
+      // Verify PUT body has updated rows
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const bps = putBody.sections[0].fluidEngineContext.gridSettings.breakpointSettings;
+
+      // New block: startY=8 (6+2gap), endY=11 (8+3height) → rows must be >= 11
+      expect(bps.desktop.rows).toBeGreaterThanOrEqual(11);
+      // Mobile: maxMobileY=3 (from stub layout) + 2gap + 3height = 8 → rows must be >= 8
+      expect(bps.mobile.rows).toBeGreaterThanOrEqual(8);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('addTextBlock does not shrink rows when block endY is less than current rows', async () => {
+      // Section has rows=50, new block will end well below that
+      const sections = makeSectionsWithRows({ desktop: 50, mobile: 40 });
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock('psid-1', 'cid-1', 0, '<p>Small block</p>');
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const bps = putBody.sections[0].fluidEngineContext.gridSettings.breakpointSettings;
+
+      // Rows should stay at 50/40, not shrink to block's endY
+      expect(bps.desktop.rows).toBe(50);
+      expect(bps.mobile.rows).toBe(40);
+
+      fetchSpy.mockRestore();
+    });
+
+    it('addTextBlock sets rows when breakpointSettings has no rows field', async () => {
+      // Section with no rows field at all (makeSections without rows)
+      const sections: PageSection[] = [{
+        id: 'section-1',
+        sectionName: 'FLUID_ENGINE',
+        fluidEngineContext: {
+          gridContents: [],
+          gridSettings: {
+            breakpointSettings: {
+              desktop: { columns: 24 },
+              mobile: { columns: 8 },
+            },
+          },
+        },
+      }];
+      const data = makePageSectionsData(sections);
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.addTextBlock('psid-1', 'cid-1', 0, '<p>Hello</p>');
+
+      const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+      const putBody = JSON.parse(putOptions.body as string);
+      const bps = putBody.sections[0].fluidEngineContext.gridSettings.breakpointSettings;
+
+      // Block goes to y=0..3, so rows should be set to 3
+      expect(bps.desktop.rows).toBe(3);
+      expect(bps.mobile.rows).toBe(3);
+
+      fetchSpy.mockRestore();
+    });
   });
 
   it('addTextBlock 500 then fillLastTextBlockInSection succeeds (fallback scenario)', async () => {

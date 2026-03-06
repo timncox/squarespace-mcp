@@ -336,7 +336,7 @@ export function serializeMenu(menus: MenuTab[]): string {
       parts.push(tab.description);
     }
 
-    for (const section of tab.sections) {
+    for (const section of (tab.sections || [])) {
       // Section header (skip for null-title sections — their items just appear directly)
       if (section.title !== null) {
         parts.push('');
@@ -344,13 +344,16 @@ export function serializeMenu(menus: MenuTab[]): string {
         parts.push('-------');
       }
 
-      for (let itemIdx = 0; itemIdx < section.items.length; itemIdx++) {
-        const item = section.items[itemIdx];
+      const items = section.items || [];
+      for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
+        const item = items[itemIdx];
+        const title = item.title || '';
+        const variants = item.variants || [];
 
         // Blank line between items (and before the first item in a section)
         // But add-ons (+ prefix) are attached to the previous item — no blank line
-        const isAddOn = item.title.startsWith('+ ');
-        const isSupplemental = item.title.match(/^\+\$/);
+        const isAddOn = title.startsWith('+ ');
+        const isSupplemental = title.match(/^\+\$/);
 
         if (!isAddOn && !isSupplemental) {
           parts.push('');
@@ -358,15 +361,15 @@ export function serializeMenu(menus: MenuTab[]): string {
 
         // Supplemental fee: "+$5 Supplemental Fee" format — title is the full text
         if (isSupplemental) {
-          parts.push(item.title);
+          parts.push(title);
           continue;
         }
 
         // Add-on item: "+ Title $price" on a single line
         if (isAddOn) {
-          const titleWithoutPrefix = item.title.substring(2); // remove "+ "
-          if (item.variants.length > 0) {
-            const priceStr = '$' + item.variants.map(v => v.price).join('/');
+          const titleWithoutPrefix = title.substring(2); // remove "+ "
+          if (variants.length > 0) {
+            const priceStr = '$' + variants.map(v => v.price).join('/');
             parts.push(`+ ${titleWithoutPrefix} ${priceStr}`);
           } else {
             parts.push(`+ ${titleWithoutPrefix}`);
@@ -375,7 +378,7 @@ export function serializeMenu(menus: MenuTab[]): string {
         }
 
         // Regular item
-        parts.push(item.title);
+        parts.push(title);
 
         // Description
         if (item.description) {
@@ -383,8 +386,8 @@ export function serializeMenu(menus: MenuTab[]): string {
         }
 
         // Price line
-        if (item.variants.length > 0) {
-          const priceStr = '$' + item.variants.map(v => v.price).join('/');
+        if (variants.length > 0) {
+          const priceStr = '$' + variants.map(v => v.price).join('/');
           parts.push(priceStr);
         }
       }

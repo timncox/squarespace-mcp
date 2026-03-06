@@ -246,7 +246,20 @@ export function registerContentTools(server: McpServer) {
       siteId: z.string().describe('Site identifier'),
       pageSlug: z.string().describe('Page URL slug containing the menu'),
       searchText: z.string().describe('Text to find the menu block'),
-      menus: z.array(z.any()).describe('Full MenuTab[] structure to set'),
+      menus: z.array(z.object({
+        title: z.string(),
+        description: z.string().optional().nullable(),
+        sections: z.array(z.object({
+          title: z.string().nullable(),
+          items: z.array(z.object({
+            title: z.string(),
+            description: z.string().optional().nullable(),
+            variants: z.array(z.object({
+              price: z.string(),
+            })).optional().default([]),
+          })).optional().default([]),
+        })).optional().default([]),
+      })).describe('Full MenuTab[] structure to set'),
       preserveRaw: z.boolean().optional().default(false).describe('If true, keep existing raw text instead of regenerating'),
     },
   }, async ({ siteId, pageSlug, searchText, menus, preserveRaw }) => {

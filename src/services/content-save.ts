@@ -3529,8 +3529,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, position: { startX, startY, endX, endY } },
@@ -3699,8 +3700,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, label, url, position: { startX, startY, endX, endY } },
@@ -3953,8 +3955,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, assetUrl, position: { startX, startY, endX, endY } },
@@ -4118,6 +4121,9 @@ export class ContentSaveClient {
         maxMobileY = maxMobileY + effectiveGap + rowHeight;
       }
 
+      // Update section rows to accommodate all new blocks
+      this.updateSectionRows(section, maxY, maxMobileY);
+
       logger.info(
         { sectionIndex, sectionId: section.id, imageCount: images.length, blockIds: addedBlocks.map(b => b.blockId) },
         'Batch-adding image blocks via Content Save API',
@@ -4253,8 +4259,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, position: { startX, startY, endX, endY } },
@@ -4402,8 +4409,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, videoUrl, position: { startX, startY, endX, endY } },
@@ -4635,8 +4643,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, quoteText: quoteText.substring(0, 100), attribution, position: { startX, startY, endX, endY } },
@@ -4854,8 +4863,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, language: language ?? 'plain', codeLength: code.length, position: { startX, startY, endX, endY } },
@@ -5095,8 +5105,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, title: options?.title ?? 'Subscribe', position: { startX, startY, endX, endY } },
@@ -5355,8 +5366,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, itemCount: items.length, position: { startX, startY, endX, endY } },
@@ -5596,8 +5608,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, itemCount: items.length, animationDirection: options?.animationDirection ?? 'left', position: { startX, startY, endX, endY } },
@@ -5862,8 +5875,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, formId, position: { startX, startY, endX, endY } },
@@ -6260,8 +6274,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, position: { startX, startY, endX, endY } },
@@ -6488,8 +6503,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, hasHtml: !!html, position: { startX, startY, endX, endY } },
@@ -6637,8 +6653,9 @@ export class ContentSaveClient {
         },
       };
 
-      // Step 5: Push to gridContents
+      // Step 5: Push to gridContents and update section rows
       gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
 
       logger.info(
         { blockId, sectionIndex, sectionId: section.id, hasMenuText: !!menuText, position: { startX, startY, endX, endY } },
@@ -8197,6 +8214,17 @@ export class ContentSaveClient {
     if (!this.siteCookieHeader) {
       throw new Error('Session cookies not loaded. Call loadSessionCookies() first.');
     }
+  }
+
+  /**
+   * Update the section's breakpointSettings rows to accommodate a new block.
+   * Without this, Squarespace rejects the PUT with 500 when a block's endY
+   * exceeds the section's declared row count.
+   */
+  private updateSectionRows(section: PageSection, desktopEndY: number, mobileEndY: number): void {
+    const gs = section.fluidEngineContext?.gridSettings?.breakpointSettings;
+    if (gs?.desktop) gs.desktop.rows = Math.max(gs.desktop.rows ?? 0, desktopEndY);
+    if (gs?.mobile) gs.mobile.rows = Math.max(gs.mobile.rows ?? 0, mobileEndY);
   }
 
   /**
