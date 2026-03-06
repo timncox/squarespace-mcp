@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "squarespace": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "/ABSOLUTE/PATH/TO/squarespace-mcp/dist/src/mcp-server/index.js"
+      ],
+      "env": {
+        "SESSION_DIR": "/ABSOLUTE/PATH/TO/squarespace-mcp/storage/auth",
+        "DB_PATH": "/ABSOLUTE/PATH/TO/squarespace-mcp/data/sqhelper.db"
+      }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # Squarespace MCP
 
-MCP server that edits Squarespace websites via the Content Save API. Exposes ~110 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop or Claude Code.
+MCP server that edits Squarespace websites via the Content Save API. Exposes ~112 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop or Claude Code.
 
 ## Setup
 
@@ -13,14 +13,20 @@ MCP server that edits Squarespace websites via the Content Save API. Exposes ~11
 
 ```bash
 npm install
+npm run build
 ```
+
+Configure `.mcp.json` (or `claude_desktop_config.json`) with the correct paths for your system — see the Claude Desktop / Claude Code sections below.
 
 ### Environment
 
 Create a `.env` file:
 
 ```env
-# No API keys required — uses Squarespace session cookies only
+# Gmail OAuth2 (optional — only needed for attachment downloads)
+GMAIL_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GMAIL_CLIENT_SECRET=your-client-secret
+# GMAIL_REFRESH_TOKEN=1//your-refresh-token  # optional bootstrap
 ```
 
 Sites are auto-discovered after `sq_login_browser` or `sq_save_session` — no manual config needed. Discovered sites are stored in SQLite and persist across sessions.
@@ -92,16 +98,33 @@ Session cookies stored in `storage/auth/sqsp-session.json` (Playwright storageSt
 
 **`sq_login`** — Checks session health (file age + active API probe). Returns status and login instructions if the session is missing or stale.
 
-**`sq_save_session`** — Accepts raw cookie JSON from manual browser export. Validates, backs up existing session, saves, and reloads clients.
+**`sq_save_session`** — Accepts raw cookie JSON from manual browser export. Validates, backs up existing session, saves, and reloads clients. Detects missing site-specific cookies and returns `missingSites` with admin URLs so you know which sites to visit before re-capturing.
 
 **`sq_restore_session`** — Recovers previous session from `.bak` backup after a bad cookie save.
+
+### Gmail (Attachment Downloads)
+
+Uses Google OAuth2 + Gmail API for downloading email attachments. Email search/read is handled by the Claude.ai Gmail MCP — this server only fills the attachment download gap.
+
+**Setup:**
+1. Create a Google Cloud project with the Gmail API enabled
+2. Create an OAuth2 client (application type: **Desktop app**)
+3. Set `GMAIL_CLIENT_ID` and `GMAIL_CLIENT_SECRET` in `.env`
+4. Run `sq_login_gmail` to authorize — opens your default browser for Google consent
+5. Tokens auto-refresh and are stored in `storage/auth/gmail-oauth.json`
+
+Optionally, set `GMAIL_REFRESH_TOKEN` in `.env` to bootstrap without running the login tool (useful for headless/CI environments).
+
+**`sq_login_gmail`** — Starts a local HTTP server, opens your default browser to Google's OAuth consent page, receives the auth code callback, and exchanges it for access + refresh tokens.
+
+**`sq_download_attachment`** — Downloads an email attachment via the Gmail API and saves it to `storage/uploads/`.
 
 ## Usage
 
 ```bash
 npm run mcp     # Start MCP server (tsx src/mcp-server/index.ts)
 npm run build   # TypeScript compile
-npm test        # Run test suite (~1367 tests, 57 files)
+npm test        # Run test suite (~1368 tests, 58 files)
 ```
 
 ## MCP Tool Categories
@@ -122,12 +145,12 @@ npm test        # Run test suite (~1367 tests, 57 files)
 | Screenshot | 1 | take page screenshot |
 | PDF Menu | 1 | parse PDF file into structured menu JSON |
 | Images | 2 | upload single (path, URL, or base64), upload batch |
-| Commerce | 8 | products CRUD, variants, images, store pages |
-| Auth | 4 | login check, discover sites, save session, restore session |
+| Commerce | 9 | products CRUD, variants, images (attach/remove/replace), store pages |
+| Auth | 5 | login browser, login check, discover sites, save session, restore session |
 | Links | 1 | validate links on a page |
 | Snapshots | 4 | save/list/restore/delete section snapshots |
 | Wayback | 2 | list Wayback Machine snapshots, fetch archived content |
-| Gmail | 2 | setup Gmail, download attachments |
+| Gmail | 2 | browser login, download attachments |
 
 ## Architecture
 
@@ -165,7 +188,7 @@ src/
     snapshot.ts         # Section snapshot CRUD (save/list/get/delete/dedup/cleanup)
     wayback.ts          # Wayback Machine CDX API + archived HTML extraction
     design-property-extractor.ts # CSS/design value parsing + shared types
-    gmail.ts            # Gmail attachment download
+    gmail.ts            # Gmail OAuth2 attachment download
   config/               # Model IDs, section template catalog
   db/database.ts        # SQLite (page ID cache, template cache, snapshots)
   utils/                # Logger (pino), errors
@@ -188,7 +211,7 @@ The API client (`ContentSaveClient`) uses a read-modify-write pattern: GET page 
 ## Testing
 
 ```bash
-npm test    # ~1367 tests across 57 files
+npm test    # ~1368 tests across 58 files
 ```
 
 Tests use vitest with mocked API responses. No live Squarespace session required.

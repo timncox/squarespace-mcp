@@ -2,14 +2,14 @@
 
 ## What This Project Is
 
-MCP server that edits Squarespace websites via the Content Save API. Exposes ~84 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, and more. Used from Claude Desktop.
+MCP server that edits Squarespace websites via the Content Save API. Exposes ~112 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop.
 
 ## Commands
 
 ```bash
 npm run mcp     # Start MCP server (tsx src/mcp-server/index.ts)
 npm run build   # TypeScript compile
-npm test        # vitest run (~1343 tests, 55 files)
+npm test        # vitest run (~1368 tests, 58 files)
 ```
 
 ## Architecture
@@ -22,7 +22,7 @@ Entry point: `src/mcp-server/index.ts` — registers all tools, starts stdio tra
 
 ```
 src/
-  mcp-server/       # MCP server — ~84 tools across 15 modules
+  mcp-server/       # MCP server — ~90 tools across 17 modules
     tools/          # Tool modules (registerXxxTools pattern)
     session.ts      # Client cache + resolvePageIds + dynamic site discovery
     index.ts        # Tool registration entry point
@@ -49,6 +49,8 @@ src/
     geocoding.ts    # Address → lat/long (Nominatim)
     section-catalog.ts # Template section lookup + cache
     pdf-extractor.ts # PDF text extraction
+    snapshot.ts     # Section snapshot CRUD (save/list/get/delete/dedup/cleanup)
+    wayback.ts      # Wayback Machine CDX API + archived HTML extraction
     design-property-extractor.ts # CSS/design value parsing + shared types
   config/           # Model IDs, section template catalog (sites.json optional)
   db/database.ts    # SQLite (page ID cache, template cache)
@@ -61,7 +63,7 @@ storage/            # Session cookies, uploads, screenshots
 
 | File | Purpose |
 |------|---------|
-| `src/mcp-server/index.ts` | MCP server entry — ~84 tools across 15 modules |
+| `src/mcp-server/index.ts` | MCP server entry — ~90 tools across 17 modules |
 | `src/mcp-server/session.ts` | Client cache + `resolvePageIds` + dynamic site discovery |
 | `src/services/content-save/` | Content Save API client (86+ methods across 14 modules) |
 | `src/services/content-save/client.ts` | Base class, infrastructure, static helpers |
@@ -70,13 +72,17 @@ storage/            # Session cookies, uploads, screenshots
 | `src/services/page-id-resolver.ts` | Resolve page slugs to API IDs (HTML parse + DB cache) |
 | `src/services/menu-parser.ts` | Menu text ↔ structured JSON |
 | `src/config/section-templates.json` | Template catalog (27 templates, 8 categories) |
-| `src/db/database.ts` | SQLite schema + migrations |
+| `src/services/snapshot.ts` | Section snapshot service (SQLite CRUD + dedup + cleanup) |
+| `src/services/wayback.ts` | Wayback Machine CDX API + HTML content extraction |
+| `src/db/database.ts` | SQLite schema + migrations (21 phases) |
 
 ### Content Save API
 
 Primary execution mechanism. Uses `PUT /api/page-sections/{pageId}/collection/{collectionId}` with read-modify-write pattern.
 
 **Grid system**: Desktop = 24 columns (X: 1–24), `start` inclusive / `end` exclusive. Mobile auto-reflows.
+
+**Auto-snapshots**: Every `savePageSections()` call auto-snapshots the pre-edit state (cached from `getPageSections()` via `structuredClone`). 5-minute dedup window. 7-day retention for auto-snapshots; manual snapshots kept forever. Snapshot failures never block saves.
 
 ### Auth
 
@@ -109,7 +115,7 @@ The `content-save/` directory uses **TypeScript prototype augmentation** to spli
 ## Testing
 
 - `npm test` runs vitest with dist excluded
-- 55 test files, 1343 tests
+- 57 test files, ~1367 tests
 - Service tests in `src/services/__tests__/`
 - MCP tool tests in `src/mcp-server/__tests__/`
 
