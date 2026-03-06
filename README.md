@@ -8,7 +8,6 @@ MCP server that edits Squarespace websites via the Content Save API. Exposes ~84
 
 - Node.js 18+
 - Squarespace session cookies (captured via `sq_login_browser` or browser export)
-- Optional: Brave Search API key, Anthropic API key
 
 ### Install
 
@@ -21,8 +20,7 @@ npm install
 Create a `.env` file:
 
 ```env
-BRAVE_API_KEY=...          # Optional: for sq_web_search
-ANTHROPIC_API_KEY=sk-ant-... # Optional: for menu merge LLM
+# No API keys required — uses Squarespace session cookies only
 ```
 
 Site configuration via `config/sites.json` — maps site IDs/aliases to Squarespace subdomains:
@@ -99,7 +97,6 @@ npm test        # Run test suite (1343 tests, 55 files)
 | Announcement Bar | 2 | get/update announcement bar |
 | Map | 2 | add/update map blocks (auto-geocodes addresses) |
 | Screenshot | 1 | take page screenshot |
-| Web Search | 2 | search (Brave API), fetch URL |
 | PDF Menu | 1 | parse PDF file into structured menu JSON |
 | Images | 2 | upload single (path or URL), upload batch |
 | Commerce | 8 | products CRUD, variants, images, store pages |
@@ -122,8 +119,6 @@ src/
     media-upload.ts     # Image upload client
     page-id-resolver.ts # Page slug → API IDs
     menu-parser.ts      # Menu text ↔ structured JSON
-    menu-merger.ts      # Menu merge (LLM + deterministic)
-    brave-search.ts     # Web search via Brave API
     link-validator.ts   # HTTP link validation
     geocoding.ts        # Address → lat/long (Nominatim)
     section-catalog.ts  # Template section lookup + cache
@@ -131,7 +126,7 @@ src/
     design-property-extractor.ts # CSS/design value parsing + shared types
   config/               # Model IDs, section template catalog
   db/database.ts        # SQLite (page ID cache, template cache)
-  utils/                # Logger (pino), errors, anthropic-client
+  utils/                # Logger (pino), errors
 data/                   # Runtime SQLite database
 storage/                # Session cookies, uploads, screenshots
 ```

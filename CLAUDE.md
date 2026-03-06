@@ -31,8 +31,6 @@ src/
     media-upload.ts # Image upload client
     page-id-resolver.ts # Page slug → API IDs
     menu-parser.ts  # Menu text ↔ structured JSON
-    menu-merger.ts  # Menu merge (LLM + deterministic)
-    brave-search.ts # Web search via Brave API
     link-validator.ts # HTTP link validation
     geocoding.ts    # Address → lat/long (Nominatim)
     section-catalog.ts # Template section lookup + cache
@@ -40,7 +38,7 @@ src/
     design-property-extractor.ts # CSS/design value parsing + shared types
   config/           # Model IDs, section template catalog
   db/database.ts    # SQLite (page ID cache, template cache)
-  utils/            # Logger (pino), errors, anthropic-client
+  utils/            # Logger (pino), errors
 data/               # Runtime SQLite database
 storage/            # Session cookies, uploads, screenshots
 ```
@@ -55,7 +53,6 @@ storage/            # Session cookies, uploads, screenshots
 | `src/services/media-upload.ts` | Image upload to Squarespace asset service |
 | `src/services/page-id-resolver.ts` | Resolve page slugs to API IDs (HTML parse + DB cache) |
 | `src/services/menu-parser.ts` | Menu text ↔ structured JSON |
-| `src/services/menu-merger.ts` | Menu merge (LLM + deterministic) |
 | `src/config/section-templates.json` | Template catalog (27 templates, 8 categories) |
 | `src/db/database.ts` | SQLite schema + migrations |
 
