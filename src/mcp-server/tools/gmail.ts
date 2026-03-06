@@ -1,107 +1,144 @@
 /**
- * MCP Tools — Gmail browser login + attachment download
+ * MCP Tools — Gmail OAuth2 login + attachment download
  *
- * sq_login_gmail: Launch Playwright browser for Gmail login, capture cookies
- * sq_download_attachment: Download email attachment using saved cookies
+ * sq_login_gmail: OAuth2 flow — opens user's real browser, local callback server
+ * sq_download_attachment: Download email attachment via Gmail API
  *
  * Search/read handled by Claude.ai Gmail MCP — we only fill the attachment gap.
  */
 
-import { existsSync, mkdirSync, writeFileSync, copyFileSync } from 'fs';
+import { mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
+import http from 'http';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
-const SESSION_DIR = join(PROJECT_ROOT, 'storage', 'auth');
-const SESSION_PATH = join(SESSION_DIR, 'gmail-session.json');
+const AUTH_DIR = join(PROJECT_ROOT, 'storage', 'auth');
 
-const DEFAULT_TIMEOUT_MS = 120_000;
-const POLL_INTERVAL_MS = 2_000;
+const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
+const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 
 export function registerGmailTools(server: McpServer) {
   // ── sq_login_gmail ─────────────────────────────────────────────────────────
   server.registerTool('sq_login_gmail', {
     description:
-      'Launch a browser window for Gmail login. The user logs in manually, ' +
-      'and the tool automatically captures session cookies (including HTTP-only) ' +
-      'once authentication is detected. No Google Cloud project or OAuth setup needed.',
+      'Authorize Gmail access via Google OAuth2. Opens your default browser for Google login. ' +
+      'Requires storage/auth/gmail-credentials.json with client_id and client_secret ' +
+      'from a Google Cloud project with the Gmail API enabled (Desktop app type).',
     inputSchema: {
       timeoutMs: z.number().optional().describe(
-        `Max milliseconds to wait for login (default ${DEFAULT_TIMEOUT_MS})`,
+        'Max milliseconds to wait for authorization (default 120000)',
       ),
     },
   }, async ({ timeoutMs }) => {
-    const timeout = timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    let browser: any = null;
+    const timeout = timeoutMs ?? 120_000;
+    let httpServer: http.Server | null = null;
 
     try {
-      const { chromium } = await import('playwright');
-      browser = await chromium.launch({ headless: false });
-      const context = await browser.newContext();
-      const page = await context.newPage();
+      const { loadCredentials, saveTokens } = await import('../../services/gmail.js');
+      const creds = loadCredentials();
 
-      await page.goto('https://mail.google.com', { waitUntil: 'domcontentloaded' });
+      // Start local HTTP server on random port
+      const { port, code } = await new Promise<{ port: number; code: string }>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          if (httpServer) httpServer.close();
+          reject(new Error('timeout'));
+        }, timeout);
 
-      // Poll for GMAIL_AT cookie — indicates successful Gmail login
-      const cookies = await new Promise<any[]>((resolve, reject) => {
-        const deadline = Date.now() + timeout;
+        httpServer = http.createServer((req, res) => {
+          const url = new URL(req.url!, `http://localhost`);
+          const authCode = url.searchParams.get('code');
+          const error = url.searchParams.get('error');
 
-        const poll = async () => {
-          try {
-            const allCookies = await context.cookies();
-            const hasGmailAt = allCookies.some(
-              (c: { name: string }) => c.name === 'GMAIL_AT',
-            );
-
-            if (hasGmailAt) {
-              resolve(allCookies);
-              return;
-            }
-
-            if (Date.now() >= deadline) {
-              reject(new Error('timeout'));
-              return;
-            }
-
-            setTimeout(poll, POLL_INTERVAL_MS);
-          } catch (err) {
-            reject(err);
+          if (error) {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end('<h1>Authorization denied</h1><p>You can close this tab.</p>');
+            clearTimeout(timeoutId);
+            httpServer!.close();
+            reject(new Error(`OAuth denied: ${error}`));
+            return;
           }
-        };
 
-        poll();
+          if (authCode) {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end('<h1>Gmail authorized!</h1><p>You can close this tab and return to Claude.</p>');
+            clearTimeout(timeoutId);
+            httpServer!.close();
+            resolve({ port: (httpServer!.address() as any).port, code: authCode });
+            return;
+          }
+
+          res.writeHead(404);
+          res.end();
+        });
+
+        httpServer.listen(0, '127.0.0.1', () => {
+          const addr = httpServer!.address() as { port: number };
+          const redirectUri = `http://127.0.0.1:${addr.port}`;
+
+          const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+          authUrl.searchParams.set('client_id', creds.client_id);
+          authUrl.searchParams.set('redirect_uri', redirectUri);
+          authUrl.searchParams.set('response_type', 'code');
+          authUrl.searchParams.set('scope', SCOPES);
+          authUrl.searchParams.set('access_type', 'offline');
+          authUrl.searchParams.set('prompt', 'consent');
+
+          // Open user's real browser (not Playwright)
+          try {
+            execSync(`open "${authUrl.toString()}"`);
+          } catch {
+            reject(new Error(`Could not open browser. Visit this URL manually:\n${authUrl.toString()}`));
+          }
+        });
       });
 
-      // Save session
-      mkdirSync(SESSION_DIR, { recursive: true });
+      // Exchange auth code for tokens
+      const redirectUri = `http://127.0.0.1:${port}`;
+      const tokenResponse = await fetch(TOKEN_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          code,
+          client_id: creds.client_id,
+          client_secret: creds.client_secret,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
+        }),
+      });
 
-      if (existsSync(SESSION_PATH)) {
-        copyFileSync(SESSION_PATH, SESSION_PATH + '.bak');
+      if (!tokenResponse.ok) {
+        const body = await tokenResponse.text();
+        throw new Error(`Token exchange failed (${tokenResponse.status}): ${body}`);
       }
 
-      const storageState = { cookies, origins: [] };
-      writeFileSync(SESSION_PATH, JSON.stringify(storageState, null, 2), 'utf-8');
+      const tokenData = await tokenResponse.json() as {
+        access_token: string;
+        refresh_token: string;
+        expires_in: number;
+      };
 
-      await browser.close();
-      browser = null;
-
-      const hasGmailAt = cookies.some((c: { name: string }) => c.name === 'GMAIL_AT');
+      mkdirSync(AUTH_DIR, { recursive: true });
+      saveTokens({
+        access_token: tokenData.access_token,
+        refresh_token: tokenData.refresh_token,
+        expiry: Date.now() + tokenData.expires_in * 1000,
+      });
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({
-          status: 'saved',
-          cookieCount: cookies.length,
-          hasGmailAt,
-          sessionPath: SESSION_PATH,
-          message: `Gmail session saved with ${cookies.length} cookies. Attachment downloads are now ready.`,
+          status: 'authorized',
+          hasRefreshToken: !!tokenData.refresh_token,
+          message: 'Gmail OAuth2 authorized. Attachment downloads are now ready. Token will auto-refresh.',
         }, null, 2) }],
       };
     } catch (err) {
-      if (browser) {
-        try { await browser.close(); } catch { /* best effort */ }
+      if (httpServer) {
+        try { httpServer.close(); } catch { /* best effort */ }
       }
 
       const msg = err instanceof Error ? err.message : String(err);
@@ -110,7 +147,7 @@ export function registerGmailTools(server: McpServer) {
         return {
           content: [{ type: 'text' as const, text: JSON.stringify({
             status: 'timeout',
-            message: `Login timed out after ${timeout}ms. Please try again and complete the Gmail login within the time limit.`,
+            message: `Authorization timed out after ${timeout}ms. Please try again.`,
           }, null, 2) }],
           isError: true,
         };
@@ -126,8 +163,8 @@ export function registerGmailTools(server: McpServer) {
   // ── sq_download_attachment ─────────────────────────────────────────────────
   server.registerTool('sq_download_attachment', {
     description:
-      'Download an email attachment to disk using saved Gmail session cookies. ' +
-      'Returns the local file path. Requires sq_login_gmail to have been run first.',
+      'Download an email attachment via Gmail API. Returns the local file path. ' +
+      'Requires sq_login_gmail to have been run first for OAuth2 authorization.',
     inputSchema: {
       messageId: z.string().describe('Gmail message ID (from Claude.ai Gmail MCP)'),
       filename: z.string().describe('Filename of the attachment to download'),
