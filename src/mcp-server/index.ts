@@ -33,6 +33,7 @@ import { registerLinkTools } from './tools/links.js';
 import { registerGmailTools } from './tools/gmail.js';
 import { registerAuthTools } from './tools/auth.js';
 import { registerCommerceTools } from './tools/commerce.js';
+import { registerAnnouncementBarTools } from './tools/announcement-bar.js';
 
 // ── Server instructions — sent to Claude Desktop during MCP handshake ───────
 const INSTRUCTIONS = `
@@ -106,6 +107,15 @@ When the user asks you to create a new page (contact, about, services, etc.):
 5. Use sq_update_text, sq_update_image to customize content after creation.
 6. Screenshot to verify.
 
+## Announcement Bar
+- sq_get_announcement_bar — read current announcement bar state (enabled, text, URL)
+- sq_update_announcement_bar — toggle visibility, change text, set click-through URL (all params optional, only provided fields change)
+Note: Announcement bars are a paid feature (Business/Commerce plans).
+
+## Map Blocks
+- sq_add_map — add a map block by street address (auto-geocodes via OpenStreetMap). Supports zoom, style, labels, terrain options.
+- sq_update_map — update an existing map block (new address, zoom, style, labels, terrain). Re-geocodes if address changes.
+
 ## Commerce (Products, Store Pages, Images)
 Commerce tools use session cookies (same auth as all other tools — no separate API key needed).
 
@@ -161,6 +171,7 @@ registerLinkTools(server);
 registerGmailTools(server);
 registerAuthTools(server);
 registerCommerceTools(server);
+registerAnnouncementBarTools(server);
 
 // ── MCP Prompts — on-demand guidance Claude Desktop can invoke ───────────────
 server.registerPrompt('squarespace-guide', {
@@ -247,6 +258,14 @@ server.registerPrompt('squarespace-guide', {
 - sq_remove_block — remove a block
 - sq_duplicate_block — duplicate a block
 - sq_duplicate_section — duplicate a section
+
+### Announcement Bar
+- sq_get_announcement_bar — read announcement bar state
+- sq_update_announcement_bar — toggle, change text, set URL
+
+### Map Blocks
+- sq_add_map — add map block by street address (auto-geocodes)
+- sq_update_map — update map block (address, zoom, style, labels, terrain)
 
 ### Commerce (Products, Store Pages, Images)
 Uses session cookies (same auth as all other tools — no separate API key needed).

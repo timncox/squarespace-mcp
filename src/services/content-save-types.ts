@@ -1188,6 +1188,24 @@ export interface TemplateTweakSettingsUpdateResult {
   error?: string;
 }
 
+// ── Map Block ────────────────────────────────────────────────────────────────
+
+/** Result of adding a map block */
+export interface MapBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of updating a map block */
+export interface MapBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  error?: string;
+}
+
 // ── Social Accounts ──────────────────────────────────────────────────────────
 
 /** A non-OAuth social link account */

@@ -104,6 +104,8 @@ export type {
   SiteIdentityResult,
   SocialLinksBlockAddResult,
   SocialLinksBlockUpdateResult,
+  MapBlockAddResult,
+  MapBlockUpdateResult,
   EmbedBlockAddResult,
   EmbedBlockUpdateResult,
   MenuBlockAddResult,
@@ -220,6 +222,8 @@ import type {
   SiteIdentityData,
   SiteIdentityUpdateOptions,
   SiteIdentityResult,
+  MapBlockAddResult,
+  MapBlockUpdateResult,
   MobileVisibilityResult,
   MobileLayoutSetResult,
   MobileMoveResult,
@@ -10490,6 +10494,269 @@ export class ContentSaveClient {
       }
       const data = (await response.json()) as { products: InternalProduct[] };
       return { success: true, data };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  // ── Map Block Methods ───────────────────────────────────────────────────────
+
+  /**
+   * Build map block content for use in addMapBlock or addSectionWithBlocks.
+   * Map blocks are type 1337, discriminated from image/code blocks by location.mapLat presence.
+   */
+  static buildMapBlockContent(
+    blockId: string,
+    lat: number,
+    lng: number,
+    options?: {
+      zoom?: number;
+      vSize?: number;
+      style?: number;
+      labels?: boolean;
+      terrain?: boolean;
+      controls?: boolean;
+    },
+  ): GridContent['content'] {
+    return {
+      value: {
+        id: blockId,
+        type: 1337,
+        value: {
+          location: {
+            mapLat: lat,
+            mapLng: lng,
+            mapZoom: options?.zoom ?? 14,
+          },
+          vSize: options?.vSize ?? 12,
+          style: options?.style ?? 2,
+          labels: options?.labels ?? true,
+          terrain: options?.terrain ?? false,
+          controls: options?.controls ?? false,
+        },
+      },
+    };
+  }
+
+  /**
+   * Add a map block to a section.
+   * Default size: 24 columns × 12 rows.
+   */
+  async addMapBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionIndex: number,
+    lat: number,
+    lng: number,
+    options?: {
+      zoom?: number;
+      style?: number;
+      labels?: boolean;
+      terrain?: boolean;
+      controls?: boolean;
+      layout?: {
+        columns?: number;
+        rowHeight?: number;
+        gapRows?: number;
+        startX?: number;
+        endX?: number;
+        startY?: number;
+        endY?: number;
+      };
+    },
+  ): Promise<MapBlockAddResult> {
+    try {
+      const data = await this.getPageSections(pageSectionsId);
+      const sections = data.sections;
+
+      if (sectionIndex < 0 || sectionIndex >= sections.length) {
+        return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+      }
+
+      const section = sections[sectionIndex];
+      if (!section.fluidEngineContext) {
+        return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+      }
+
+      const gridContents = section.fluidEngineContext.gridContents;
+      const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+      // Backfill verticalAlignment and zIndex on existing blocks
+      for (let i = 0; i < gridContents.length; i++) {
+        const gc = gridContents[i];
+        if (gc.layout?.desktop) {
+          if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+          if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+        }
+        if (gc.layout?.mobile) {
+          if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+          if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+        }
+      }
+
+      // Calculate position
+      let maxY = 0;
+      let maxMobileY = 0;
+      for (const gc of gridContents) {
+        const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+        const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+        if (endYVal > maxY) maxY = endYVal;
+        if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+      }
+
+      const layout = options?.layout;
+      const rowHeight = layout?.rowHeight ?? 12;
+      const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+      let startX: number;
+      let endX: number;
+      let startY: number;
+      let endY: number;
+
+      if (layout?.startX != null && layout?.endX != null) {
+        startX = Math.max(1, layout.startX);
+        endX = Math.min(maxColumns + 1, layout.endX);
+      } else {
+        const cols = layout?.columns ?? maxColumns;
+        startX = 1;
+        endX = Math.min(startX + cols, maxColumns + 1);
+      }
+
+      if (layout?.startY != null && layout?.endY != null) {
+        startY = Math.max(0, layout.startY);
+        endY = layout.endY;
+      } else {
+        startY = maxY + gapRows;
+        endY = startY + rowHeight;
+      }
+
+      const blockId = ContentSaveClient.generateBlockId();
+
+      const maxZ = gridContents.reduce((max, gc) => {
+        const dz = gc.layout?.desktop?.zIndex ?? 0;
+        const mz = gc.layout?.mobile?.zIndex ?? 0;
+        return Math.max(max, dz, mz);
+      }, 0);
+      const zIndex = maxZ + 1;
+
+      const newBlock: GridContent = {
+        layout: {
+          mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+          desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+        },
+        content: ContentSaveClient.buildMapBlockContent(blockId, lat, lng, {
+          zoom: options?.zoom,
+          style: options?.style,
+          labels: options?.labels,
+          terrain: options?.terrain,
+          controls: options?.controls,
+        }),
+      };
+
+      gridContents.push(newBlock);
+      this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
+
+      logger.info(
+        { blockId, sectionIndex, sectionId: section.id, lat, lng, position: { startX, startY, endX, endY } },
+        'Adding map block via Content Save API',
+      );
+
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId, sectionId: section.id, sectionIndex };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Update a map block's location, zoom, style, labels, or terrain.
+   * Finds map blocks by searching for type 1337 blocks with location.mapLat.
+   */
+  async updateMapBlock(
+    pageSectionsId: string,
+    collectionId: string,
+    searchText: string,
+    updates: {
+      lat?: number;
+      lng?: number;
+      zoom?: number;
+      style?: number;
+      labels?: boolean;
+      terrain?: boolean;
+    },
+  ): Promise<MapBlockUpdateResult> {
+    try {
+      const data = await this.getPageSections(pageSectionsId);
+
+      // Find map block — search through all sections for type 1337 with location.mapLat
+      let foundBlock: GridContent | null = null;
+      for (const section of data.sections) {
+        if (!section.fluidEngineContext) continue;
+        for (const gc of section.fluidEngineContext.gridContents) {
+          const bv = gc.content?.value;
+          if (bv?.type === 1337 && bv?.value?.location?.mapLat != null) {
+            // If searchText provided, try to match on block ID prefix
+            if (searchText) {
+              if (bv.id?.startsWith(searchText)) {
+                foundBlock = gc;
+                break;
+              }
+            } else {
+              foundBlock = gc;
+              break;
+            }
+          }
+        }
+        if (foundBlock) break;
+      }
+
+      // If no match by ID prefix, fall back to first map block
+      if (!foundBlock && searchText) {
+        for (const section of data.sections) {
+          if (!section.fluidEngineContext) continue;
+          for (const gc of section.fluidEngineContext.gridContents) {
+            const bv = gc.content?.value;
+            if (bv?.type === 1337 && bv?.value?.location?.mapLat != null) {
+              foundBlock = gc;
+              break;
+            }
+          }
+          if (foundBlock) break;
+        }
+      }
+
+      if (!foundBlock) {
+        return { success: false, error: `No map block found${searchText ? ` matching "${searchText}"` : ''}` };
+      }
+
+      const blockValue = foundBlock.content.value;
+      const blockId = blockValue.id;
+
+      // Update location
+      if (updates.lat !== undefined) blockValue.value.location.mapLat = updates.lat;
+      if (updates.lng !== undefined) blockValue.value.location.mapLng = updates.lng;
+      if (updates.zoom !== undefined) blockValue.value.location.mapZoom = updates.zoom;
+
+      // Update display options
+      if (updates.style !== undefined) blockValue.value.style = updates.style;
+      if (updates.labels !== undefined) blockValue.value.labels = updates.labels;
+      if (updates.terrain !== undefined) blockValue.value.terrain = updates.terrain;
+
+      logger.info(
+        { blockId, searchText, updates },
+        'Updating map block via Content Save API',
+      );
+
+      const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+      if (!saveResult.success) {
+        return { success: false, error: saveResult.error };
+      }
+
+      return { success: true, blockId };
     } catch (err) {
       return { success: false, error: errMsg(err) };
     }

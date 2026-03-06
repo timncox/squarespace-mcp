@@ -34,6 +34,7 @@ import path from 'node:path';
 import { writeFile, unlink } from 'node:fs/promises';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getClient, getMediaClient, resolvePageIds } from '../session.js';
+import { geocodeAddress } from '../../services/geocoding.js';
 
 export function registerBlockTools(server: McpServer) {
   // ── sq_add_button ───────────────────────────────────────────────────────────
@@ -1228,6 +1229,111 @@ export function registerBlockTools(server: McpServer) {
       const result = await client.updateSocialLinksBlock(ids.pageSectionsId, ids.collectionId, searchText, {
         iconAlignment, iconSize, iconStyle, iconColor,
       });
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_add_map ──────────────────────────────────────────────────────────────
+  server.registerTool('sq_add_map', {
+    description:
+      'Add a map block to a section. Geocodes the address to lat/lng coordinates automatically. ' +
+      'Shows an interactive Google Map embed on the page.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      sectionIndex: z.number().describe('0-based section index to add the map block to'),
+      address: z.string().describe('Street address to geocode and display (e.g. "80 Spring St, New York, NY 10012")'),
+      zoom: z.number().min(1).max(20).optional().describe('Map zoom level 1-20 (default: 14)'),
+      style: z.number().optional().describe('Map style (default: 2)'),
+      labels: z.boolean().optional().describe('Show map labels (default: true)'),
+      terrain: z.boolean().optional().describe('Show terrain view (default: false)'),
+      layout: z.object({
+        columns: z.number().optional().describe('Grid columns to span (default: 24 = full width)'),
+        offsetColumns: z.number().optional().describe('Push block right by N columns'),
+        rowHeight: z.number().optional().describe('Rows tall (default: 12)'),
+        startX: z.number().optional().describe('Absolute grid start X (overrides columns/offset)'),
+        endX: z.number().optional().describe('Absolute grid end X'),
+        startY: z.number().optional().describe('Absolute grid start Y'),
+        endY: z.number().optional().describe('Absolute grid end Y'),
+      }).optional().describe('Optional grid layout settings'),
+    },
+  }, async ({ siteId, pageSlug, sectionIndex, address, zoom, style, labels, terrain, layout }) => {
+    try {
+      // Geocode the address
+      const coords = await geocodeAddress(address);
+
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+
+      const resolvedLayout = layout ? { ...layout } : undefined;
+      if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
+        resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
+        resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 24);
+      }
+      if (resolvedLayout) delete resolvedLayout.offsetColumns;
+
+      const result = await client.addMapBlock(
+        ids.pageSectionsId, ids.collectionId, sectionIndex, coords.lat, coords.lng,
+        { zoom, style, labels, terrain, layout: resolvedLayout },
+      );
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ...result, geocoded: { address, lat: coords.lat, lng: coords.lng } }, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_update_map ───────────────────────────────────────────────────────────
+  server.registerTool('sq_update_map', {
+    description:
+      'Update an existing map block. Change the address (re-geocodes), zoom level, style, labels, or terrain. ' +
+      'Finds the map block on the page (type 1337 with location data).',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      searchText: z.string().optional().default('').describe('Block ID prefix to find a specific map block (empty = first map block on page)'),
+      address: z.string().optional().describe('New address to geocode'),
+      zoom: z.number().min(1).max(20).optional().describe('New zoom level 1-20'),
+      style: z.number().optional().describe('New map style'),
+      labels: z.boolean().optional().describe('Show/hide map labels'),
+      terrain: z.boolean().optional().describe('Show/hide terrain view'),
+    },
+  }, async ({ siteId, pageSlug, searchText, address, zoom, style, labels, terrain }) => {
+    try {
+      const updates: Record<string, any> = {};
+
+      if (address) {
+        const coords = await geocodeAddress(address);
+        updates.lat = coords.lat;
+        updates.lng = coords.lng;
+      }
+      if (zoom !== undefined) updates.zoom = zoom;
+      if (style !== undefined) updates.style = style;
+      if (labels !== undefined) updates.labels = labels;
+      if (terrain !== undefined) updates.terrain = terrain;
+
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+      const result = await client.updateMapBlock(ids.pageSectionsId, ids.collectionId, searchText ?? '', updates);
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
