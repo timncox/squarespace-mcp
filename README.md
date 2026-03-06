@@ -116,7 +116,21 @@ src/
     session.ts          # Client cache + resolvePageIds
     index.ts            # Tool registration entry point
   services/             # API clients and business logic
-    content-save.ts     # Content Save API client (86+ methods)
+    content-save/       # Content Save API client (86+ methods, split into domain modules)
+      client.ts         # Base class, infrastructure, static helpers
+      types.ts          # All type definitions
+      blocks.ts         # Block add/update (image, button, video, quote, code, etc.)
+      block-layout.ts   # Move, resize, remove, duplicate, swap blocks
+      text.ts           # Text block operations
+      sections.ts       # Section add/move/duplicate/style/dividers
+      pages.ts          # Page/blog CRUD
+      header-footer.ts  # Header and footer editing
+      site.ts           # CSS, settings, navigation, social accounts
+      design.ts         # Fonts, colors, template tweaks
+      gallery.ts        # Gallery settings, images, section catalog
+      mobile.ts         # Mobile layout and visibility
+      commerce.ts       # Products, store pages, product images
+      index.ts          # Barrel exports + module imports
     media-upload.ts     # Image upload client
     page-id-resolver.ts # Page slug → API IDs
     menu-parser.ts      # Menu text ↔ structured JSON

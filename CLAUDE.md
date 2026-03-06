@@ -27,7 +27,21 @@ src/
     session.ts      # Client cache + resolvePageIds + dynamic site discovery
     index.ts        # Tool registration entry point
   services/         # API clients and business logic
-    content-save.ts # Content Save API client (86+ methods)
+    content-save/   # Content Save API client (86+ methods, 14 domain modules)
+      client.ts     # Base class, infrastructure, static helpers
+      types.ts      # All type definitions
+      blocks.ts     # Block add/update (image, button, video, quote, code, etc.)
+      block-layout.ts # Move, resize, remove, duplicate, swap blocks
+      text.ts       # Text block operations
+      sections.ts   # Section add/move/duplicate/style/dividers
+      pages.ts      # Page/blog CRUD
+      header-footer.ts # Header and footer editing
+      site.ts       # CSS, settings, navigation, social accounts
+      design.ts     # Fonts, colors, template tweaks
+      gallery.ts    # Gallery settings, images, section catalog
+      mobile.ts     # Mobile layout and visibility
+      commerce.ts   # Products, store pages, product images
+      index.ts      # Barrel exports + module imports
     media-upload.ts # Image upload client
     page-id-resolver.ts # Page slug → API IDs
     menu-parser.ts  # Menu text ↔ structured JSON
@@ -49,7 +63,9 @@ storage/            # Session cookies, uploads, screenshots
 |------|---------|
 | `src/mcp-server/index.ts` | MCP server entry — ~84 tools across 15 modules |
 | `src/mcp-server/session.ts` | Client cache + `resolvePageIds` + dynamic site discovery |
-| `src/services/content-save.ts` | Content Save API client (86+ methods) |
+| `src/services/content-save/` | Content Save API client (86+ methods across 14 modules) |
+| `src/services/content-save/client.ts` | Base class, infrastructure, static helpers |
+| `src/services/content-save/blocks.ts` | Block add/update (34 methods) |
 | `src/services/media-upload.ts` | Image upload to Squarespace asset service |
 | `src/services/page-id-resolver.ts` | Resolve page slugs to API IDs (HTML parse + DB cache) |
 | `src/services/menu-parser.ts` | Menu text ↔ structured JSON |
@@ -81,6 +97,14 @@ Session cookies from `storage/auth/sqsp-session.json`. The `sq_login_browser` to
 - `siteId` accepts flexible input: id, name, alias, or subdomain
 - Tool naming: `sq_` prefix, snake_case
 - Registration: `export function registerXxxTools(server: McpServer)` + add to `index.ts`
+
+## Content Save Module Pattern
+
+The `content-save/` directory uses **TypeScript prototype augmentation** to split a large class across files:
+- `client.ts` defines the `ContentSaveClient` class with infrastructure methods
+- Domain files (e.g., `blocks.ts`, `text.ts`) use `declare module './index.js'` to extend the interface and assign methods to `ContentSaveClient.prototype`
+- `index.ts` barrel-exports the class and imports all domain modules (order matters: client first, then domain files)
+- `content-save.ts` (in parent dir) re-exports everything for backward compatibility
 
 ## Testing
 
