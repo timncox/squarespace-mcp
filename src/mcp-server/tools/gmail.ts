@@ -27,7 +27,7 @@ export function registerGmailTools(server: McpServer) {
   server.registerTool('sq_login_gmail', {
     description:
       'Authorize Gmail access via Google OAuth2. Opens your default browser for Google login. ' +
-      'Requires storage/auth/gmail-credentials.json with client_id and client_secret ' +
+      'Requires GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET in .env ' +
       'from a Google Cloud project with the Gmail API enabled (Desktop app type).',
     inputSchema: {
       timeoutMs: z.number().optional().describe(

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // Mock fs
 const mockReadFileSync = vi.fn();
@@ -76,32 +76,46 @@ const GMAIL_ATTACHMENT_RESPONSE = {
   data: PDF_BYTES.toString('base64url'),
 };
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
+
+function setCredentialsEnv() {
+  process.env.GMAIL_CLIENT_ID = SAMPLE_CREDENTIALS.client_id;
+  process.env.GMAIL_CLIENT_SECRET = SAMPLE_CREDENTIALS.client_secret;
+}
+
+function clearCredentialsEnv() {
+  delete process.env.GMAIL_CLIENT_ID;
+  delete process.env.GMAIL_CLIENT_SECRET;
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('Gmail Service (OAuth2)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearCredentialsEnv();
+  });
+
+  afterEach(() => {
+    clearCredentialsEnv();
   });
 
   describe('loadCredentials', () => {
-    it('should load client_id and client_secret from gmail-credentials.json', () => {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_CREDENTIALS));
+    it('should load client_id and client_secret from env', () => {
+      setCredentialsEnv();
 
       const creds = loadCredentials();
       expect(creds.client_id).toBe(SAMPLE_CREDENTIALS.client_id);
       expect(creds.client_secret).toBe(SAMPLE_CREDENTIALS.client_secret);
     });
 
-    it('should throw when credentials file does not exist', () => {
-      mockExistsSync.mockReturnValue(false);
+    it('should throw when env vars are not set', () => {
       expect(() => loadCredentials()).toThrow('Gmail credentials not found');
     });
 
-    it('should throw when credentials are missing client_id', () => {
-      mockExistsSync.mockReturnValue(true);
-      mockReadFileSync.mockReturnValue(JSON.stringify({ client_secret: 'x' }));
-      expect(() => loadCredentials()).toThrow('client_id');
+    it('should throw when client_id is missing', () => {
+      process.env.GMAIL_CLIENT_SECRET = 'x';
+      expect(() => loadCredentials()).toThrow('GMAIL_CLIENT_ID');
     });
   });
 
@@ -140,11 +154,9 @@ describe('Gmail Service (OAuth2)', () => {
 
   describe('refreshAccessToken', () => {
     it('should exchange refresh token for new access token', async () => {
-      // loadCredentials
+      setCredentialsEnv();
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))  // credentials
-        .mockReturnValueOnce(JSON.stringify(EXPIRED_TOKENS));      // tokens
+      mockReadFileSync.mockReturnValue(JSON.stringify(EXPIRED_TOKENS));
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -165,10 +177,9 @@ describe('Gmail Service (OAuth2)', () => {
     });
 
     it('should throw on token refresh failure', async () => {
+      setCredentialsEnv();
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))
-        .mockReturnValueOnce(JSON.stringify(EXPIRED_TOKENS));
+      mockReadFileSync.mockReturnValue(JSON.stringify(EXPIRED_TOKENS));
 
       mockFetch.mockResolvedValue({
         ok: false,
@@ -182,14 +193,10 @@ describe('Gmail Service (OAuth2)', () => {
 
   describe('downloadAttachment', () => {
     it('should download attachment via Gmail API and save to disk', async () => {
-      // Two readFileSync calls: credentials then tokens
+      setCredentialsEnv();
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))  // credentials (for getAccessToken)
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_TOKENS));       // tokens
+      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_TOKENS));
 
-      // First fetch: messages.get to find attachmentId
-      // Second fetch: messages.attachments.get to get data
       mockFetch
         .mockResolvedValueOnce({
           ok: true,
@@ -215,10 +222,9 @@ describe('Gmail Service (OAuth2)', () => {
     });
 
     it('should throw when attachment filename not found in message', async () => {
+      setCredentialsEnv();
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_TOKENS));
+      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_TOKENS));
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -230,10 +236,9 @@ describe('Gmail Service (OAuth2)', () => {
     });
 
     it('should include available filenames in error', async () => {
+      setCredentialsEnv();
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_TOKENS));
+      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_TOKENS));
 
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -245,10 +250,9 @@ describe('Gmail Service (OAuth2)', () => {
     });
 
     it('should match filename case-insensitively', async () => {
+      setCredentialsEnv();
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_TOKENS));
+      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_TOKENS));
 
       mockFetch
         .mockResolvedValueOnce({
@@ -265,11 +269,9 @@ describe('Gmail Service (OAuth2)', () => {
     });
 
     it('should auto-refresh expired token before API call', async () => {
+      setCredentialsEnv();
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))  // credentials for getAccessToken
-        .mockReturnValueOnce(JSON.stringify(EXPIRED_TOKENS))       // expired tokens
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS));  // credentials for refresh
+      mockReadFileSync.mockReturnValue(JSON.stringify(EXPIRED_TOKENS));
 
       // First fetch: token refresh
       // Second fetch: messages.get
@@ -296,10 +298,9 @@ describe('Gmail Service (OAuth2)', () => {
     });
 
     it('should send Authorization header with access token', async () => {
+      setCredentialsEnv();
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_TOKENS));
+      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_TOKENS));
 
       mockFetch
         .mockResolvedValueOnce({
@@ -340,10 +341,9 @@ describe('Gmail Service (OAuth2)', () => {
         },
       };
 
+      setCredentialsEnv();
       mockExistsSync.mockReturnValue(true);
-      mockReadFileSync
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_CREDENTIALS))
-        .mockReturnValueOnce(JSON.stringify(SAMPLE_TOKENS));
+      mockReadFileSync.mockReturnValue(JSON.stringify(SAMPLE_TOKENS));
 
       mockFetch
         .mockResolvedValueOnce({

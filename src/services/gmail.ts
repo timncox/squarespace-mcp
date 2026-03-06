@@ -14,7 +14,6 @@ import { logger } from '../utils/logger.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..');
 const AUTH_DIR = join(PROJECT_ROOT, 'storage', 'auth');
-const CREDENTIALS_PATH = join(AUTH_DIR, 'gmail-credentials.json');
 const TOKENS_PATH = join(AUTH_DIR, 'gmail-oauth.json');
 
 const GMAIL_API_BASE = 'https://www.googleapis.com/gmail/v1/users/me';
@@ -34,23 +33,16 @@ export interface GmailTokens {
 }
 
 export function loadCredentials(): GmailCredentials {
-  if (!existsSync(CREDENTIALS_PATH)) {
+  const client_id = process.env.GMAIL_CLIENT_ID;
+  const client_secret = process.env.GMAIL_CLIENT_SECRET;
+
+  if (!client_id || !client_secret) {
     throw new Error(
-      'Gmail credentials not found. Save your Google OAuth client_id and client_secret ' +
-      'to storage/auth/gmail-credentials.json as { "client_id": "...", "client_secret": "..." }',
+      'Gmail credentials not found. Set GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET in .env',
     );
   }
 
-  const raw = readFileSync(CREDENTIALS_PATH, 'utf-8');
-  const creds = JSON.parse(raw);
-
-  if (!creds.client_id || !creds.client_secret) {
-    throw new Error(
-      'Gmail credentials must contain both client_id and client_secret.',
-    );
-  }
-
-  return { client_id: creds.client_id, client_secret: creds.client_secret };
+  return { client_id, client_secret };
 }
 
 // ── Token management ─────────────────────────────────────────────────────────
