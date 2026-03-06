@@ -89,52 +89,27 @@ describe('Form CRUD MCP Tools', () => {
       expect(client.createForm).toHaveBeenCalledWith('Inquiry Form', undefined, { submitButtonText: 'Send' });
     });
 
-    it('creates a form with custom fields', async () => {
+    it('creates a form with custom fields (typed array)', async () => {
       const client = createMockClient();
       mockGetClient.mockReturnValue(client);
 
-      const fields = JSON.stringify([
+      const fields = [
         { type: 'name', title: 'Full Name', required: true },
         { type: 'email', title: 'Email', required: true },
-      ]);
+      ];
 
       await server.callTool('sq_create_form', {
         siteId: 'my-site',
         fields,
       });
 
-      expect(client.createForm).toHaveBeenCalledWith(
-        undefined,
-        [{ type: 'name', title: 'Full Name', required: true }, { type: 'email', title: 'Email', required: true }],
-        undefined,
-      );
-    });
-
-    it('returns error for invalid fields JSON', async () => {
-      const client = createMockClient();
-      mockGetClient.mockReturnValue(client);
-
-      const result = await server.callTool('sq_create_form', {
-        siteId: 'my-site',
-        fields: 'not valid json',
-      });
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('not valid JSON');
-      expect(client.createForm).not.toHaveBeenCalled();
-    });
-
-    it('returns error for non-array fields', async () => {
-      const client = createMockClient();
-      mockGetClient.mockReturnValue(client);
-
-      const result = await server.callTool('sq_create_form', {
-        siteId: 'my-site',
-        fields: '{"not": "an array"}',
-      });
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('must be a JSON array');
+      // fields are stringified per-item for the API
+      const call = client.createForm.mock.calls[0];
+      expect(call[1]).toHaveLength(2);
+      const parsed0 = JSON.parse(call[1][0]);
+      expect(parsed0.type).toBe('name');
+      expect(parsed0.title).toBe('Full Name');
+      expect(parsed0.id).toBeDefined();
     });
 
     it('returns error on API failure', async () => {
@@ -226,13 +201,13 @@ describe('Form CRUD MCP Tools', () => {
       expect(result.isError).toBeUndefined();
     });
 
-    it('updates form with new fields', async () => {
+    it('updates form with new fields (typed array)', async () => {
       const client = createMockClient();
       mockGetClient.mockReturnValue(client);
 
-      const fields = JSON.stringify([
+      const fields = [
         { type: 'email', title: 'Email', required: true },
-      ]);
+      ];
 
       await server.callTool('sq_update_form', {
         siteId: 'my-site',
@@ -240,9 +215,12 @@ describe('Form CRUD MCP Tools', () => {
         fields,
       });
 
-      expect(client.updateForm).toHaveBeenCalledWith('form-abc123', {
-        fields: [{ type: 'email', title: 'Email', required: true }],
-      });
+      const call = client.updateForm.mock.calls[0];
+      expect(call[1].fields).toHaveLength(1);
+      const parsed = JSON.parse(call[1].fields[0]);
+      expect(parsed.type).toBe('email');
+      expect(parsed.title).toBe('Email');
+      expect(parsed.id).toBeDefined();
     });
 
     it('updates submit button text', async () => {
@@ -256,21 +234,6 @@ describe('Form CRUD MCP Tools', () => {
       });
 
       expect(client.updateForm).toHaveBeenCalledWith('form-abc123', { submitButtonText: 'Send Message' });
-    });
-
-    it('returns error for invalid fields JSON', async () => {
-      const client = createMockClient();
-      mockGetClient.mockReturnValue(client);
-
-      const result = await server.callTool('sq_update_form', {
-        siteId: 'my-site',
-        formId: 'form-abc123',
-        fields: '{bad json',
-      });
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('not valid JSON');
-      expect(client.updateForm).not.toHaveBeenCalled();
     });
 
     it('returns error on API failure', async () => {

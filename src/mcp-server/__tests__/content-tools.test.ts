@@ -15,10 +15,17 @@ const mockClient = {
   getGalleryItems: vi.fn(),
   removeGalleryImage: vi.fn(),
   reorderGalleryImages: vi.fn(),
+  addGalleryImage: vi.fn(),
+};
+
+const mockMediaClient = {
+  uploadImage: vi.fn(),
+  uploadImageFromUrl: vi.fn(),
 };
 
 vi.mock('../session.js', () => ({
   getClient: vi.fn(() => mockClient),
+  getMediaClient: vi.fn(() => mockMediaClient),
   resolvePageIds: vi.fn(async (siteId: string, slug: string) => ({
     pageSectionsId: `psi-${slug}`,
     collectionId: `col-${slug}`,
@@ -53,7 +60,7 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
     registerContentTools(server as any);
   });
 
-  it('should register all 11 content tools', () => {
+  it('should register all 12 content tools', () => {
     expect(server.tools.has('sq_create_blog_post')).toBe(true);
     expect(server.tools.has('sq_update_blog_post')).toBe(true);
     expect(server.tools.has('sq_list_blog_posts')).toBe(true);
@@ -65,6 +72,7 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
     expect(server.tools.has('sq_list_gallery_images')).toBe(true);
     expect(server.tools.has('sq_remove_gallery_image')).toBe(true);
     expect(server.tools.has('sq_reorder_gallery_images')).toBe(true);
+    expect(server.tools.has('sq_add_gallery_image')).toBe(true);
   });
 
   // ── Blog Tools ──────────────────────────────────────────────────────────────
@@ -632,6 +640,82 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
       const data = JSON.parse(result.content[0].text);
       expect(data.success).toBe(true);
       expect(mockClient.reorderGalleryImages).toHaveBeenCalledWith('gal-col-1', ['img-2', 'img-1']);
+    });
+  });
+
+  // ── sq_add_gallery_image ───────────────────────────────────────────────────
+  describe('sq_add_gallery_image', () => {
+    it('should upload and add image to gallery', async () => {
+      mockClient.getPageSections.mockResolvedValue({ sections: [] });
+      mockClient.findGalleryBlock.mockReturnValue({ galleryCollectionId: 'gal-123' });
+      mockMediaClient.uploadImage.mockResolvedValue({ success: true, assetId: 'asset-1', assetUrl: 'https://images.squarespace-cdn.com/asset-1.jpg' });
+      mockClient.addGalleryImage.mockResolvedValue({ success: true, itemId: 'item-1' });
+
+      const result = await server.callTool('sq_add_gallery_image', {
+        siteId: 'test-site',
+        pageSlug: 'gallery',
+        imagePath: '/tmp/photo.jpg',
+        title: 'Beach sunset',
+      });
+
+      expect(mockMediaClient.uploadImage).toHaveBeenCalledWith('/tmp/photo.jpg');
+      expect(mockClient.addGalleryImage).toHaveBeenCalledWith('gal-123', 'asset-1', { title: 'Beach sunset', description: undefined });
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(data.itemId).toBe('item-1');
+    });
+
+    it('should upload from URL', async () => {
+      mockClient.getPageSections.mockResolvedValue({ sections: [] });
+      mockClient.findGalleryBlock.mockReturnValue({ galleryCollectionId: 'gal-123' });
+      mockMediaClient.uploadImageFromUrl.mockResolvedValue({ success: true, assetId: 'asset-2', assetUrl: 'https://images.squarespace-cdn.com/asset-2.jpg' });
+      mockClient.addGalleryImage.mockResolvedValue({ success: true, itemId: 'item-2' });
+
+      const result = await server.callTool('sq_add_gallery_image', {
+        siteId: 'test-site',
+        pageSlug: 'gallery',
+        imageUrl: 'https://example.com/photo.jpg',
+      });
+
+      expect(mockMediaClient.uploadImageFromUrl).toHaveBeenCalledWith('https://example.com/photo.jpg');
+      expect(result.isError).toBeUndefined();
+    });
+
+    it('should error when no image source provided', async () => {
+      const result = await server.callTool('sq_add_gallery_image', {
+        siteId: 'test-site',
+        pageSlug: 'gallery',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Must provide');
+    });
+
+    it('should error when no gallery found', async () => {
+      mockClient.getPageSections.mockResolvedValue({ sections: [] });
+      mockClient.findGalleryBlock.mockReturnValue(null);
+
+      const result = await server.callTool('sq_add_gallery_image', {
+        siteId: 'test-site',
+        pageSlug: 'about',
+        imagePath: '/tmp/photo.jpg',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('No gallery block found');
+    });
+
+    it('should handle page resolution failure', async () => {
+      (resolvePageIds as any).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_add_gallery_image', {
+        siteId: 'test-site',
+        pageSlug: 'missing',
+        imagePath: '/tmp/photo.jpg',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Could not resolve page');
     });
   });
 });

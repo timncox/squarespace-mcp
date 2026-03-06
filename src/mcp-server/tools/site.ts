@@ -11,6 +11,10 @@
  * sq_list_social_links: List social link accounts
  * sq_add_social_link: Add a social link by URL
  * sq_remove_social_link: Remove a social link account
+ * sq_get_site_identity: Read site identity (business name, address, title, phone, email)
+ * sq_update_site_identity: Update site identity fields
+ * sq_get_advanced_settings: Read advanced settings including URL redirects
+ * sq_save_advanced_settings: Save advanced settings (URL redirects, etc.)
  */
 
 import { z } from 'zod';
@@ -434,6 +438,107 @@ export function registerSiteTools(server: McpServer) {
           type: 'text' as const,
           text: JSON.stringify({ success: true, removedAccountId: accountId }, null, 2),
         }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_get_site_identity ────────────────────────────────────────────────
+  server.registerTool('sq_get_site_identity', {
+    description: 'Get site identity info: business name, address, site title, phone, email.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+    },
+  }, async ({ siteId }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.getSiteIdentity();
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        ...(result.success ? {} : { isError: true }),
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_update_site_identity ─────────────────────────────────────────────
+  server.registerTool('sq_update_site_identity', {
+    description: 'Update site identity: business name, address, site title, phone, email. Only provided fields are changed.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      businessName: z.string().optional().describe('Business name'),
+      address: z.string().optional().describe('Address line 1'),
+      address2: z.string().optional().describe('Address line 2'),
+      siteTitle: z.string().optional().describe('Site title'),
+      phone: z.string().optional().describe('Contact phone number'),
+      email: z.string().optional().describe('Contact email address'),
+    },
+  }, async ({ siteId, businessName, address, address2, siteTitle, phone, email }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.updateSiteIdentity({ businessName, address, address2, siteTitle, phone, email });
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        ...(result.success ? {} : { isError: true }),
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_get_advanced_settings ────────────────────────────────────────────
+  server.registerTool('sq_get_advanced_settings', {
+    description: 'Get advanced site settings including URL redirect mappings (301/302). Returns raw settings object.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+    },
+  }, async ({ siteId }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.getAdvancedSettings();
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        ...(result.success ? {} : { isError: true }),
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_save_advanced_settings ───────────────────────────────────────────
+  server.registerTool('sq_save_advanced_settings', {
+    description: 'Save advanced site settings. Primary use: URL redirects (301/302). Get current settings via sq_get_advanced_settings, modify the mappings field, then save back. The mappings value must be a JSON string.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      mappings: z.string().optional().describe('JSON string of URL redirect mappings array. Each mapping: {from, to, statusCode (301 or 302)}'),
+      data: z.record(z.string()).optional().describe('Raw key-value pairs to save (alternative to mappings — for other advanced settings)'),
+    },
+  }, async ({ siteId, mappings, data }) => {
+    try {
+      const client = getClient(siteId);
+      const payload: Record<string, string> = data ?? {};
+      if (mappings !== undefined) payload.mappings = mappings;
+      if (Object.keys(payload).length === 0) {
+        return { content: [{ type: 'text' as const, text: 'Error: Must provide mappings or data to save' }], isError: true };
+      }
+      const result = await client.saveAdvancedSettings(payload);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        ...(result.success ? {} : { isError: true }),
       };
     } catch (err) {
       return {

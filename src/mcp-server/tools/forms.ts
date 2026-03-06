@@ -2,9 +2,9 @@
  * MCP Tools — Form blocks + Form CRUD
  *
  * sq_list_forms: List available forms on a site
- * sq_create_form: Create a new form (default: contact form)
+ * sq_create_form: Create a new form with typed field definitions + submissionMessage
  * sq_get_form: Get full form details by ID
- * sq_update_form: Update form name, fields, or submit button text
+ * sq_update_form: Update form name, typed fields, submit button text, or submissionMessage
  * sq_add_form_block: Add a form block to a section
  * sq_update_form_block: Update an existing form block
  */
@@ -51,30 +51,27 @@ export function registerFormTools(server: McpServer) {
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
       name: z.string().optional().describe('Form name (default: "Contact Form")'),
-      fields: z.string().optional().describe('JSON array of field objects. Each field: {type, title, required?, description?, placeholder?}. Types: name, email, text, textarea, date, time, radio, address, website, file. Omit for default contact form.'),
+      fields: z.array(z.object({
+        type: z.string().describe('Field type: name, email, text, textarea, date, time, radio, address, website, file'),
+        title: z.string().describe('Field label'),
+        required: z.boolean().optional().describe('Is field required'),
+        description: z.string().optional().describe('Help text'),
+        placeholder: z.string().optional().describe('Placeholder text'),
+      })).optional().describe('Form fields. Omit for default contact form (Name, Email, Message).'),
       submitButtonText: z.string().optional().describe('Submit button label (default: "Submit")'),
+      submissionMessage: z.string().optional().describe('Thank-you message shown after form submission'),
     },
-  }, async ({ siteId, name, fields, submitButtonText }) => {
+  }, async ({ siteId, name, fields, submitButtonText, submissionMessage }) => {
     try {
       const client = getClient(siteId);
-
-      // Parse fields JSON if provided
-      let parsedFields: string[] | undefined;
-      if (fields) {
-        try {
-          parsedFields = JSON.parse(fields);
-          if (!Array.isArray(parsedFields)) {
-            return { content: [{ type: 'text' as const, text: 'Error: fields must be a JSON array' }], isError: true };
-          }
-        } catch {
-          return { content: [{ type: 'text' as const, text: 'Error: fields is not valid JSON' }], isError: true };
-        }
-      }
-
+      const parsedFields = fields?.map(f => JSON.stringify({ ...f, id: `${f.type}-${Math.random().toString(36).slice(2, 10)}` }));
+      const options: Record<string, string> = {};
+      if (submitButtonText) options.submitButtonText = submitButtonText;
+      if (submissionMessage) options.submissionMessage = submissionMessage;
       const result = await client.createForm(
         name,
         parsedFields,
-        submitButtonText ? { submitButtonText } : undefined,
+        Object.keys(options).length > 0 ? options as any : undefined,
       );
 
       return {
@@ -122,28 +119,25 @@ export function registerFormTools(server: McpServer) {
       siteId: z.string().describe('Site identifier'),
       formId: z.string().describe('Form ID'),
       name: z.string().optional().describe('New form name'),
-      fields: z.string().optional().describe('JSON array of field objects (replaces all fields)'),
+      fields: z.array(z.object({
+        type: z.string().describe('Field type: name, email, text, textarea, date, time, radio, address, website, file'),
+        title: z.string().describe('Field label'),
+        required: z.boolean().optional().describe('Is field required'),
+        description: z.string().optional().describe('Help text'),
+        placeholder: z.string().optional().describe('Placeholder text'),
+      })).optional().describe('Form fields (replaces all fields). Omit to leave fields unchanged.'),
       submitButtonText: z.string().optional().describe('New submit button label'),
+      submissionMessage: z.string().optional().describe('Thank-you message shown after form submission'),
     },
-  }, async ({ siteId, formId, name, fields, submitButtonText }) => {
+  }, async ({ siteId, formId, name, fields, submitButtonText, submissionMessage }) => {
     try {
       const client = getClient(siteId);
 
       const updates: Record<string, unknown> = {};
       if (name !== undefined) updates.name = name;
       if (submitButtonText !== undefined) updates.submitButtonText = submitButtonText;
-
-      if (fields) {
-        try {
-          const parsedFields = JSON.parse(fields);
-          if (!Array.isArray(parsedFields)) {
-            return { content: [{ type: 'text' as const, text: 'Error: fields must be a JSON array' }], isError: true };
-          }
-          updates.fields = parsedFields;
-        } catch {
-          return { content: [{ type: 'text' as const, text: 'Error: fields is not valid JSON' }], isError: true };
-        }
-      }
+      if (submissionMessage !== undefined) updates.submissionMessage = submissionMessage;
+      if (fields) updates.fields = fields.map(f => JSON.stringify({ ...f, id: `${f.type}-${Math.random().toString(36).slice(2, 10)}` }));
 
       const result = await client.updateForm(formId, updates);
 

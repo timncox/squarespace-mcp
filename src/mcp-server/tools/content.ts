@@ -12,11 +12,12 @@
  * sq_list_gallery_images: List images in a gallery
  * sq_remove_gallery_image: Remove an image from a gallery
  * sq_reorder_gallery_images: Reorder images in a gallery
+ * sq_add_gallery_image: Upload and add an image to a gallery
  */
 
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { getClient, resolvePageIds } from '../session.js';
+import { getClient, getMediaClient, resolvePageIds } from '../session.js';
 
 export function registerContentTools(server: McpServer) {
   // ── sq_create_blog_post ─────────────────────────────────────────────────────
@@ -485,6 +486,77 @@ export function registerContentTools(server: McpServer) {
       }
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_add_gallery_image ──────────────────────────────────────────────────
+  server.registerTool('sq_add_gallery_image', {
+    description:
+      'Upload an image and add it to a gallery. Use sq_list_gallery_images to verify after adding. Requires a local file path or URL as the image source.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug containing the gallery'),
+      imagePath: z.string().optional().describe('Local file path to image'),
+      imageUrl: z.string().optional().describe('HTTP/HTTPS URL of image to download and upload'),
+      imageData: z.string().optional().describe('Base64-encoded image data (for Claude Desktop cloud-to-local bridge)'),
+      filename: z.string().optional().describe('Filename when using imageData (e.g. "photo.jpg")'),
+      title: z.string().optional().describe('Image title/caption'),
+      description: z.string().optional().describe('Image description/alt text'),
+      searchText: z.string().optional().describe('Gallery block ID or text to find specific gallery (optional — uses first gallery if omitted)'),
+    },
+  }, async ({ siteId, pageSlug, imagePath, imageUrl, imageData, filename, title, description, searchText }) => {
+    try {
+      if (!imagePath && !imageUrl && !imageData) {
+        return { content: [{ type: 'text' as const, text: 'Error: Must provide imagePath, imageUrl, or imageData' }], isError: true };
+      }
+
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+      const mediaClient = getMediaClient(siteId);
+
+      // Find the gallery block to get the galleryCollectionId
+      const data = await client.getPageSections(ids.pageSectionsId);
+      const found = client.findGalleryBlock(data.sections, searchText);
+      if (!found) {
+        return { content: [{ type: 'text' as const, text: 'Error: No gallery block found on this page' }], isError: true };
+      }
+
+      // Upload the image
+      let uploadResult;
+      if (imageData && filename) {
+        // Base64 bridge: write to temp file, upload, clean up
+        const os = await import('node:os');
+        const path = await import('node:path');
+        const { writeFile, unlink } = await import('node:fs/promises');
+        const tmpPath = path.join(os.default.tmpdir(), `sq-gallery-${Date.now()}-${filename}`);
+        await writeFile(tmpPath, Buffer.from(imageData, 'base64'));
+        try {
+          uploadResult = await mediaClient.uploadImage(tmpPath);
+        } finally {
+          await unlink(tmpPath).catch(() => {});
+        }
+      } else if (imageUrl) {
+        uploadResult = await mediaClient.uploadImageFromUrl(imageUrl);
+      } else if (imagePath) {
+        uploadResult = await mediaClient.uploadImage(imagePath);
+      }
+
+      if (!uploadResult?.success || !uploadResult.assetId) {
+        return { content: [{ type: 'text' as const, text: `Error: Image upload failed: ${uploadResult?.error ?? 'no assetId returned'}` }], isError: true };
+      }
+
+      // Add to gallery
+      const result = await client.addGalleryImage(found.galleryCollectionId, uploadResult.assetId, { title, description });
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ...result, assetUrl: uploadResult.assetUrl }, null, 2) }],
+        ...(result.success ? {} : { isError: true }),
       };
     } catch (err) {
       return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };

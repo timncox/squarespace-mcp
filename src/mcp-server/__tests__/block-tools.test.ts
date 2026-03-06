@@ -17,6 +17,17 @@ const mockClient = {
   updateEmbedBlock: vi.fn(),
   addAccordionBlock: vi.fn(),
   updateAccordionBlock: vi.fn(),
+  addQuoteBlock: vi.fn(),
+  updateQuoteBlock: vi.fn(),
+  addMarqueeBlock: vi.fn(),
+  updateMarqueeBlock: vi.fn(),
+  addNewsletterBlock: vi.fn(),
+  updateNewsletterBlock: vi.fn(),
+  addDividerBlock: vi.fn(),
+  addCodeBlock: vi.fn(),
+  updateCodeBlock: vi.fn(),
+  addSocialLinksBlock: vi.fn(),
+  updateSocialLinksBlock: vi.fn(),
 };
 
 const mockMediaClient = {
@@ -60,7 +71,7 @@ describe('Block Tools', () => {
     registerBlockTools(server as any);
   });
 
-  it('should register all 14 block tools', () => {
+  it('should register all 25 block tools', () => {
     expect(server.tools.has('sq_add_button')).toBe(true);
     expect(server.tools.has('sq_update_button')).toBe(true);
     expect(server.tools.has('sq_add_image')).toBe(true);
@@ -75,6 +86,19 @@ describe('Block Tools', () => {
     expect(server.tools.has('sq_update_video')).toBe(true);
     expect(server.tools.has('sq_add_embed')).toBe(true);
     expect(server.tools.has('sq_update_embed')).toBe(true);
+    expect(server.tools.has('sq_add_accordion')).toBe(true);
+    expect(server.tools.has('sq_update_accordion')).toBe(true);
+    expect(server.tools.has('sq_add_quote')).toBe(true);
+    expect(server.tools.has('sq_update_quote')).toBe(true);
+    expect(server.tools.has('sq_add_marquee')).toBe(true);
+    expect(server.tools.has('sq_update_marquee')).toBe(true);
+    expect(server.tools.has('sq_add_newsletter')).toBe(true);
+    expect(server.tools.has('sq_update_newsletter')).toBe(true);
+    expect(server.tools.has('sq_add_divider')).toBe(true);
+    expect(server.tools.has('sq_add_code')).toBe(true);
+    expect(server.tools.has('sq_update_code')).toBe(true);
+    expect(server.tools.has('sq_add_social_links_block')).toBe(true);
+    expect(server.tools.has('sq_update_social_links_block')).toBe(true);
   });
 
   // ── sq_add_button ─────────────────────────────────────────────────────────
@@ -940,6 +964,504 @@ describe('Block Tools', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('block not found');
+    });
+  });
+
+  // ── sq_add_quote ────────────────────────────────────────────────────────────
+  describe('sq_add_quote', () => {
+    it('should add a quote block', async () => {
+      mockClient.addQuoteBlock.mockResolvedValue({ success: true, blockId: 'q-1', sectionIndex: 0 });
+
+      const result = await server.callTool('sq_add_quote', {
+        siteId: 'test-site',
+        pageSlug: 'about',
+        sectionIndex: 0,
+        quoteText: 'Best restaurant in town!',
+        attribution: '— Jane Doe',
+      });
+
+      expect(mockClient.addQuoteBlock).toHaveBeenCalledWith(
+        'psi-about', 'col-about', 0, 'Best restaurant in town!', '— Jane Doe', undefined,
+      );
+      expect(result.content[0].text).toContain('q-1');
+    });
+
+    it('should resolve offsetColumns for quote', async () => {
+      mockClient.addQuoteBlock.mockResolvedValue({ success: true, blockId: 'q-2', sectionIndex: 0 });
+
+      await server.callTool('sq_add_quote', {
+        siteId: 'test-site',
+        pageSlug: 'about',
+        sectionIndex: 0,
+        quoteText: 'Great food!',
+        layout: { offsetColumns: 4, columns: 16 },
+      });
+
+      const call = mockClient.addQuoteBlock.mock.calls[0];
+      const layout = call[5];
+      expect(layout.startX).toBe(5);
+      expect(layout.endX).toBe(21);
+      expect(layout.offsetColumns).toBeUndefined();
+    });
+
+    it('should handle page resolution failure', async () => {
+      (resolvePageIds as any).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_add_quote', {
+        siteId: 'test-site',
+        pageSlug: 'missing',
+        sectionIndex: 0,
+        quoteText: 'test',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Could not resolve page');
+    });
+  });
+
+  // ── sq_update_quote ─────────────────────────────────────────────────────────
+  describe('sq_update_quote', () => {
+    it('should update a quote block', async () => {
+      mockClient.updateQuoteBlock.mockResolvedValue({ success: true, blockId: 'q-1' });
+
+      const result = await server.callTool('sq_update_quote', {
+        siteId: 'test-site',
+        pageSlug: 'about',
+        searchText: 'Best restaurant',
+        quoteText: 'Updated quote text',
+        attribution: '— John Smith',
+      });
+
+      expect(mockClient.updateQuoteBlock).toHaveBeenCalledWith(
+        'psi-about', 'col-about', 'Best restaurant', { quoteText: 'Updated quote text', attribution: '— John Smith' },
+      );
+      expect(result.content[0].text).toContain('q-1');
+    });
+
+    it('should handle errors', async () => {
+      mockClient.updateQuoteBlock.mockRejectedValue(new Error('not found'));
+
+      const result = await server.callTool('sq_update_quote', {
+        siteId: 'test-site',
+        pageSlug: 'about',
+        searchText: 'missing',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('not found');
+    });
+  });
+
+  // ── sq_add_marquee ──────────────────────────────────────────────────────────
+  describe('sq_add_marquee', () => {
+    it('should add a marquee block', async () => {
+      mockClient.addMarqueeBlock.mockResolvedValue({ success: true, blockId: 'm-1', sectionIndex: 0 });
+
+      const result = await server.callTool('sq_add_marquee', {
+        siteId: 'test-site',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        items: [{ text: 'Welcome!' }, { text: 'Happy Hour 4-6pm' }],
+      });
+
+      expect(mockClient.addMarqueeBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 0,
+        [{ text: 'Welcome!' }, { text: 'Happy Hour 4-6pm' }],
+        { animationDirection: undefined, animationSpeed: undefined, textStyle: undefined, pausedOnHover: undefined, fadeEdges: undefined },
+        undefined,
+      );
+      expect(result.content[0].text).toContain('m-1');
+    });
+
+    it('should pass animation options', async () => {
+      mockClient.addMarqueeBlock.mockResolvedValue({ success: true, blockId: 'm-2', sectionIndex: 0 });
+
+      await server.callTool('sq_add_marquee', {
+        siteId: 'test-site',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        items: [{ text: 'Sale!' }],
+        animationDirection: 'right',
+        animationSpeed: 2,
+        pausedOnHover: true,
+      });
+
+      const call = mockClient.addMarqueeBlock.mock.calls[0];
+      expect(call[4]).toEqual({
+        animationDirection: 'right',
+        animationSpeed: 2,
+        textStyle: undefined,
+        pausedOnHover: true,
+        fadeEdges: undefined,
+      });
+    });
+
+    it('should resolve offsetColumns for marquee', async () => {
+      mockClient.addMarqueeBlock.mockResolvedValue({ success: true, blockId: 'm-3', sectionIndex: 0 });
+
+      await server.callTool('sq_add_marquee', {
+        siteId: 'test-site',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        items: [{ text: 'Test' }],
+        layout: { offsetColumns: 2, columns: 20 },
+      });
+
+      const call = mockClient.addMarqueeBlock.mock.calls[0];
+      const layout = call[5];
+      expect(layout.startX).toBe(3);
+      expect(layout.endX).toBe(23);
+      expect(layout.offsetColumns).toBeUndefined();
+    });
+  });
+
+  // ── sq_update_marquee ───────────────────────────────────────────────────────
+  describe('sq_update_marquee', () => {
+    it('should update marquee items', async () => {
+      mockClient.updateMarqueeBlock.mockResolvedValue({ success: true, blockId: 'm-1' });
+
+      const result = await server.callTool('sq_update_marquee', {
+        siteId: 'test-site',
+        pageSlug: 'home',
+        searchText: 'Welcome',
+        items: [{ text: 'New text!' }],
+        animationDirection: 'right',
+      });
+
+      expect(mockClient.updateMarqueeBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 'Welcome',
+        { items: [{ text: 'New text!' }], animationDirection: 'right', animationSpeed: undefined, textStyle: undefined, pausedOnHover: undefined },
+      );
+      expect(result.content[0].text).toContain('m-1');
+    });
+
+    it('should handle errors', async () => {
+      mockClient.updateMarqueeBlock.mockRejectedValue(new Error('marquee not found'));
+
+      const result = await server.callTool('sq_update_marquee', {
+        siteId: 'test-site',
+        pageSlug: 'home',
+        searchText: 'missing',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('marquee not found');
+    });
+  });
+
+  // ── sq_add_newsletter ───────────────────────────────────────────────────────
+  describe('sq_add_newsletter', () => {
+    it('should add a newsletter block with defaults', async () => {
+      mockClient.addNewsletterBlock.mockResolvedValue({ success: true, blockId: 'nl-1', sectionIndex: 0 });
+
+      const result = await server.callTool('sq_add_newsletter', {
+        siteId: 'test-site',
+        pageSlug: 'contact',
+        sectionIndex: 1,
+      });
+
+      expect(mockClient.addNewsletterBlock).toHaveBeenCalledWith(
+        'psi-contact', 'col-contact', 1,
+        { title: undefined, description: undefined, submitButtonText: undefined, alignment: undefined },
+        undefined,
+      );
+      expect(result.content[0].text).toContain('nl-1');
+    });
+
+    it('should pass custom options', async () => {
+      mockClient.addNewsletterBlock.mockResolvedValue({ success: true, blockId: 'nl-2', sectionIndex: 0 });
+
+      await server.callTool('sq_add_newsletter', {
+        siteId: 'test-site',
+        pageSlug: 'contact',
+        sectionIndex: 0,
+        title: 'Join Our Mailing List',
+        description: 'Get weekly updates',
+        submitButtonText: 'Subscribe Now',
+        alignment: 'alignLeft',
+      });
+
+      expect(mockClient.addNewsletterBlock).toHaveBeenCalledWith(
+        'psi-contact', 'col-contact', 0,
+        { title: 'Join Our Mailing List', description: 'Get weekly updates', submitButtonText: 'Subscribe Now', alignment: 'alignLeft' },
+        undefined,
+      );
+    });
+
+    it('should handle page resolution failure', async () => {
+      (resolvePageIds as any).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_add_newsletter', {
+        siteId: 'test-site',
+        pageSlug: 'missing',
+        sectionIndex: 0,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Could not resolve page');
+    });
+  });
+
+  // ── sq_update_newsletter ────────────────────────────────────────────────────
+  describe('sq_update_newsletter', () => {
+    it('should update newsletter block fields', async () => {
+      mockClient.updateNewsletterBlock.mockResolvedValue({ success: true, blockId: 'nl-1' });
+
+      const result = await server.callTool('sq_update_newsletter', {
+        siteId: 'test-site',
+        pageSlug: 'contact',
+        searchText: 'Subscribe',
+        title: 'Stay Updated',
+        submitButtonText: 'Join',
+      });
+
+      expect(mockClient.updateNewsletterBlock).toHaveBeenCalledWith(
+        'psi-contact', 'col-contact', 'Subscribe',
+        { title: 'Stay Updated', description: undefined, submitButtonText: 'Join', alignment: undefined, captchaEnabled: undefined },
+      );
+      expect(result.content[0].text).toContain('nl-1');
+    });
+
+    it('should handle errors', async () => {
+      mockClient.updateNewsletterBlock.mockRejectedValue(new Error('not found'));
+
+      const result = await server.callTool('sq_update_newsletter', {
+        siteId: 'test-site',
+        pageSlug: 'contact',
+        searchText: 'missing',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('not found');
+    });
+  });
+
+  // ── sq_add_divider ──────────────────────────────────────────────────────────
+  describe('sq_add_divider', () => {
+    it('should add a divider block', async () => {
+      mockClient.addDividerBlock.mockResolvedValue({ success: true, blockId: 'div-1', sectionIndex: 0 });
+
+      const result = await server.callTool('sq_add_divider', {
+        siteId: 'test-site',
+        pageSlug: 'about',
+        sectionIndex: 0,
+      });
+
+      expect(mockClient.addDividerBlock).toHaveBeenCalledWith('psi-about', 'col-about', 0, undefined);
+      expect(result.content[0].text).toContain('div-1');
+    });
+
+    it('should resolve offsetColumns for divider', async () => {
+      mockClient.addDividerBlock.mockResolvedValue({ success: true, blockId: 'div-2', sectionIndex: 0 });
+
+      await server.callTool('sq_add_divider', {
+        siteId: 'test-site',
+        pageSlug: 'about',
+        sectionIndex: 0,
+        layout: { offsetColumns: 4, columns: 16 },
+      });
+
+      const call = mockClient.addDividerBlock.mock.calls[0];
+      const layout = call[3];
+      expect(layout.startX).toBe(5);
+      expect(layout.endX).toBe(21);
+      expect(layout.offsetColumns).toBeUndefined();
+    });
+
+    it('should handle page resolution failure', async () => {
+      (resolvePageIds as any).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_add_divider', {
+        siteId: 'test-site',
+        pageSlug: 'missing',
+        sectionIndex: 0,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Could not resolve page');
+    });
+  });
+
+  // ── sq_add_code ─────────────────────────────────────────────────────────────
+  describe('sq_add_code', () => {
+    it('should add a code block', async () => {
+      mockClient.addCodeBlock.mockResolvedValue({ success: true, blockId: 'code-1', sectionIndex: 0 });
+
+      const result = await server.callTool('sq_add_code', {
+        siteId: 'test-site',
+        pageSlug: 'dev',
+        sectionIndex: 0,
+        code: '<div class="custom">Hello</div>',
+      });
+
+      expect(mockClient.addCodeBlock).toHaveBeenCalledWith(
+        'psi-dev', 'col-dev', 0, '<div class="custom">Hello</div>', undefined, undefined,
+      );
+      expect(result.content[0].text).toContain('code-1');
+    });
+
+    it('should pass language option', async () => {
+      mockClient.addCodeBlock.mockResolvedValue({ success: true, blockId: 'code-2', sectionIndex: 0 });
+
+      await server.callTool('sq_add_code', {
+        siteId: 'test-site',
+        pageSlug: 'dev',
+        sectionIndex: 0,
+        code: 'console.log("hi")',
+        language: 'javascript',
+      });
+
+      expect(mockClient.addCodeBlock).toHaveBeenCalledWith(
+        'psi-dev', 'col-dev', 0, 'console.log("hi")', 'javascript', undefined,
+      );
+    });
+
+    it('should resolve offsetColumns for code', async () => {
+      mockClient.addCodeBlock.mockResolvedValue({ success: true, blockId: 'code-3', sectionIndex: 0 });
+
+      await server.callTool('sq_add_code', {
+        siteId: 'test-site',
+        pageSlug: 'dev',
+        sectionIndex: 0,
+        code: 'test',
+        layout: { offsetColumns: 6, columns: 12 },
+      });
+
+      const call = mockClient.addCodeBlock.mock.calls[0];
+      const layout = call[5];
+      expect(layout.startX).toBe(7);
+      expect(layout.endX).toBe(19);
+      expect(layout.offsetColumns).toBeUndefined();
+    });
+
+    it('should handle page resolution failure', async () => {
+      (resolvePageIds as any).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_add_code', {
+        siteId: 'test-site',
+        pageSlug: 'missing',
+        sectionIndex: 0,
+        code: 'test',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Could not resolve page');
+    });
+  });
+
+  // ── sq_update_code ──────────────────────────────────────────────────────────
+  describe('sq_update_code', () => {
+    it('should update a code block', async () => {
+      mockClient.updateCodeBlock.mockResolvedValue({ success: true, blockId: 'code-1' });
+
+      const result = await server.callTool('sq_update_code', {
+        siteId: 'test-site',
+        pageSlug: 'dev',
+        searchText: 'console.log',
+        code: 'console.log("updated")',
+        language: 'javascript',
+      });
+
+      expect(mockClient.updateCodeBlock).toHaveBeenCalledWith(
+        'psi-dev', 'col-dev', 'console.log', { code: 'console.log("updated")', language: 'javascript' },
+      );
+      expect(result.content[0].text).toContain('code-1');
+    });
+
+    it('should handle errors', async () => {
+      mockClient.updateCodeBlock.mockRejectedValue(new Error('code block not found'));
+
+      const result = await server.callTool('sq_update_code', {
+        siteId: 'test-site',
+        pageSlug: 'dev',
+        searchText: 'missing',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('code block not found');
+    });
+  });
+
+  // ── sq_add_social_links_block ──────────────────────────────────────────────
+  describe('sq_add_social_links_block', () => {
+    it('should add a social links block', async () => {
+      mockClient.addSocialLinksBlock.mockResolvedValue({ success: true, blockId: 'sl-1', sectionIndex: 0 });
+
+      const result = await server.callTool('sq_add_social_links_block', {
+        siteId: 'test-site',
+        pageSlug: 'contact',
+        sectionIndex: 0,
+        iconAlignment: 'center',
+        iconSize: 'medium',
+      });
+
+      expect(mockClient.addSocialLinksBlock).toHaveBeenCalledWith(
+        'psi-contact', 'col-contact', 0,
+        { iconAlignment: 'center', iconSize: 'medium', iconStyle: undefined, iconColor: undefined },
+        undefined,
+      );
+      expect(result.content[0].text).toContain('sl-1');
+    });
+
+    it('should resolve offsetColumns', async () => {
+      mockClient.addSocialLinksBlock.mockResolvedValue({ success: true, blockId: 'sl-2', sectionIndex: 0 });
+
+      await server.callTool('sq_add_social_links_block', {
+        siteId: 'test-site',
+        pageSlug: 'contact',
+        sectionIndex: 0,
+        layout: { offsetColumns: 6, columns: 12 },
+      });
+
+      const call = mockClient.addSocialLinksBlock.mock.calls[0];
+      const layout = call[4];
+      expect(layout.startX).toBe(7);
+      expect(layout.endX).toBe(19);
+    });
+
+    it('should handle page resolution failure', async () => {
+      (resolvePageIds as any).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_add_social_links_block', {
+        siteId: 'test-site',
+        pageSlug: 'missing',
+        sectionIndex: 0,
+      });
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── sq_update_social_links_block ───────────────────────────────────────────
+  describe('sq_update_social_links_block', () => {
+    it('should update social links block', async () => {
+      mockClient.updateSocialLinksBlock.mockResolvedValue({ success: true, blockId: 'sl-1' });
+
+      const result = await server.callTool('sq_update_social_links_block', {
+        siteId: 'test-site',
+        pageSlug: 'contact',
+        searchText: 'sl-1',
+        iconAlignment: 'left',
+        iconColor: 'white',
+      });
+
+      expect(mockClient.updateSocialLinksBlock).toHaveBeenCalledWith(
+        'psi-contact', 'col-contact', 'sl-1',
+        { iconAlignment: 'left', iconSize: undefined, iconStyle: undefined, iconColor: 'white' },
+      );
+      expect(result.content[0].text).toContain('sl-1');
+    });
+
+    it('should handle errors', async () => {
+      mockClient.updateSocialLinksBlock.mockRejectedValue(new Error('not found'));
+
+      const result = await server.callTool('sq_update_social_links_block', {
+        siteId: 'test-site',
+        pageSlug: 'contact',
+        searchText: 'missing',
+      });
+
+      expect(result.isError).toBe(true);
     });
   });
 });

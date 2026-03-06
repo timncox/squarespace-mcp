@@ -16,6 +16,10 @@ const mockClient = {
   getSocialAccounts: vi.fn(),
   addSocialAccount: vi.fn(),
   removeSocialAccount: vi.fn(),
+  getSiteIdentity: vi.fn(),
+  updateSiteIdentity: vi.fn(),
+  getAdvancedSettings: vi.fn(),
+  saveAdvancedSettings: vi.fn(),
 };
 
 vi.mock('../session.js', () => ({
@@ -49,7 +53,7 @@ describe('Site Tools', () => {
     registerSiteTools(server as any);
   });
 
-  it('should register all 10 site tools', () => {
+  it('should register all 14 site tools', () => {
     expect(server.tools.has('sq_get_settings')).toBe(true);
     expect(server.tools.has('sq_update_settings')).toBe(true);
     expect(server.tools.has('sq_get_design')).toBe(true);
@@ -60,6 +64,10 @@ describe('Site Tools', () => {
     expect(server.tools.has('sq_list_social_links')).toBe(true);
     expect(server.tools.has('sq_add_social_link')).toBe(true);
     expect(server.tools.has('sq_remove_social_link')).toBe(true);
+    expect(server.tools.has('sq_get_site_identity')).toBe(true);
+    expect(server.tools.has('sq_update_site_identity')).toBe(true);
+    expect(server.tools.has('sq_get_advanced_settings')).toBe(true);
+    expect(server.tools.has('sq_save_advanced_settings')).toBe(true);
   });
 
   // ── sq_get_settings ─────────────────────────────────────────────────────────
@@ -545,6 +553,124 @@ describe('Site Tools', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Account not found');
+    });
+  });
+
+  // ── sq_get_site_identity ─────────────────────────────────────────────────────
+  describe('sq_get_site_identity', () => {
+    it('should get site identity', async () => {
+      mockClient.getSiteIdentity.mockResolvedValue({
+        success: true,
+        data: { businessName: 'Acme', siteTitle: 'Acme Corp', phone: '555-1234' },
+      });
+
+      const result = await server.callTool('sq_get_site_identity', { siteId: 'test-site' });
+
+      expect(mockClient.getSiteIdentity).toHaveBeenCalled();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.data.businessName).toBe('Acme');
+    });
+
+    it('should handle errors', async () => {
+      mockClient.getSiteIdentity.mockResolvedValue({ success: false, error: 'API failed' });
+
+      const result = await server.callTool('sq_get_site_identity', { siteId: 'test-site' });
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── sq_update_site_identity ──────────────────────────────────────────────────
+  describe('sq_update_site_identity', () => {
+    it('should update site identity fields', async () => {
+      mockClient.updateSiteIdentity.mockResolvedValue({ success: true, data: {} });
+
+      const result = await server.callTool('sq_update_site_identity', {
+        siteId: 'test-site',
+        businessName: 'New Name',
+        phone: '555-9999',
+      });
+
+      expect(mockClient.updateSiteIdentity).toHaveBeenCalledWith({
+        businessName: 'New Name',
+        address: undefined,
+        address2: undefined,
+        siteTitle: undefined,
+        phone: '555-9999',
+        email: undefined,
+      });
+      expect(result.isError).toBeUndefined();
+    });
+
+    it('should handle errors', async () => {
+      mockClient.updateSiteIdentity.mockRejectedValue(new Error('auth error'));
+
+      const result = await server.callTool('sq_update_site_identity', {
+        siteId: 'test-site',
+        siteTitle: 'test',
+      });
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── sq_get_advanced_settings ─────────────────────────────────────────────────
+  describe('sq_get_advanced_settings', () => {
+    it('should get advanced settings', async () => {
+      mockClient.getAdvancedSettings.mockResolvedValue({
+        success: true,
+        data: { mappings: '[{"from":"/old","to":"/new","statusCode":301}]' },
+      });
+
+      const result = await server.callTool('sq_get_advanced_settings', { siteId: 'test-site' });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+
+    it('should handle errors', async () => {
+      mockClient.getAdvancedSettings.mockRejectedValue(new Error('network error'));
+
+      const result = await server.callTool('sq_get_advanced_settings', { siteId: 'test-site' });
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── sq_save_advanced_settings ────────────────────────────────────────────────
+  describe('sq_save_advanced_settings', () => {
+    it('should save mappings', async () => {
+      mockClient.saveAdvancedSettings.mockResolvedValue({ success: true });
+
+      const mappingsJson = '[{"from":"/old","to":"/new","statusCode":301}]';
+      const result = await server.callTool('sq_save_advanced_settings', {
+        siteId: 'test-site',
+        mappings: mappingsJson,
+      });
+
+      expect(mockClient.saveAdvancedSettings).toHaveBeenCalledWith({ mappings: mappingsJson });
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+
+    it('should error when no data provided', async () => {
+      const result = await server.callTool('sq_save_advanced_settings', {
+        siteId: 'test-site',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Must provide');
+    });
+
+    it('should handle errors', async () => {
+      mockClient.saveAdvancedSettings.mockRejectedValue(new Error('save failed'));
+
+      const result = await server.callTool('sq_save_advanced_settings', {
+        siteId: 'test-site',
+        mappings: '[]',
+      });
+
+      expect(result.isError).toBe(true);
     });
   });
 });

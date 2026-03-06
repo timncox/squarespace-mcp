@@ -5,6 +5,9 @@ const mockClient = {
   getAvailableForms: vi.fn(),
   addFormBlock: vi.fn(),
   updateFormBlock: vi.fn(),
+  createForm: vi.fn(),
+  getForm: vi.fn(),
+  updateForm: vi.fn(),
 };
 
 vi.mock('../session.js', () => ({
@@ -43,10 +46,13 @@ describe('Form Tools', () => {
     registerFormTools(server as any);
   });
 
-  it('should register all 3 form tools', () => {
+  it('should register all 6 form tools', () => {
     expect(server.tools.has('sq_list_forms')).toBe(true);
     expect(server.tools.has('sq_add_form_block')).toBe(true);
     expect(server.tools.has('sq_update_form_block')).toBe(true);
+    expect(server.tools.has('sq_create_form')).toBe(true);
+    expect(server.tools.has('sq_get_form')).toBe(true);
+    expect(server.tools.has('sq_update_form')).toBe(true);
   });
 
   // ── sq_list_forms ──────────────────────────────────────────────────────────
@@ -96,6 +102,125 @@ describe('Form Tools', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Network timeout');
+    });
+  });
+
+  // ── sq_create_form ──────────────────────────────────────────────────────────
+  describe('sq_create_form', () => {
+    it('should create a form with defaults', async () => {
+      mockClient.createForm.mockResolvedValue({ success: true, formId: 'form-new-1' });
+
+      const result = await server.callTool('sq_create_form', { siteId: 'test-site' });
+
+      expect(mockClient.createForm).toHaveBeenCalledWith(undefined, undefined, undefined);
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(data.formId).toBe('form-new-1');
+    });
+
+    it('should pass typed fields array', async () => {
+      mockClient.createForm.mockResolvedValue({ success: true, formId: 'form-new-2' });
+
+      await server.callTool('sq_create_form', {
+        siteId: 'test-site',
+        name: 'Booking Form',
+        fields: [
+          { type: 'name', title: 'Full Name', required: true },
+          { type: 'email', title: 'Email', required: true },
+          { type: 'date', title: 'Preferred Date' },
+        ],
+        submitButtonText: 'Book Now',
+        submissionMessage: 'Thanks for booking!',
+      });
+
+      const call = mockClient.createForm.mock.calls[0];
+      expect(call[0]).toBe('Booking Form');
+      // fields should be stringified
+      expect(call[1]).toHaveLength(3);
+      const parsed = JSON.parse(call[1][0]);
+      expect(parsed.type).toBe('name');
+      expect(parsed.title).toBe('Full Name');
+      expect(parsed.id).toBeDefined();
+      // options
+      expect(call[2]).toEqual(expect.objectContaining({ submitButtonText: 'Book Now', submissionMessage: 'Thanks for booking!' }));
+    });
+
+    it('should handle errors', async () => {
+      mockClient.createForm.mockRejectedValue(new Error('session expired'));
+
+      const result = await server.callTool('sq_create_form', { siteId: 'test-site' });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('session expired');
+    });
+  });
+
+  // ── sq_get_form ─────────────────────────────────────────────────────────────
+  describe('sq_get_form', () => {
+    it('should get form details', async () => {
+      mockClient.getForm.mockResolvedValue({ success: true, data: { id: 'form-1', name: 'Contact', fields: [] } });
+
+      const result = await server.callTool('sq_get_form', { siteId: 'test-site', formId: 'form-1' });
+
+      expect(mockClient.getForm).toHaveBeenCalledWith('form-1');
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(data.data.name).toBe('Contact');
+    });
+
+    it('should handle errors', async () => {
+      mockClient.getForm.mockResolvedValue({ success: false, error: 'Form not found' });
+
+      const result = await server.callTool('sq_get_form', { siteId: 'test-site', formId: 'bad-id' });
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── sq_update_form ──────────────────────────────────────────────────────────
+  describe('sq_update_form', () => {
+    it('should update form name and submissionMessage', async () => {
+      mockClient.updateForm.mockResolvedValue({ success: true, data: {} });
+
+      const result = await server.callTool('sq_update_form', {
+        siteId: 'test-site',
+        formId: 'form-1',
+        name: 'Updated Contact',
+        submissionMessage: 'Thanks!',
+      });
+
+      expect(mockClient.updateForm).toHaveBeenCalledWith('form-1', expect.objectContaining({
+        name: 'Updated Contact',
+        submissionMessage: 'Thanks!',
+      }));
+      expect(result.isError).toBeUndefined();
+    });
+
+    it('should pass typed fields', async () => {
+      mockClient.updateForm.mockResolvedValue({ success: true, data: {} });
+
+      await server.callTool('sq_update_form', {
+        siteId: 'test-site',
+        formId: 'form-1',
+        fields: [{ type: 'textarea', title: 'Message' }],
+      });
+
+      const call = mockClient.updateForm.mock.calls[0];
+      expect(call[1].fields).toHaveLength(1);
+      const parsed = JSON.parse(call[1].fields[0]);
+      expect(parsed.type).toBe('textarea');
+    });
+
+    it('should handle errors', async () => {
+      mockClient.updateForm.mockRejectedValue(new Error('auth error'));
+
+      const result = await server.callTool('sq_update_form', {
+        siteId: 'test-site',
+        formId: 'form-1',
+        name: 'test',
+      });
+
+      expect(result.isError).toBe(true);
     });
   });
 
