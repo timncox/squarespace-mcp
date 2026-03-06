@@ -327,10 +327,21 @@ export function registerCommerceTools(server: McpServer) {
       productId: z.string().describe('Product ID to attach image to'),
       assetId: z.string().describe('Asset ID from sq_upload_image (the systemDataId)'),
       setAsThumbnail: z.boolean().optional().describe('Also set this image as the product thumbnail (default: false)'),
+      replaceExisting: z.boolean().optional().describe('Remove all existing product images before attaching this one (default: false)'),
     },
-  }, async ({ siteId, productId, assetId, setAsThumbnail }) => {
+  }, async ({ siteId, productId, assetId, setAsThumbnail, replaceExisting }) => {
     try {
       const client = getClient(siteId);
+
+      if (replaceExisting) {
+        const product = await client.getProduct(productId);
+        if (product.success && product.data?.images?.length) {
+          for (const image of product.data.images) {
+            await client.removeProductImage(productId, image.id);
+          }
+        }
+      }
+
       const result = await client.attachProductImage(productId, assetId);
       if (!result.success) {
         return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], isError: true };
