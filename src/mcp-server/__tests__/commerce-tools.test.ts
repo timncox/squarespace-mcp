@@ -122,6 +122,67 @@ describe('Commerce MCP Tools (Internal API)', () => {
     expect(mockClient.setProductThumbnail).toHaveBeenCalledWith('prod-1', 'timestamp-RANDOM');
   });
 
+  it('sq_attach_product_image removes existing images when replaceExisting is true', async () => {
+    const mockClient = createMockClient({
+      getProduct: vi.fn().mockResolvedValue({
+        success: true,
+        data: {
+          id: 'prod-1',
+          name: 'Hat',
+          images: [
+            { id: 'old-img-1', systemDataId: 'sys-1' },
+            { id: 'old-img-2', systemDataId: 'sys-2' },
+          ],
+        },
+      }),
+      removeProductImage: vi.fn().mockResolvedValue({ success: true }),
+    });
+    mockGetClient.mockReturnValue(mockClient);
+
+    await server.callTool('sq_attach_product_image', {
+      siteId: 'test',
+      productId: 'prod-1',
+      assetId: 'new-asset',
+      replaceExisting: true,
+    });
+
+    expect(mockClient.getProduct).toHaveBeenCalledWith('prod-1');
+    expect(mockClient.removeProductImage).toHaveBeenCalledTimes(2);
+    expect(mockClient.removeProductImage).toHaveBeenCalledWith('prod-1', 'old-img-1');
+    expect(mockClient.removeProductImage).toHaveBeenCalledWith('prod-1', 'old-img-2');
+    expect(mockClient.attachProductImage).toHaveBeenCalledWith('prod-1', 'new-asset');
+  });
+
+  it('sq_attach_product_image does not remove images when replaceExisting is false', async () => {
+    const mockClient = createMockClient();
+    mockGetClient.mockReturnValue(mockClient);
+
+    await server.callTool('sq_attach_product_image', {
+      siteId: 'test',
+      productId: 'prod-1',
+      assetId: 'new-asset',
+      replaceExisting: false,
+    });
+
+    expect(mockClient.getProduct).not.toHaveBeenCalled();
+    expect(mockClient.removeProductImage).toBeUndefined();
+    expect(mockClient.attachProductImage).toHaveBeenCalledWith('prod-1', 'new-asset');
+  });
+
+  it('sq_attach_product_image does not remove images when replaceExisting is omitted', async () => {
+    const mockClient = createMockClient();
+    mockGetClient.mockReturnValue(mockClient);
+
+    await server.callTool('sq_attach_product_image', {
+      siteId: 'test',
+      productId: 'prod-1',
+      assetId: 'new-asset',
+    });
+
+    expect(mockClient.getProduct).not.toHaveBeenCalled();
+    expect(mockClient.attachProductImage).toHaveBeenCalledWith('prod-1', 'new-asset');
+  });
+
   it('sq_attach_product_image skips thumbnail when not requested', async () => {
     const mockClient = createMockClient();
     mockGetClient.mockReturnValue(mockClient);
