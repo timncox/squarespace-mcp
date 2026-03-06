@@ -14,11 +14,6 @@ vi.mock('../../services/gmail.js', () => ({
   resolveAttachment: (...args: any[]) => mockResolveAttachment(...args),
 }));
 
-const mockProcessEmail = vi.fn();
-
-vi.mock('../../services/email-processor.js', () => ({
-  processEmail: (...args: any[]) => mockProcessEmail(...args),
-}));
 
 const mockExtractPdfText = vi.fn();
 
@@ -30,12 +25,6 @@ const mockParseMenuText = vi.fn();
 
 vi.mock('../../services/menu-parser.js', () => ({
   parseMenuText: (...args: any[]) => mockParseMenuText(...args),
-}));
-
-const mockListEmails = vi.fn();
-
-vi.mock('../../db/emails.js', () => ({
-  listEmails: (...args: any[]) => mockListEmails(...args),
 }));
 
 vi.mock('fs', async () => {
@@ -74,13 +63,11 @@ describe('Gmail Tools', () => {
     registerGmailTools(server as any);
   });
 
-  it('should register all 7 gmail tools', () => {
+  it('should register all 5 gmail tools', () => {
     expect(server.tools.has('sq_setup_gmail')).toBe(true);
     expect(server.tools.has('sq_list_emails')).toBe(true);
     expect(server.tools.has('sq_read_email')).toBe(true);
-    expect(server.tools.has('sq_process_email')).toBe(true);
     expect(server.tools.has('sq_download_attachment')).toBe(true);
-    expect(server.tools.has('sq_list_processed_emails')).toBe(true);
     expect(server.tools.has('sq_parse_pdf_menu')).toBe(true);
   });
 
@@ -193,59 +180,6 @@ describe('Gmail Tools', () => {
     });
   });
 
-  // ── sq_process_email ──────────────────────────────────────────────────────
-
-  describe('sq_process_email', () => {
-    it('should process email and return extraction result', async () => {
-      const mockMessage = {
-        id: 'msg-1',
-        threadId: 'thread-1',
-        from: 'client@example.com',
-        subject: 'Update homepage text',
-        date: '2026-03-04T10:00:00Z',
-        bodyText: 'Change the heading to "Welcome"',
-        bodyHtml: '<p>Change the heading to "Welcome"</p>',
-        attachments: [],
-      };
-      mockFetchMessage.mockResolvedValue(mockMessage);
-      mockProcessEmail.mockResolvedValue({
-        emailId: 'stored-1',
-        subject: 'Update homepage text',
-        from: 'client@example.com',
-        tasks: [{ id: 'task-1', description: 'Update heading' }],
-        reasoning: 'Client wants heading changed',
-      });
-
-      const result = await server.callTool('sq_process_email', { messageId: 'msg-1' });
-
-      expect(result.isError).toBeUndefined();
-      const data = JSON.parse(result.content[0].text);
-      expect(data.emailId).toBe('stored-1');
-      expect(data.tasks).toHaveLength(1);
-      expect(mockFetchMessage).toHaveBeenCalledWith('msg-1');
-      expect(mockProcessEmail).toHaveBeenCalledWith(mockMessage);
-    });
-
-    it('should return error when message not found', async () => {
-      mockFetchMessage.mockResolvedValue(null);
-
-      const result = await server.callTool('sq_process_email', { messageId: 'bad-id' });
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Email with messageId bad-id not found');
-    });
-
-    it('should return error on processing failure', async () => {
-      mockFetchMessage.mockResolvedValue({ id: 'msg-1', attachments: [] });
-      mockProcessEmail.mockRejectedValue(new Error('Claude API rate limited'));
-
-      const result = await server.callTool('sq_process_email', { messageId: 'msg-1' });
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Claude API rate limited');
-    });
-  });
-
   // ── sq_download_attachment ────────────────────────────────────────────────
 
   describe('sq_download_attachment', () => {
@@ -312,42 +246,6 @@ describe('Gmail Tools', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Attachment not found');
-    });
-  });
-
-  // ── sq_list_processed_emails ──────────────────────────────────────────────
-
-  describe('sq_list_processed_emails', () => {
-    it('should list stored emails with defaults', async () => {
-      mockListEmails.mockReturnValue([
-        { id: 'e1', subject: 'Menu update', fromAddress: 'a@b.com', receivedAt: '2026-03-04', processedAt: '2026-03-04' },
-        { id: 'e2', subject: 'New photos', fromAddress: 'c@d.com', receivedAt: '2026-03-03', processedAt: null },
-      ]);
-
-      const result = await server.callTool('sq_list_processed_emails', {});
-
-      expect(result.isError).toBeUndefined();
-      const data = JSON.parse(result.content[0].text);
-      expect(data.emails).toHaveLength(2);
-      expect(data.total).toBe(2);
-      expect(mockListEmails).toHaveBeenCalledWith({ limit: 20, status: 'all' });
-    });
-
-    it('should pass limit and status params', async () => {
-      mockListEmails.mockReturnValue([]);
-
-      await server.callTool('sq_list_processed_emails', { limit: 5, status: 'processed' });
-
-      expect(mockListEmails).toHaveBeenCalledWith({ limit: 5, status: 'processed' });
-    });
-
-    it('should return error on thrown exception', async () => {
-      mockListEmails.mockImplementation(() => { throw new Error('Database locked'); });
-
-      const result = await server.callTool('sq_list_processed_emails', {});
-
-      expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Database locked');
     });
   });
 

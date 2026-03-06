@@ -10,7 +10,9 @@ import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
 import { getDb } from '../db/database.js';
 import { createContentSaveClient, type SectionCatalogEntry, type SectionCatalogResponse, type CopyTemplateSectionResult } from './content-save.js';
-import type { DiscoveredCategory, TemplateDiscoveryResult } from './template-discovery.js';
+interface DiscoveredTemplate { name: string; index: number; }
+interface DiscoveredCategory { name: string; templates: DiscoveredTemplate[]; }
+interface TemplateDiscoveryResult { categories: DiscoveredCategory[]; discoveredAt: Date; }
 
 // ── Cache TTL ────────────────────────────────────────────────────────────────
 

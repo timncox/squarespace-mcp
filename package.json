@@ -1,32 +1,21 @@
 {
   "name": "squarespace-helper",
-  "version": "0.1.0",
-  "description": "AI agent that edits Squarespace websites based on forwarded client emails",
+  "version": "0.2.0",
+  "description": "MCP server for editing Squarespace websites via the Content Save API",
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/src/index.js",
-    "start:all": "bash scripts/start-with-ngrok.sh",
-    "dev": "tsx watch src/index.ts",
-    "dev:all": "bash scripts/start-dev.sh",
-    "cli": "tsx src/cli.ts",
-    "test-login": "tsx scripts/test-login.ts",
-    "explore-editor": "tsx scripts/explore-editor.ts",
-    "setup-gmail": "tsx scripts/setup-gmail.ts",
-    "test": "vitest run",
-    "test:unit": "vitest run src/automation/__tests__/parse-agent-action.test.ts",
-    "test:integration": "vitest run src/automation/__tests__/compound-actions.integration.test.ts src/automation/__tests__/smyth-tavern.integration.test.ts src/automation/__tests__/create-about-page.integration.test.ts"
+    "mcp": "npx tsx src/mcp-server/index.ts",
+    "test": "vitest run --exclude '.claude/**' --exclude 'dist/**' --exclude 'src/archive/**'"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
     "better-sqlite3": "^11.7.0",
     "dotenv": "^16.4.7",
-    "fastify": "^5.2.0",
     "googleapis": "^144.0.0",
     "pdf-parse": "^1.1.1",
     "pino": "^9.6.0",
-    "playwright": "^1.50.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

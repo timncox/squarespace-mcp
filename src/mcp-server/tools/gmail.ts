@@ -295,39 +295,6 @@ export function registerGmailTools(server: McpServer) {
     }
   });
 
-  // ── sq_process_email ────────────────────────────────────────────────────────
-  server.registerTool('sq_process_email', {
-    description:
-      'Run the full task extraction pipeline on an email. Parses the email, extracts tasks via Claude, and stores results in the database.',
-    inputSchema: {
-      messageId: z.string().describe('Gmail message ID to process'),
-    },
-  }, async ({ messageId }) => {
-    try {
-      const { fetchMessage } = await import('../../services/gmail.js');
-      const { processEmail } = await import('../../services/email-processor.js');
-
-      const message = await fetchMessage(messageId);
-      if (!message) {
-        return {
-          content: [{ type: 'text' as const, text: `Error: Email with messageId ${messageId} not found` }],
-          isError: true,
-        };
-      }
-
-      const result = await processEmail(message);
-
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
-      };
-    } catch (err) {
-      return {
-        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
-        isError: true,
-      };
-    }
-  });
-
   // ── sq_download_attachment ──────────────────────────────────────────────────
   server.registerTool('sq_download_attachment', {
     description:
@@ -354,30 +321,6 @@ export function registerGmailTools(server: McpServer) {
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ filePath, filename }, null, 2) }],
-      };
-    } catch (err) {
-      return {
-        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
-        isError: true,
-      };
-    }
-  });
-
-  // ── sq_list_processed_emails ────────────────────────────────────────────────
-  server.registerTool('sq_list_processed_emails', {
-    description:
-      'Query stored email history from the database. Filter by processing status to find processed, unprocessed, or all emails.',
-    inputSchema: {
-      limit: z.number().optional().describe('Max emails to return (default 20)'),
-      status: z.enum(['processed', 'unprocessed', 'all']).optional().describe('Filter by processing status (default all)'),
-    },
-  }, async ({ limit, status }) => {
-    try {
-      const { listEmails } = await import('../../db/emails.js');
-      const emails = listEmails({ limit: limit ?? 20, status: status ?? 'all' });
-
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ emails, total: emails.length }, null, 2) }],
       };
     } catch (err) {
       return {

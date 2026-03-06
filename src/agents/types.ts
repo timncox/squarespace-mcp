@@ -4,7 +4,6 @@
  * Agent pipeline: Research → Site Analyst → Content Strategist → Editor (browser agent)
  */
 
-import type { PageDiff } from '../services/site-reader.js';
 
 // ─── Content Plan (output of Content Strategist, input to Editor Agent) ─────
 
@@ -728,7 +727,7 @@ export interface JsonVerificationEvidence {
   /** Whether the diff detected any changes at all */
   changesDetected: boolean;
   /** The structured diff (from SiteReader.diffPages) */
-  diff?: PageDiff;
+  diff?: unknown;
   /** Extracted blocks from the "after" snapshot for content verification */
   afterBlocks?: ExtractedBlockSummary[];
   /** Error message if SiteReader failed */

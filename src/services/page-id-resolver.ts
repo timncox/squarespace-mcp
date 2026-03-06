@@ -117,31 +117,13 @@ async function fetchPageSectionsIdFromHtml(
 }
 
 /**
- * Last-resort: use headless browser to extract pageSectionsId from the DOM.
- * Expensive (~3-5s) — only used when public HTML fetch fails.
+ * Browser fallback removed — no longer available.
  */
 async function fetchPageSectionsIdFromBrowser(
-  subdomain: string,
-  slug: string,
+  _subdomain: string,
+  _slug: string,
 ): Promise<string | null> {
-  try {
-    const { getBrowserManager } = await import('../automation/browser-manager.js');
-    const manager = getBrowserManager({ headless: true });
-    const page = await manager.getPage();
-
-    const normalizedSlug = normalizeSlug(slug);
-    const pageUrl = normalizedSlug === 'home'
-      ? `https://${subdomain}.squarespace.com/`
-      : `https://${subdomain}.squarespace.com/${normalizedSlug}`;
-
-    await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 15_000 });
-
-    const pageSectionsId = await page.getAttribute('article[data-page-sections]', 'data-page-sections');
-    return pageSectionsId;
-  } catch (err) {
-    logger.warn({ error: errMsg(err), subdomain, slug }, 'Browser fallback for pageSectionsId failed');
-    return null;
-  }
+  return null;
 }
 
 /**

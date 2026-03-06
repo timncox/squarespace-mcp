@@ -1,0 +1,1946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Squarespace MCP for Claude Desktop</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,400;1,9..144,700&family=Outfit:wght@300;400;500;600;700&family=Fira+Code:wght@300;400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #0c0a10;
+    --bg-elevated: #14111c;
+    --bg-card: #1b1726;
+    --bg-card-hover: #221d30;
+    --text: #f0ece2;
+    --text-dim: #8e87a0;
+    --text-muted: #504a65;
+    --accent: #ff6b35;
+    --accent-glow: #ff6b3530;
+    --accent-bright: #ff8c5a;
+    --mint: #00d4aa;
+    --mint-glow: #00d4aa25;
+    --pink: #ff3b6f;
+    --blue: #5b8cff;
+    --purple: #b07fff;
+    --warm: #ffd666;
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-body: 'Outfit', -apple-system, sans-serif;
+    --font-mono: 'Fira Code', monospace;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-body);
+    overflow-x: hidden;
+    font-size: 18px;
+  }
+
+  body { position: relative; }
+
+  /* -- Grain -- */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0.04;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* -- Floating shapes -- */
+  .floater {
+    position: fixed;
+    pointer-events: none;
+    z-index: 0;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.12;
+    animation: floatDrift 20s ease-in-out infinite alternate;
+  }
+  .floater-1 { width: 500px; height: 500px; background: var(--accent); top: -10%; left: -5%; animation-delay: 0s; }
+  .floater-2 { width: 400px; height: 400px; background: var(--purple); bottom: 10%; right: -8%; animation-delay: -7s; animation-duration: 25s; }
+  .floater-3 { width: 350px; height: 350px; background: var(--mint); top: 40%; left: 60%; animation-delay: -12s; animation-duration: 30s; }
+
+  @keyframes floatDrift {
+    0% { transform: translate(0, 0) scale(1); }
+    33% { transform: translate(30px, -40px) scale(1.05); }
+    66% { transform: translate(-20px, 20px) scale(0.95); }
+    100% { transform: translate(10px, -10px) scale(1.02); }
+  }
+
+  /* -- Progress Bar -- */
+  #progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--pink), var(--purple));
+    z-index: 10000;
+    transition: width 0.15s linear;
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+
+  /* -- Nav -- */
+  nav {
+    position: fixed;
+    top: 0;
+    right: 0;
+    z-index: 9998;
+    padding: 1.5rem 2rem;
+    display: flex;
+    gap: 0.4rem;
+    mix-blend-mode: difference;
+  }
+
+  nav .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  nav .dot.active {
+    background: var(--accent);
+    box-shadow: 0 0 12px var(--accent-glow);
+    transform: scale(1.5);
+  }
+
+  nav .dot:hover { background: var(--text-dim); transform: scale(1.3); }
+
+  /* ============ HERO ============ */
+  .hero {
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero-aurora {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  .hero-aurora span {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(100px);
+    opacity: 0.15;
+    animation: auroraPulse 8s ease-in-out infinite alternate;
+  }
+
+  .hero-aurora span:nth-child(1) {
+    width: 600px; height: 600px;
+    background: var(--accent);
+    top: -20%; left: 10%;
+    animation-delay: 0s;
+  }
+  .hero-aurora span:nth-child(2) {
+    width: 500px; height: 500px;
+    background: var(--purple);
+    bottom: -15%; right: 5%;
+    animation-delay: -3s;
+    animation-duration: 10s;
+  }
+  .hero-aurora span:nth-child(3) {
+    width: 400px; height: 400px;
+    background: var(--mint);
+    top: 30%; right: 20%;
+    animation-delay: -5s;
+    animation-duration: 12s;
+  }
+
+  @keyframes auroraPulse {
+    0% { transform: translate(0,0) scale(1); opacity: 0.12; }
+    50% { transform: translate(40px, -30px) scale(1.15); opacity: 0.2; }
+    100% { transform: translate(-20px, 20px) scale(0.9); opacity: 0.1; }
+  }
+
+  .hero::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 35%;
+    background: linear-gradient(to top, var(--bg), transparent);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .hero-photo {
+    width: 320px;
+    height: 320px;
+    border-radius: 50%;
+    object-fit: cover;
+    object-position: center 20%;
+    border: 4px solid var(--accent-glow);
+    box-shadow: 0 0 60px var(--accent-glow), 0 0 120px #ff6b3515, inset 0 0 30px rgba(0,0,0,0.3);
+    margin-bottom: 2.5rem;
+    opacity: 0;
+    animation: heroReveal 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards;
+    position: relative;
+    z-index: 2;
+  }
+
+  .hero-label {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    font-weight: 400;
+    letter-spacing: 0.35em;
+    text-transform: uppercase;
+    color: var(--mint);
+    margin-bottom: 1.5rem;
+    opacity: 0;
+    animation: heroReveal 1s ease 0.5s forwards;
+    position: relative;
+    z-index: 2;
+  }
+
+  .hero h1 {
+    font-family: var(--font-display);
+    font-size: clamp(4rem, 9vw, 8rem);
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    opacity: 0;
+    animation: heroReveal 1.4s cubic-bezier(0.16, 1, 0.3, 1) 0.7s forwards;
+    position: relative;
+    z-index: 2;
+  }
+
+  .hero h1 em {
+    font-style: italic;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero-meta {
+    margin-top: 2.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    font-weight: 300;
+    color: var(--text-dim);
+    display: flex;
+    gap: 2.5rem;
+    opacity: 0;
+    animation: heroReveal 1s ease 1s forwards;
+    position: relative;
+    z-index: 2;
+  }
+
+  .hero-meta span {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .hero-meta span::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent-glow);
+  }
+
+  .hero-scroll {
+    position: absolute;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    opacity: 0;
+    animation: heroReveal 1s ease 1.4s forwards;
+  }
+
+  .hero-scroll .arrow {
+    width: 2px;
+    height: 32px;
+    background: var(--text-muted);
+    margin: 0 auto;
+    position: relative;
+    overflow: hidden;
+    border-radius: 1px;
+  }
+
+  .hero-scroll .arrow::after {
+    content: '';
+    position: absolute;
+    top: -100%; left: 0;
+    width: 100%; height: 100%;
+    background: linear-gradient(to bottom, var(--accent), var(--pink));
+    animation: scrollPulse 2.5s ease infinite;
+    border-radius: 1px;
+  }
+
+  @keyframes heroReveal {
+    from { opacity: 0; transform: translateY(30px) scale(0.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes scrollPulse {
+    0% { top: -100%; }
+    50% { top: 100%; }
+    100% { top: 100%; }
+  }
+
+  /* ============ FULL-SCREEN SLIDES ============ */
+  .slide {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 4rem 3rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .slide h2 {
+    font-family: var(--font-display);
+    font-size: clamp(3rem, 6vw, 5.5rem);
+    font-weight: 700;
+    line-height: 1.08;
+    max-width: 1000px;
+    letter-spacing: -0.02em;
+  }
+
+  .slide h2 em {
+    font-style: italic;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), var(--pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .slide p {
+    margin-top: 2rem;
+    font-size: 1.4rem;
+    font-weight: 300;
+    line-height: 1.7;
+    color: var(--text-dim);
+    max-width: 680px;
+  }
+
+  .slide .subtitle {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--mint);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    margin-bottom: 2rem;
+  }
+
+  /* ============ SECTION HEADERS ============ */
+  .section-header {
+    padding: 8rem 3rem 4rem;
+    max-width: 1000px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 1;
+  }
+
+  .section-header .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--mint);
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .section-header .eyebrow::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, var(--mint), transparent);
+    opacity: 0.3;
+  }
+
+  .section-header h2 {
+    font-family: var(--font-display);
+    font-size: clamp(2.8rem, 5vw, 4.2rem);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+  }
+
+  .section-header h2 em {
+    font-style: italic;
+    background: linear-gradient(135deg, var(--accent), var(--pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .section-header p {
+    margin-top: 1.5rem;
+    font-size: 1.3rem;
+    font-weight: 300;
+    line-height: 1.7;
+    color: var(--text-dim);
+    max-width: 700px;
+  }
+
+  /* ============ STATS BAR ============ */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    border-top: 1px solid #2a2540;
+    border-bottom: 1px solid #2a2540;
+    position: relative;
+    z-index: 1;
+  }
+
+  .stat {
+    padding: 3.5rem 2rem;
+    text-align: center;
+    border-right: 1px solid #2a2540;
+    position: relative;
+    overflow: hidden;
+    transition: background 0.4s ease;
+  }
+
+  .stat:last-child { border-right: none; }
+  .stat:hover { background: var(--bg-elevated); }
+
+  .stat-number {
+    font-family: var(--font-display);
+    font-size: clamp(3.2rem, 5vw, 5rem);
+    font-weight: 900;
+    background: linear-gradient(135deg, var(--accent), var(--warm));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1;
+  }
+
+  .stat-label {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-top: 0.75rem;
+  }
+
+  /* ============ ARCH CARDS ============ */
+  .arch-cards {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .arch-card {
+    background: var(--bg-card);
+    border: 1px solid #2a2540;
+    border-radius: 12px;
+    padding: 2.5rem;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .arch-card:hover {
+    border-color: var(--accent-glow);
+    transform: translateY(-4px);
+    box-shadow: 0 20px 60px -20px var(--accent-glow);
+    background: var(--bg-card-hover);
+  }
+
+  .arch-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--pink), var(--purple));
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+
+  .arch-card:hover::before { opacity: 1; }
+
+  .arch-card .phase-num {
+    font-family: var(--font-display);
+    font-size: 5rem;
+    font-weight: 900;
+    color: var(--text-muted);
+    opacity: 0.15;
+    position: absolute;
+    top: -0.75rem; right: 1rem;
+    line-height: 1;
+  }
+
+  .arch-card h3 {
+    font-family: var(--font-display);
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+  }
+
+  .arch-card .period {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    white-space: nowrap;
+    text-transform: uppercase;
+    color: var(--mint);
+    margin-bottom: 1rem;
+  }
+
+  .arch-card p {
+    font-size: 1.1rem;
+    font-weight: 300;
+    line-height: 1.7;
+    color: var(--text-dim);
+  }
+
+  .arch-card .tech-list {
+    margin-top: 1.25rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .arch-card .tech-list span {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    padding: 0.35rem 0.7rem;
+    border: 1px solid #3a3455;
+    border-radius: 100px;
+    color: var(--text-dim);
+    transition: all 0.3s ease;
+  }
+
+  .arch-card:hover .tech-list span {
+    border-color: var(--accent-glow);
+    color: var(--text);
+  }
+
+  /* ============ PIPELINE ============ */
+  .pipeline-section {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem 2rem 4rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .pipeline {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    align-items: stretch;
+    gap: 1.5rem;
+  }
+
+  .pipeline-agent {
+    background: var(--bg-card);
+    border: 1px solid #2a2540;
+    border-radius: 12px;
+    padding: 2rem 1.25rem;
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .pipeline-agent:hover {
+    border-color: var(--accent-glow);
+    transform: translateY(-4px);
+    box-shadow: 0 16px 50px -16px var(--accent-glow);
+    background: var(--bg-card-hover);
+  }
+
+  .pipeline-agent .agent-icon {
+    font-size: 2.2rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .pipeline-agent h4 {
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    font-weight: 600;
+    margin-bottom: 0.4rem;
+  }
+
+  .pipeline-agent p {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    line-height: 1.4;
+  }
+
+  .pipeline-agent:not(:last-child)::after {
+    content: '\2192';
+    position: absolute;
+    right: -1.1rem;
+    top: 50%;
+    transform: translateX(50%) translateY(-50%);
+    font-size: 1.2rem;
+    color: var(--accent);
+    z-index: 2;
+    text-shadow: 0 0 10px var(--accent-glow);
+  }
+
+  /* Pipeline sequential glow animation */
+  .pipeline-agent.lit {
+    border-color: var(--accent);
+    box-shadow: 0 0 30px var(--accent-glow), inset 0 0 20px var(--accent-glow);
+  }
+
+  .pipeline-agent.lit h4 {
+    color: var(--accent-bright);
+  }
+
+  /* ============ LEARNINGS ============ */
+  .learnings-grid {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .learning-card {
+    background: var(--bg-card);
+    border: 1px solid #2a2540;
+    border-radius: 12px;
+    padding: 2.5rem;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+    transform-style: preserve-3d;
+    perspective: 1000px;
+  }
+
+  .learning-card:hover {
+    border-color: var(--accent-glow);
+    transform: translateY(-4px);
+    box-shadow: 0 20px 60px -20px var(--accent-glow);
+    background: var(--bg-card-hover);
+  }
+
+  .learning-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--pink), transparent);
+  }
+
+  .learning-card .icon {
+    font-size: 2.4rem;
+    margin-bottom: 1rem;
+  }
+
+  .learning-card h3 {
+    font-family: var(--font-display);
+    font-size: 1.9rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+    line-height: 1.15;
+  }
+
+  .learning-card h3 em {
+    font-style: italic;
+    background: linear-gradient(135deg, var(--accent), var(--pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .learning-card p {
+    font-size: 1.15rem;
+    font-weight: 300;
+    line-height: 1.7;
+    color: var(--text-dim);
+  }
+
+  /* ============ TIMELINE ============ */
+  .timeline {
+    position: relative;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 2rem 2rem 6rem;
+    z-index: 1;
+  }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 50%; top: 0; bottom: 0;
+    width: 2px;
+    background: linear-gradient(to bottom, transparent, #3a3455 5%, #3a3455 95%, transparent);
+    border-radius: 1px;
+  }
+
+  .day {
+    position: relative;
+    margin-bottom: 4rem;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3rem;
+    align-items: start;
+  }
+
+  .day:nth-child(even) .day-content { grid-column: 2; }
+  .day:nth-child(even) .day-meta { grid-column: 1; grid-row: 1; text-align: right; }
+  .day:nth-child(odd) .day-content { grid-column: 1; }
+  .day:nth-child(odd) .day-meta { grid-column: 2; }
+
+  .day-marker {
+    position: absolute;
+    left: 50%; top: 0.5rem;
+    transform: translateX(-50%);
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--bg);
+    border: 3px solid var(--accent);
+    z-index: 2;
+    box-shadow: 0 0 0 4px var(--bg), 0 0 20px var(--accent-glow);
+    transition: all 0.3s ease;
+  }
+
+  .day.visible .day-marker {
+    background: var(--accent);
+    box-shadow: 0 0 0 4px var(--bg), 0 0 25px var(--accent-glow);
+  }
+
+  .day-meta { padding-top: 0.25rem; }
+
+  .day-date {
+    font-family: var(--font-mono);
+    font-size: 1.05rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--mint);
+  }
+
+  .day-label {
+    font-family: var(--font-display);
+    font-size: 2.3rem;
+    font-weight: 700;
+    margin-top: 0.5rem;
+    line-height: 1.15;
+  }
+
+  .day-count {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+  }
+
+  .day-content {
+    background: var(--bg-card);
+    border: 1px solid #2a2540;
+    border-radius: 12px;
+    padding: 2.5rem;
+    position: relative;
+    transition: all 0.3s ease;
+  }
+
+  .day-content:hover {
+    border-color: #3a3455;
+    background: var(--bg-card-hover);
+  }
+
+  .day-content::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent-glow), transparent);
+  }
+
+  .commit-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .commit-list li {
+    font-size: 1.3rem;
+    font-weight: 300;
+    line-height: 1.55;
+    color: var(--text-dim);
+    padding-left: 1.5rem;
+    position: relative;
+  }
+
+  .commit-list li::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0.7rem;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+  }
+
+  .commit-list li.feat::before { background: var(--mint); box-shadow: 0 0 6px var(--mint-glow); }
+  .commit-list li.fix::before { background: var(--pink); }
+  .commit-list li.refactor::before { background: var(--blue); }
+  .commit-list li.test::before { background: var(--purple); }
+  .commit-list li.docs::before { background: var(--warm); }
+  .commit-list li.chore::before { background: var(--mint); }
+
+  .commit-list li strong {
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  /* ============ HEATMAP ============ */
+  .heatmap-section {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .heatmap {
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    gap: 10px;
+    margin-top: 2rem;
+  }
+
+  .heat-day {
+    aspect-ratio: 1;
+    border-radius: 6px;
+    position: relative;
+    cursor: default;
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .heat-day:hover { transform: scale(1.15); }
+
+  .heat-day .tooltip {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-elevated);
+    border: 1px solid #3a3455;
+    border-radius: 8px;
+    padding: 0.6rem 0.85rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    white-space: nowrap;
+    z-index: 10;
+    color: var(--text);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+  }
+
+  .heat-day:hover .tooltip { display: block; }
+
+  .heatmap-legend {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 1.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-muted);
+  }
+
+  .heatmap-legend .swatch {
+    width: 16px; height: 16px;
+    border-radius: 3px;
+  }
+
+  /* ============ GROWTH BARS ============ */
+  .growth-section {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .growth-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin-top: 2rem;
+  }
+
+  .growth-row {
+    display: grid;
+    grid-template-columns: 110px 1fr 60px;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .growth-row .date {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    text-align: right;
+  }
+
+  .growth-row .bar-track {
+    height: 36px;
+    background: #1a1624;
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .growth-row .bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 1.8s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+  }
+
+  .growth-row .bar-fill .bar-label {
+    position: absolute;
+    right: 10px; top: 50%;
+    transform: translateY(-50%);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--bg);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .growth-row .count {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    font-weight: 500;
+  }
+
+  /* ============ COMPARISON TABLE ============ */
+  .comparison-section {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 2rem 2rem 4rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .comparison-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: var(--bg-card);
+    border: 1px solid #2a2540;
+    border-radius: 12px;
+    overflow: hidden;
+    font-size: 1.15rem;
+  }
+
+  .comparison-table thead th {
+    font-family: var(--font-display);
+    font-size: 1.5rem;
+    font-weight: 700;
+    padding: 1.5rem 2rem;
+    text-align: left;
+    border-bottom: 2px solid #2a2540;
+  }
+
+  .comparison-table thead th:first-child {
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    font-family: var(--font-mono);
+    font-weight: 400;
+  }
+
+  .comparison-table thead th:nth-child(2) {
+    background: linear-gradient(135deg, var(--purple), var(--blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .comparison-table thead th:nth-child(3) {
+    background: linear-gradient(135deg, var(--accent), var(--pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .comparison-table td {
+    padding: 1.2rem 2rem;
+    border-bottom: 1px solid #1e1a2a;
+    color: var(--text-dim);
+    font-weight: 300;
+    vertical-align: top;
+  }
+
+  .comparison-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .comparison-table td:first-child {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--mint);
+    font-weight: 400;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+  }
+
+  .comparison-table tr:hover td {
+    background: var(--bg-card-hover);
+  }
+
+  .when-to-use {
+    max-width: 1000px;
+    margin: 2rem auto 0;
+    padding: 0 2rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .use-case {
+    background: var(--bg-card);
+    border: 1px solid #2a2540;
+    border-radius: 10px;
+    padding: 1.5rem 2rem;
+    transition: all 0.3s ease;
+  }
+
+  .use-case:hover {
+    border-color: #3a3455;
+    background: var(--bg-card-hover);
+  }
+
+  .use-case .use-label {
+    font-family: var(--font-display);
+    font-size: 1.3rem;
+    font-weight: 700;
+    margin-bottom: 0.4rem;
+  }
+
+  .use-case .use-label em {
+    font-style: italic;
+    background: linear-gradient(135deg, var(--accent), var(--pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .use-case p {
+    font-size: 1.15rem;
+    font-weight: 300;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+
+  /* ============ FINAL ============ */
+  .final-section {
+    padding: 8rem 2rem;
+    text-align: center;
+    position: relative;
+    z-index: 1;
+  }
+
+  .final-section::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 50%;
+    transform: translateX(-50%);
+    width: 2px; height: 80px;
+    background: linear-gradient(to bottom, transparent, var(--accent));
+    border-radius: 1px;
+  }
+
+  .final-section h2 {
+    font-family: var(--font-display);
+    font-size: clamp(2.5rem, 5vw, 4rem);
+    font-weight: 700;
+    line-height: 1.15;
+  }
+
+  .final-section h2 em {
+    font-style: italic;
+    background: linear-gradient(135deg, var(--accent), var(--pink));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .final-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    max-width: 900px;
+    margin: 4rem auto 0;
+  }
+
+  .final-item {
+    padding: 2.5rem;
+    border: 1px solid #2a2540;
+    border-radius: 12px;
+    background: var(--bg-card);
+    transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .final-item:hover {
+    transform: translateY(-3px);
+    border-color: var(--accent-glow);
+    box-shadow: 0 16px 50px -16px var(--accent-glow);
+  }
+
+  .final-item .num {
+    font-family: var(--font-display);
+    font-size: 3.5rem;
+    font-weight: 900;
+    background: linear-gradient(135deg, var(--accent), var(--warm));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .final-item .label {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-top: 0.5rem;
+  }
+
+  /* ============ FOOTER ============ */
+  footer {
+    padding: 3.5rem 2rem;
+    text-align: center;
+    border-top: 1px solid #1e1a2a;
+    position: relative;
+    z-index: 1;
+  }
+
+  footer p {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+  }
+
+  /* ============ ANIMATIONS ============ */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(30px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(40px);
+    transition: opacity 0.9s cubic-bezier(0.16, 1, 0.3, 1), transform 0.9s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Staggered children */
+  .reveal.visible .arch-card,
+  .reveal.visible .learning-card,
+  .reveal.visible .pipeline-agent,
+  .reveal.visible .final-item {
+    animation: staggerIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+
+  .reveal.visible > :nth-child(1) { animation-delay: 0s; }
+  .reveal.visible > :nth-child(2) { animation-delay: 0.1s; }
+  .reveal.visible > :nth-child(3) { animation-delay: 0.2s; }
+  .reveal.visible > :nth-child(4) { animation-delay: 0.3s; }
+  .reveal.visible > :nth-child(5) { animation-delay: 0.4s; }
+  .reveal.visible > :nth-child(6) { animation-delay: 0.5s; }
+
+  @keyframes staggerIn {
+    from { opacity: 0; transform: translateY(25px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  /* Stat number count-up shimmer */
+  @keyframes shimmer {
+    0% { background-position: -200% center; }
+    100% { background-position: 200% center; }
+  }
+
+  .stat-number.counting {
+    background: linear-gradient(90deg, var(--accent), var(--warm), var(--accent));
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: shimmer 2s linear;
+  }
+
+  /* ============ RESPONSIVE ============ */
+  @media (max-width: 768px) {
+    .stats-bar { grid-template-columns: repeat(2, 1fr); }
+    .stats-bar .stat:nth-child(2) { border-right: none; }
+
+    .timeline::before { left: 20px; }
+    .day { grid-template-columns: 1fr; padding-left: 50px; }
+    .day:nth-child(even) .day-content,
+    .day:nth-child(odd) .day-content { grid-column: 1; }
+    .day:nth-child(even) .day-meta,
+    .day:nth-child(odd) .day-meta { grid-column: 1; grid-row: 1; text-align: left; }
+    .day-marker { left: 20px; }
+
+    .arch-cards { grid-template-columns: 1fr; }
+    .pipeline { grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    .pipeline-agent:nth-child(3)::after { display: none; }
+    .learnings-grid { grid-template-columns: 1fr; }
+    .final-grid { grid-template-columns: 1fr; }
+    .heatmap { grid-template-columns: repeat(5, 1fr); }
+  }
+</style>
+</head>
+<body>
+
+<!-- Floating ambient shapes -->
+<div class="floater floater-1"></div>
+<div class="floater floater-2"></div>
+<div class="floater floater-3"></div>
+
+<div id="progress"></div>
+<nav id="nav"></nav>
+
+<!-- *** HERO *** -->
+<section class="hero" data-section="hero">
+  <div class="hero-aurora">
+    <span></span><span></span><span></span>
+  </div>
+  <img src="tim.webp" alt="Tim Cox" class="hero-photo">
+  <div class="hero-label">Hi, I'm Tim</div>
+  <h1>I Built <em>Something</em></h1>
+  <div class="hero-meta">
+    <span>Squarespace Expert</span>
+    <span>10 Days of Building</span>
+    <span>68 MCP Tools</span>
+  </div>
+  <div class="hero-scroll"><div class="arrow"></div></div>
+</section>
+
+<!-- *** ORIGIN STORY *** -->
+<section class="slide reveal" data-section="origin">
+  <div class="subtitle">Origin Story</div>
+  <h2><em>Squarespace</em> saved my job</h2>
+  <p>I'm still the Squarespace Expert at Lure Fishbar &mdash; the birthplace of Squarespace. It's where I fell in love with the platform and never looked back.</p>
+</section>
+
+<!-- *** THE SPARK *** -->
+<section class="slide reveal" data-section="idea">
+  <div class="subtitle">The Spark</div>
+  <h2>What if I could <em>automate</em> client requests?</h2>
+  <p>Clients send emails. I make edits. What if an AI agent could handle the whole loop &mdash; read the email, understand the request, and update the site?</p>
+</section>
+
+<!-- *** THE FUEL *** -->
+<section class="slide reveal" data-section="fuel">
+  <div class="subtitle">The Fuel</div>
+  <h2>Nontechnical <em>overcompensation</em>,<br>ADHD <em>hyperfocus</em>,<br>and a simple realization</h2>
+  <p>Open Claw is super shady &mdash; so why not build your own? All you really need is CLI access and a browser.</p>
+</section>
+
+<!-- *** WHAT I BUILT *** -->
+<div class="section-header reveal" data-section="built">
+  <div class="eyebrow">What I Built</div>
+  <h2>Squarespace MCP for <em>Claude Desktop</em></h2>
+  <p>An autonomous agent system that edits Squarespace websites. 68 MCP tools, 6 agent stages, built in 10 days.</p>
+</div>
+
+<!-- *** THE MINDSET SHIFT *** -->
+<section class="slide reveal" data-section="mindset">
+  <div class="subtitle">The Mindset Shift</div>
+  <h2>I didn't build an app for <em>humans</em>.<br>I built a tool for <em>Claude</em>.</h2>
+  <p>All of this work was user testing where AI was the user. AI told me how to improve the tool, and AI made the improvements. The entire development loop was between me and an AI building for another AI.</p>
+</section>
+
+<!-- STATS -->
+<div class="stats-bar reveal" data-section="stats">
+  <div class="stat">
+    <div class="stat-number" data-target="208">0</div>
+    <div class="stat-label">Total Commits</div>
+  </div>
+  <div class="stat">
+    <div class="stat-number" data-target="10">0</div>
+    <div class="stat-label">Days of Dev</div>
+  </div>
+  <div class="stat">
+    <div class="stat-number" data-target="1589" data-prefix="~" data-comma>0</div>
+    <div class="stat-label">Tests Passing</div>
+  </div>
+  <div class="stat">
+    <div class="stat-number" data-target="68">0</div>
+    <div class="stat-label">MCP Tools</div>
+  </div>
+</div>
+
+<!-- ARCHITECTURE -->
+<div class="section-header reveal" data-section="arch">
+  <div class="eyebrow">Architecture</div>
+  <h2>Three architectures in ten days</h2>
+  <p>The project pivoted twice &mdash; from browser automation to API pipelines to autonomous MCP agents &mdash; each time getting closer to the right abstraction.</p>
+</div>
+
+<div class="arch-cards reveal">
+  <div class="arch-card">
+    <div class="phase-num">I</div>
+    <div class="period">Days 1-4 &middot; Feb 23-26</div>
+    <h3>Browser Agent</h3>
+    <p>Puppeteer drove the Squarespace editor directly. Fragile selectors, race conditions, and slow execution &mdash; but it proved the concept worked.</p>
+    <div class="tech-list">
+      <span>Puppeteer</span>
+      <span>Claude Vision</span>
+      <span>Screenshots</span>
+      <span>DOM selectors</span>
+    </div>
+  </div>
+  <div class="arch-card">
+    <div class="phase-num">II</div>
+    <div class="period">Days 4-8 &middot; Feb 26-Mar 2</div>
+    <h3>API Pipeline</h3>
+    <p>Reverse-engineered the Content Save API. Browser-free execution with structured agent stages: research, plan, execute, validate.</p>
+    <div class="tech-list">
+      <span>Content Save API</span>
+      <span>Fastify</span>
+      <span>SQLite</span>
+      <span>Agent pipeline</span>
+    </div>
+  </div>
+  <div class="arch-card">
+    <div class="phase-num">III</div>
+    <div class="period">Days 8-10 &middot; Mar 2-4</div>
+    <h3>MCP Autonomous</h3>
+    <p>Claude CLI agents with 68 MCP tools. Self-directing, self-verifying. Old pipeline archived &mdash; 4,063 lines reduced to 136.</p>
+    <div class="tech-list">
+      <span>MCP Protocol</span>
+      <span>Claude CLI</span>
+      <span>68 tools</span>
+      <span>Self-healing</span>
+    </div>
+  </div>
+</div>
+
+<!-- PIPELINE AGENTS -->
+<div class="section-header reveal" data-section="pipeline">
+  <div class="eyebrow">The Pipeline</div>
+  <h2>Six agents, one mission</h2>
+  <p>Every task flows through a chain of specialized autonomous agents. Each one does its job and hands off to the next.</p>
+</div>
+
+<div class="pipeline-section">
+  <div class="pipeline reveal" id="pipeline">
+    <div class="pipeline-agent">
+      <div class="agent-icon">&#x1F3AF;</div>
+      <h4>Classify</h4>
+      <p>What kind of task is this?</p>
+    </div>
+    <div class="pipeline-agent">
+      <div class="agent-icon">&#x1F50D;</div>
+      <h4>Research</h4>
+      <p>Web search for context</p>
+    </div>
+    <div class="pipeline-agent">
+      <div class="agent-icon">&#x1F4F8;</div>
+      <h4>Analyze</h4>
+      <p>Snapshot current site state</p>
+    </div>
+    <div class="pipeline-agent">
+      <div class="agent-icon">&#x1F4CB;</div>
+      <h4>Strategize</h4>
+      <p>Build a structured plan</p>
+    </div>
+    <div class="pipeline-agent">
+      <div class="agent-icon">&#x26A1;</div>
+      <h4>Execute</h4>
+      <p>Run MCP tools</p>
+    </div>
+    <div class="pipeline-agent">
+      <div class="agent-icon">&#x2705;</div>
+      <h4>Supervise</h4>
+      <p>Verify the result</p>
+    </div>
+  </div>
+</div>
+
+<!-- TIMELINE -->
+<div class="section-header reveal" data-section="timeline">
+  <div class="eyebrow">Day by Day</div>
+  <h2>The commit log tells the real story</h2>
+  <p>From first commit to autonomous commerce agent &mdash; each day built on the last, driven by real client requests hitting real limitations.</p>
+</div>
+
+<div class="timeline">
+  <div class="day reveal">
+    <div class="day-marker"></div>
+    <div class="day-meta">
+      <div class="day-date">Day 1 &middot; Feb 23</div>
+      <div class="day-label">Genesis</div>
+      <div class="day-count">15 commits</div>
+    </div>
+    <div class="day-content">
+      <ul class="commit-list">
+        <li class="feat"><strong>Initial commit</strong> &mdash; project scaffolding</li>
+        <li class="feat"><strong>Content creation pipeline</strong> &mdash; research agent, page structure, template discovery</li>
+        <li class="feat"><strong>Two-pass execution</strong> &mdash; plan then execute with validation</li>
+        <li class="feat"><strong>Granular operation tracking</strong> &mdash; per-edit status in SQLite</li>
+        <li class="feat"><strong>Post-operation screenshots</strong> for visual verification</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="day reveal">
+    <div class="day-marker"></div>
+    <div class="day-meta">
+      <div class="day-date">Day 2 &middot; Feb 24</div>
+      <div class="day-label">The Pipeline Takes Shape</div>
+      <div class="day-count">22 commits</div>
+    </div>
+    <div class="day-content">
+      <ul class="commit-list">
+        <li class="feat"><strong>WhatsApp integration</strong> &mdash; Tim confirms tasks via chat</li>
+        <li class="feat"><strong>Gmail polling</strong> &mdash; client emails auto-parsed every 60s</li>
+        <li class="feat"><strong>Conversation state machine</strong> &mdash; idle &rarr; confirm &rarr; execute &rarr; done</li>
+        <li class="feat"><strong>Dashboard</strong> &mdash; server-rendered task management UI</li>
+        <li class="fix">First encounter with <strong>Squarespace editor overwriting API changes</strong></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="day reveal">
+    <div class="day-marker"></div>
+    <div class="day-meta">
+      <div class="day-date">Day 3 &middot; Feb 25</div>
+      <div class="day-label">Testing Everything</div>
+      <div class="day-count">18 commits</div>
+    </div>
+    <div class="day-content">
+      <ul class="commit-list">
+        <li class="test"><strong>272 unit tests</strong> + 29 integration tests written</li>
+        <li class="feat"><strong>Footer editing API</strong> &mdash; discovered embedded section structure</li>
+        <li class="feat"><strong>Surgical text editing</strong> &mdash; find-and-replace within HTML blocks</li>
+        <li class="feat"><strong>Rich HTML support</strong> &mdash; bold, italic, links, lists</li>
+        <li class="feat"><strong>Multi-column layouts</strong> &mdash; grid coordinate math</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="day reveal">
+    <div class="day-marker"></div>
+    <div class="day-meta">
+      <div class="day-date">Day 4 &middot; Feb 26</div>
+      <div class="day-label">The API Breakthrough</div>
+      <div class="day-count">24 commits</div>
+    </div>
+    <div class="day-content">
+      <ul class="commit-list">
+        <li class="feat"><strong>API executor pipeline</strong> &mdash; first browser-free execution</li>
+        <li class="feat"><strong>Block type system</strong> &mdash; text, image, button, quote, code</li>
+        <li class="feat"><strong>Page management</strong> &mdash; create, delete, reorder</li>
+        <li class="refactor"><strong>Content Save API client</strong> &mdash; read-modify-write pattern</li>
+        <li class="test">Tests jump to <strong>500+</strong></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="day reveal">
+    <div class="day-marker"></div>
+    <div class="day-meta">
+      <div class="day-date">Day 5 &middot; Feb 27</div>
+      <div class="day-label">API Deep Dive</div>
+      <div class="day-count">20 commits</div>
+    </div>
+    <div class="day-content">
+      <ul class="commit-list">
+        <li class="feat"><strong>Section operations</strong> &mdash; move, copy templates, fix ordering</li>
+        <li class="feat"><strong>Blog post support</strong> &mdash; create-then-update pattern discovered</li>
+        <li class="feat"><strong>Design API</strong> &mdash; fonts, colors, template tweaks</li>
+        <li class="feat"><strong>Image fast paths</strong> &mdash; upload + replace without browser</li>
+        <li class="fix"><strong>Grid coordinate bugs</strong> &mdash; 24-column system edge cases</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="day reveal">
+    <div class="day-marker"></div>
+    <div class="day-meta">
+      <div class="day-date">Day 6 &middot; Feb 28</div>
+      <div class="day-label">User-Facing Polish</div>
+      <div class="day-count">16 commits</div>
+    </div>
+    <div class="day-content">
+      <ul class="commit-list">
+        <li class="feat"><strong>Session cookie health checks</strong> &mdash; staleness detection</li>
+        <li class="feat"><strong>Form editing support</strong> &mdash; Squarespace forms API</li>
+        <li class="feat"><strong>Header/footer editing</strong> &mdash; embedded section discovery</li>
+        <li class="fix"><strong>Simple edit reliability</strong> &mdash; edge case fixes</li>
+        <li class="feat"><strong>Request interpreter</strong> &mdash; WhatsApp message classification</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="day reveal">
+    <div class="day-marker"></div>
+    <div class="day-meta">
+      <div class="day-date">Day 7 &middot; Mar 1</div>
+      <div class="day-label">The MCP Vision</div>
+      <div class="day-count">14 commits</div>
+    </div>
+    <div class="day-content">
+      <ul class="commit-list">
+        <li class="docs"><strong>MCP architecture design doc</strong> &mdash; the second pivot</li>
+        <li class="feat"><strong>MCP server scaffolding</strong> &mdash; first tools registered</li>
+        <li class="feat"><strong>Text, section, block tools</strong> &mdash; core CRUD operations</li>
+        <li class="feat"><strong>Page and site tools</strong> &mdash; navigation, settings</li>
+        <li class="feat"><strong>Claude CLI integration</strong> &mdash; stream-json NDJSON parser</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="day reveal">
+    <div class="day-marker"></div>
+    <div class="day-meta">
+      <div class="day-date">Day 8 &middot; Mar 2</div>
+      <div class="day-label">The Great Migration</div>
+      <div class="day-count">28 commits</div>
+    </div>
+    <div class="day-content">
+      <ul class="commit-list">
+        <li class="refactor"><strong>Archive old pipeline</strong> &mdash; ~35 files moved to src/archive/</li>
+        <li class="refactor"><strong>execution.ts: 4,063 &rarr; 136 lines</strong></li>
+        <li class="feat"><strong>Orchestrator pipeline</strong> &mdash; classify &rarr; research &rarr; analyze &rarr; strategize &rarr; execute &rarr; supervise</li>
+        <li class="feat"><strong>Web search tools</strong> &mdash; Brave Search API integration</li>
+        <li class="feat"><strong>Structured content planning</strong> &mdash; JSON operation specs</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="day reveal">
+    <div class="day-marker"></div>
+    <div class="day-meta">
+      <div class="day-date">Day 9 &middot; Mar 3</div>
+      <div class="day-label">Tool Explosion</div>
+      <div class="day-count">32 commits</div>
+    </div>
+    <div class="day-content">
+      <ul class="commit-list">
+        <li class="feat"><strong>Blog tools</strong> &mdash; create, update, list, find posts</li>
+        <li class="feat"><strong>Video & embed blocks</strong> &mdash; YouTube, Vimeo, raw HTML</li>
+        <li class="feat"><strong>Menu block system</strong> &mdash; parser, merger, structured JSON</li>
+        <li class="feat"><strong>Forms, social links, dividers</strong> &mdash; 6 new tool modules</li>
+        <li class="feat"><strong>Gmail integration</strong> &mdash; 6 tools for email processing</li>
+        <li class="feat"><strong>Gallery image management</strong> &mdash; list, remove, reorder</li>
+        <li class="test">Tests reach <strong>1,527</strong></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="day reveal">
+    <div class="day-marker"></div>
+    <div class="day-meta">
+      <div class="day-date">Day 10 &middot; Mar 4</div>
+      <div class="day-label">Commerce & Completion</div>
+      <div class="day-count">19 commits</div>
+    </div>
+    <div class="day-content">
+      <ul class="commit-list">
+        <li class="feat"><strong>Commerce API</strong> &mdash; products, variants, images, store pages</li>
+        <li class="feat"><strong>Batch image upload</strong> &mdash; parallel upload with URL support</li>
+        <li class="feat"><strong>Atomic section creation</strong> &mdash; sections with pre-populated blocks</li>
+        <li class="fix"><strong>Template orphan fix</strong> &mdash; copied sections now attach to pages</li>
+        <li class="refactor"><strong>MCP-first architecture</strong> is the only execution path</li>
+        <li class="test">Tests reach <strong>1,589</strong></li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- HEATMAP -->
+<div class="section-header reveal" data-section="heatmap">
+  <div class="eyebrow">Velocity</div>
+  <h2>Commit intensity by day</h2>
+  <p>Peak output on days 8 and 9 &mdash; the MCP migration and subsequent tool explosion.</p>
+</div>
+
+<div class="heatmap-section">
+  <div class="heatmap reveal" id="heatmap"></div>
+  <div class="heatmap-legend">
+    <span>Less</span>
+    <div class="swatch" style="background: #1a1624"></div>
+    <div class="swatch" style="background: #2a2040"></div>
+    <div class="swatch" style="background: #4a3060"></div>
+    <div class="swatch" style="background: #8040a0"></div>
+    <div class="swatch" style="background: var(--purple)"></div>
+    <span>More</span>
+  </div>
+</div>
+
+<!-- TOOL GROWTH -->
+<div class="section-header reveal" data-section="growth">
+  <div class="eyebrow">Growth</div>
+  <h2>From zero to 68 tools</h2>
+  <p>MCP tool count by day, showing the acceleration once the architecture was in place.</p>
+</div>
+
+<div class="growth-section">
+  <div class="growth-bars reveal" id="growth-bars"></div>
+</div>
+
+<!-- *** DEMO *** -->
+<section class="slide reveal" data-section="demo">
+  <div class="subtitle">Live Demo</div>
+  <h2>Let me <em>show</em> you</h2>
+  <p>Time to see it in action.</p>
+</section>
+
+<!-- *** LEARNINGS *** -->
+<div class="section-header reveal" data-section="learnings">
+  <div class="eyebrow">Learnings</div>
+  <h2>What I discovered along the way</h2>
+</div>
+
+<div class="learnings-grid reveal" style="grid-template-columns: repeat(3, 1fr);">
+  <div class="learning-card">
+    <div class="icon">&#x26A1;</div>
+    <h3>CLI + Browser = <em>Superpowers</em></h3>
+    <p>Give agents access to the command line and a browser and they become incredibly capable. The combination lets them research, build, test, and verify &mdash; all autonomously.</p>
+  </div>
+  <div class="learning-card">
+    <div class="icon">&#x1F4AC;</div>
+    <h3>From App to <em>Chat</em></h3>
+    <p>Chatting is just easier. Instead of navigating a complex UI, you describe what you want and the agent figures out the how. Natural language becomes the interface.</p>
+  </div>
+  <div class="learning-card">
+    <div class="icon">&#x1F50D;</div>
+    <h3>Let Claude <em>Cook</em></h3>
+    <p>Requesting things through Claude adds everything Claude can do to your Squarespace site. It searches Gmail for requests, executes edits, and handles attachments.</p>
+  </div>
+  <div class="learning-card">
+    <div class="icon">&#x1F527;</div>
+    <h3>From Browser to <em>CLI</em></h3>
+    <p>Agents reverse-engineered an internal API so that Claude could skip the browser entirely. Slow, fragile automation became fast, reliable API calls.</p>
+  </div>
+  <div class="learning-card">
+    <div class="icon">&#x1F3A4;</div>
+    <h3>Remote Control & <em>Voice</em></h3>
+    <p>Update Squarespace by talking to Claude on your phone. Voice input turns a commute into productive client work.</p>
+  </div>
+  <div class="learning-card">
+    <div class="icon">&#x1F4E6;</div>
+    <h3>Offload Everything to <em>Claude Desktop</em></h3>
+    <p>Don't build features &mdash; build tools and let Claude Desktop compose them. The more you offload, the more capable the system becomes.</p>
+  </div>
+  <div class="learning-card">
+    <div class="icon">&#x1F916;</div>
+    <h3>Dynamic Agents, Not <em>Static Code</em></h3>
+    <p>Instead of hardcoding logic, let agents decide how to accomplish tasks. They adapt, compose tools on the fly, and handle edge cases you'd never anticipate.</p>
+  </div>
+  <div class="learning-card">
+    <div class="icon">&#x1F4B0;</div>
+    <h3>Claude Code CLI = <em>Free Agents</em></h3>
+    <p>Run agents through Claude Code's CLI using your Max subscription instead of API tokens. Unlimited agents for a flat monthly fee.</p>
+  </div>
+  <div class="learning-card">
+    <div class="icon">&#x1F913;</div>
+    <h3>Use Claude Code in <em>Terminal</em></h3>
+    <p>It's streets ahead. The terminal gives you power, speed, and flexibility that no GUI can match.</p>
+  </div>
+  <div class="learning-card">
+    <div class="icon">&#x1F504;</div>
+    <h3>Workflows &rarr; <em>MCPs</em>, Approaches &rarr; <em>Skills</em></h3>
+    <p>Turn repeatable workflows into MCP tools so agents can execute them. Turn repeatable approaches into skills so agents know how to think.</p>
+  </div>
+</div>
+
+<!-- *** SKILLS vs MCPs *** -->
+<div class="section-header reveal" data-section="skillsvsmcps">
+  <div class="eyebrow">The Key Distinction</div>
+  <h2>Skills teach <em>thinking</em>, MCPs enable <em>doing</em></h2>
+</div>
+
+<div class="comparison-section reveal">
+  <table class="comparison-table">
+    <thead>
+      <tr>
+        <th></th>
+        <th>Skill</th>
+        <th>MCP</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Encodes</td>
+        <td>Knowledge &amp; judgment</td>
+        <td>Capability &amp; action</td>
+      </tr>
+      <tr>
+        <td>Output</td>
+        <td>Guides Claude's reasoning</td>
+        <td>Executes something real</td>
+      </tr>
+      <tr>
+        <td>Lives in</td>
+        <td>A markdown file</td>
+        <td>A running server</td>
+      </tr>
+      <tr>
+        <td>Fails if</td>
+        <td>Claude ignores it</td>
+        <td>The server is down</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="when-to-use reveal">
+  <div class="use-case">
+    <div class="use-label">Use a <em>Skill</em> when:</div>
+    <p>Claude keeps getting the approach wrong &mdash; you need to teach it the right pattern or workflow.</p>
+  </div>
+  <div class="use-case">
+    <div class="use-label">Use an <em>MCP</em> when:</div>
+    <p>Claude knows what to do but needs the tools to actually do it &mdash; API calls, file operations, external services.</p>
+  </div>
+  <div class="use-case">
+    <div class="use-label">Use <em>Both</em> together:</div>
+    <p>The ideal combo. A skill encodes the workflow logic (like the two-step blog post pattern), while the MCP gives Claude the tools to execute it.</p>
+  </div>
+</div>
+
+<!-- *** FINALE *** -->
+<section class="final-section reveal" data-section="final">
+  <h2>What started as a script became<br><em>Squarespace MCP for Claude Desktop</em><br>Powered by <em>Autonomous Agents</em></h2>
+
+  <div class="final-grid">
+    <div class="final-item">
+      <div class="num">68</div>
+      <div class="label">MCP Tools</div>
+    </div>
+    <div class="final-item">
+      <div class="num">13</div>
+      <div class="label">Tool Modules</div>
+    </div>
+    <div class="final-item">
+      <div class="num">86+</div>
+      <div class="label">API Methods</div>
+    </div>
+    <div class="final-item">
+      <div class="num">6</div>
+      <div class="label">Agent Stages</div>
+    </div>
+    <div class="final-item">
+      <div class="num">1,589</div>
+      <div class="label">Tests Passing</div>
+    </div>
+    <div class="final-item">
+      <div class="num">10</div>
+      <div class="label">Days Total</div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>Squarespace MCP for Claude Desktop &middot; Built Feb 23 &mdash; Mar 4, 2026 &middot; Tim Cox</p>
+</footer>
+
+<script>
+// -- Data --
+const commitData = [
+  { date: 'Feb 23', commits: 15, label: 'Day 1' },
+  { date: 'Feb 24', commits: 22, label: 'Day 2' },
+  { date: 'Feb 25', commits: 18, label: 'Day 3' },
+  { date: 'Feb 26', commits: 24, label: 'Day 4' },
+  { date: 'Feb 27', commits: 20, label: 'Day 5' },
+  { date: 'Feb 28', commits: 16, label: 'Day 6' },
+  { date: 'Mar 1',  commits: 14, label: 'Day 7' },
+  { date: 'Mar 2',  commits: 28, label: 'Day 8' },
+  { date: 'Mar 3',  commits: 32, label: 'Day 9' },
+  { date: 'Mar 4',  commits: 19, label: 'Day 10' },
+];
+
+const toolGrowth = [
+  { date: 'Day 1-6', tools: 0,  label: 'Pre-MCP' },
+  { date: 'Day 7',   tools: 12, label: 'MCP Phase 1' },
+  { date: 'Day 8',   tools: 24, label: 'Orchestrator' },
+  { date: 'Day 9',   tools: 52, label: 'Tool Explosion' },
+  { date: 'Day 10',  tools: 68, label: 'Commerce' },
+];
+
+// -- Heatmap --
+const heatmapEl = document.getElementById('heatmap');
+const maxCommits = Math.max(...commitData.map(d => d.commits));
+
+commitData.forEach(d => {
+  const el = document.createElement('div');
+  el.className = 'heat-day';
+  const intensity = d.commits / maxCommits;
+  // Purple-based heatmap
+  const h = 270, s = 60;
+  const l = 8 + intensity * 40;
+  el.style.background = `hsl(${h}, ${s}%, ${l}%)`;
+  if (intensity > 0.7) el.style.boxShadow = `0 0 12px hsla(${h}, ${s}%, ${l}%, 0.4)`;
+  el.innerHTML = `<div class="tooltip">${d.date}: ${d.commits} commits</div>`;
+  heatmapEl.appendChild(el);
+});
+
+// -- Tool Growth Bars --
+const growthEl = document.getElementById('growth-bars');
+const maxTools = 68;
+
+toolGrowth.forEach(d => {
+  const row = document.createElement('div');
+  row.className = 'growth-row';
+  const pct = (d.tools / maxTools) * 100;
+  const barColor = d.tools === 0 ? '#2a2540'
+    : `linear-gradient(90deg, hsl(20, 100%, ${50 + (d.tools/maxTools)*15}%), hsl(340, 80%, ${50 + (d.tools/maxTools)*10}%))`;
+
+  row.innerHTML = `
+    <div class="date">${d.date}</div>
+    <div class="bar-track">
+      <div class="bar-fill" style="width: 0%; background: ${barColor};" data-width="${pct}%">
+        ${d.tools > 0 ? `<span class="bar-label">${d.label}</span>` : ''}
+      </div>
+    </div>
+    <div class="count">${d.tools}</div>
+  `;
+  growthEl.appendChild(row);
+});
+
+// -- Scroll Progress --
+const progressBar = document.getElementById('progress');
+window.addEventListener('scroll', () => {
+  const pct = (window.scrollY / (document.documentElement.scrollHeight - window.innerHeight)) * 100;
+  progressBar.style.width = pct + '%';
+});
+
+// -- Count-up animation for stats --
+function countUp(el) {
+  const target = parseInt(el.dataset.target);
+  const prefix = el.dataset.prefix || '';
+  const useComma = el.hasAttribute('data-comma');
+  const duration = 1500;
+  const start = performance.now();
+
+  el.classList.add('counting');
+
+  function tick(now) {
+    const elapsed = now - start;
+    const progress = Math.min(elapsed / duration, 1);
+    // Ease out cubic
+    const eased = 1 - Math.pow(1 - progress, 3);
+    const current = Math.round(eased * target);
+    const display = useComma ? current.toLocaleString() : current;
+    el.textContent = prefix + display;
+    if (progress < 1) requestAnimationFrame(tick);
+    else el.classList.remove('counting');
+  }
+  requestAnimationFrame(tick);
+}
+
+// -- Pipeline sequential glow --
+let pipelinePlayed = false;
+function playPipeline() {
+  if (pipelinePlayed) return;
+  pipelinePlayed = true;
+  const agents = document.querySelectorAll('.pipeline-agent');
+  agents.forEach((agent, i) => {
+    setTimeout(() => {
+      agent.classList.add('lit');
+      setTimeout(() => agent.classList.remove('lit'), 800);
+    }, i * 400);
+  });
+}
+
+// -- Scroll Reveal --
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+
+      // Count-up stats
+      entry.target.querySelectorAll('.stat-number[data-target]').forEach(el => {
+        if (!el.dataset.counted) {
+          el.dataset.counted = 'true';
+          countUp(el);
+        }
+      });
+
+      // Growth bars
+      entry.target.querySelectorAll('.bar-fill').forEach(bar => {
+        setTimeout(() => { bar.style.width = bar.dataset.width; }, 200);
+      });
+
+      // Pipeline animation
+      if (entry.target.id === 'pipeline') {
+        setTimeout(playPipeline, 400);
+      }
+    }
+  });
+}, { threshold: 0.15 });
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+// -- Nav Dots --
+const navEl = document.getElementById('nav');
+const sections = document.querySelectorAll('[data-section]');
+sections.forEach(sec => {
+  const dot = document.createElement('div');
+  dot.className = 'dot';
+  dot.addEventListener('click', () => sec.scrollIntoView({ behavior: 'smooth' }));
+  navEl.appendChild(dot);
+});
+
+const navObserver = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const idx = Array.from(sections).indexOf(entry.target);
+      document.querySelectorAll('.dot').forEach((d, i) => {
+        d.classList.toggle('active', i === idx);
+      });
+    }
+  });
+}, { threshold: 0.3 });
+
+sections.forEach(sec => navObserver.observe(sec));
+
+// -- Parallax floaters on scroll --
+const floaters = document.querySelectorAll('.floater');
+window.addEventListener('scroll', () => {
+  const y = window.scrollY;
+  floaters.forEach((f, i) => {
+    const speed = 0.02 + i * 0.015;
+    f.style.transform = `translateY(${y * speed}px)`;
+  });
+}, { passive: true });
+</script>
+
+</body>
+</html>
