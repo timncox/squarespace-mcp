@@ -215,6 +215,30 @@ export function registerAuthTools(server: McpServer) {
       // Reload all cached clients so they pick up the new session
       reloadAllSessions();
 
+      // Discover sites from cookie domains and save to DB
+      const discoveredSites: string[] = [];
+      const sqspSubdomains = new Set<string>();
+      for (const cookie of parsed.cookies) {
+        const domain: string = cookie.domain ?? '';
+        const match = domain.match(/\.?([a-z0-9-]+)\.squarespace\.com$/);
+        if (match && match[1] !== 'login' && match[1] !== 'www') {
+          sqspSubdomains.add(match[1]);
+        }
+      }
+
+      const { saveSite } = await import('../session.js');
+      for (const subdomain of sqspSubdomains) {
+        try {
+          saveSite(subdomain);
+          discoveredSites.push(subdomain);
+        } catch { /* save is best-effort */ }
+      }
+
+      // Reload again to pick up newly discovered sites
+      if (discoveredSites.length > 0) {
+        reloadAllSessions();
+      }
+
       const status = warnings.length > 0 ? 'saved_with_warnings' : 'saved';
       const baseMessage = hasCrumb
         ? `Session saved with ${parsed.cookies.length} cookies. Squarespace API is ready to use.`
@@ -226,11 +250,63 @@ export function registerAuthTools(server: McpServer) {
           cookieCount: parsed.cookies.length,
           hasCrumb,
           sites: Array.from(sqspDomains),
+          discoveredSites,
           sessionPath: SESSION_PATH,
           ...(warnings.length > 0 ? { warnings } : {}),
           message: warnings.length > 0
             ? `${baseMessage} WARNING: ${warnings.join(' ')}`
             : baseMessage,
+        }, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_discover_sites ────────────────────────────────────────────────────
+  server.registerTool('sq_discover_sites', {
+    description:
+      'Re-discover Squarespace sites from saved session cookies. ' +
+      'Extracts site subdomains from cookie domains and saves them to the database. ' +
+      'Use after login if sites were not automatically discovered.',
+    inputSchema: {},
+  }, async () => {
+    try {
+      const sessionData = readFileSync(SESSION_PATH, 'utf-8');
+      const parsed = JSON.parse(sessionData);
+
+      if (!Array.isArray(parsed.cookies)) {
+        return {
+          content: [{ type: 'text' as const, text: 'No session found. Run sq_login_browser first.' }],
+          isError: true,
+        };
+      }
+
+      const { saveSite } = await import('../session.js');
+      const sqspSubdomains = new Set<string>();
+      for (const cookie of parsed.cookies) {
+        const domain: string = cookie.domain ?? '';
+        const match = domain.match(/\.?([a-z0-9-]+)\.squarespace\.com$/);
+        if (match && match[1] !== 'login' && match[1] !== 'www') {
+          sqspSubdomains.add(match[1]);
+        }
+      }
+
+      for (const subdomain of sqspSubdomains) {
+        saveSite(subdomain);
+      }
+
+      // Reload to pick up new sites
+      reloadAllSessions();
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({
+          status: 'discovered',
+          sites: Array.from(sqspSubdomains),
+          message: `Discovered ${sqspSubdomains.size} site(s): ${Array.from(sqspSubdomains).join(', ')}`,
         }, null, 2) }],
       };
     } catch (err) {

@@ -311,6 +311,18 @@ function migrate(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_fallbacks_resolved ON browser_fallbacks(resolved);
   `);
 
+  // Phase 20 migrations — Dynamic site discovery (auto-discovered from login cookies)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS discovered_sites (
+      subdomain TEXT PRIMARY KEY,
+      site_title TEXT,
+      admin_url TEXT NOT NULL,
+      custom_domain TEXT,
+      discovered_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_verified_at TEXT
+    );
+  `);
+
   logger.debug('Database migrations applied');
 }
 

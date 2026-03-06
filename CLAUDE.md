@@ -24,7 +24,7 @@ Entry point: `src/mcp-server/index.ts` — registers all tools, starts stdio tra
 src/
   mcp-server/       # MCP server — ~84 tools across 15 modules
     tools/          # Tool modules (registerXxxTools pattern)
-    session.ts      # Client cache + resolvePageIds (shared by all tools)
+    session.ts      # Client cache + resolvePageIds + dynamic site discovery
     index.ts        # Tool registration entry point
   services/         # API clients and business logic
     content-save.ts # Content Save API client (86+ methods)
@@ -36,7 +36,7 @@ src/
     section-catalog.ts # Template section lookup + cache
     pdf-extractor.ts # PDF text extraction
     design-property-extractor.ts # CSS/design value parsing + shared types
-  config/           # Model IDs, section template catalog
+  config/           # Model IDs, section template catalog (sites.json optional)
   db/database.ts    # SQLite (page ID cache, template cache)
   utils/            # Logger (pino), errors
 data/               # Runtime SQLite database
@@ -48,7 +48,7 @@ storage/            # Session cookies, uploads, screenshots
 | File | Purpose |
 |------|---------|
 | `src/mcp-server/index.ts` | MCP server entry — ~84 tools across 15 modules |
-| `src/mcp-server/session.ts` | Client cache + `resolvePageIds` + `listSites` |
+| `src/mcp-server/session.ts` | Client cache + `resolvePageIds` + dynamic site discovery |
 | `src/services/content-save.ts` | Content Save API client (86+ methods) |
 | `src/services/media-upload.ts` | Image upload to Squarespace asset service |
 | `src/services/page-id-resolver.ts` | Resolve page slugs to API IDs (HTML parse + DB cache) |
