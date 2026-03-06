@@ -35,6 +35,10 @@ declare module './index.js' {
       imageId: string,
       updates: ProductImageUpdateRequest,
     ): Promise<CommerceResult<InternalProductImage>>;
+    removeProductImage(
+      productId: string,
+      imageId: string,
+    ): Promise<CommerceResult<void>>;
     createStorePage(
       navPlacement?: 'mainNav' | '_hidden',
     ): Promise<CommerceResult<{ id: string; urlId: string }>>;
@@ -276,6 +280,34 @@ ContentSaveClient.prototype.updateProductImage = async function (
     }
     const data = (await response.json()) as InternalProductImage;
     return { success: true, data };
+  } catch (err) {
+    return { success: false, error: errMsg(err) };
+  }
+};
+
+/** Remove an image from a product. */
+ContentSaveClient.prototype.removeProductImage = async function (
+  this: ContentSaveClient,
+  productId: string,
+  imageId: string,
+): Promise<CommerceResult<void>> {
+  this.ensureCookies();
+  try {
+    const url = `https://${this.siteSubdomain}.squarespace.com/api/commerce/products/${productId}/images/${imageId}`;
+    const response = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        ...this.buildHeaders(),
+        ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok && response.status !== 204) {
+      const errBody = await response.text().catch(() => '');
+      return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
+    }
+    logger.info({ productId, imageId }, 'removeProductImage: image removed');
+    return { success: true };
   } catch (err) {
     return { success: false, error: errMsg(err) };
   }

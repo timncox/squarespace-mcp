@@ -295,6 +295,28 @@ export function registerCommerceTools(server: McpServer) {
     }
   });
 
+  // ── sq_remove_product_image ────────────────────────────────────────────────
+  server.registerTool('sq_remove_product_image', {
+    description:
+      'Remove an image from a product. Use sq_get_product to find image IDs in the images array.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier (id, name, alias, or subdomain)'),
+      productId: z.string().describe('Product ID'),
+      imageId: z.string().describe('Image ID to remove (from sq_get_product images array)'),
+    },
+  }, async ({ siteId, productId, imageId }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.removeProductImage(productId, imageId);
+      if (!result.success) {
+        return { content: [{ type: 'text' as const, text: JSON.stringify(result) }], isError: true };
+      }
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ success: true, removed: imageId, productId }, null, 2) }] };
+    } catch (error) {
+      return { content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
+    }
+  });
+
   // ── sq_attach_product_image ────────────────────────────────────────────────
   server.registerTool('sq_attach_product_image', {
     description:
