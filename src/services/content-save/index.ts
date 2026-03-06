@@ -4,7 +4,7 @@ export * from './client.js';
 // Domain method modules (prototype augmentation) — must come after client export
 import './text.js';
 // import './blocks.js';
-// import './block-layout.js';
+import './block-layout.js';
 import './mobile.js';
 // import './sections.js';
 import './header-footer.js';
