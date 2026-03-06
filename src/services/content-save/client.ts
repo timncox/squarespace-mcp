@@ -897,6 +897,15 @@ export class ContentSaveClient {
     return url;
   }
 
+  getSessionAge(): { ageHours: number; isStale: boolean; lastRefreshed: Date } | null {
+    if (this.sessionAgeHours === null || !this.sessionLoadedAt) return null;
+    return {
+      ageHours: this.sessionAgeHours,
+      isStale: this.sessionAgeHours > 24,
+      lastRefreshed: this.sessionLoadedAt,
+    };
+  }
+
   // ── Static Methods ──────────────────────────────────────────────────────
 
   static checkSessionHealth(sessionPath?: string): { exists: boolean; ageHours: number; isStale: boolean; hasCrumb: boolean } {
