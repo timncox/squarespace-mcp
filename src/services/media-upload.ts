@@ -126,6 +126,7 @@ interface JobStatusEntry {
   assetRecord?: {
     assetType: string;
     logicalPath?: string;
+    assetUrl?: string;
     stringMetaData?: Record<string, string>;
   };
   // Older format: nested asset object
@@ -638,7 +639,7 @@ export class MediaUploadClient {
       }
 
       logger.debug(
-        { jobId, status: job.status, isActive: job.isActive, isSuccess: job.isSuccess, assetId: job.assetId, asset: job.asset },
+        { jobId, status: job.status, isActive: job.isActive, isSuccess: job.isSuccess, assetId: job.assetId, assetRecord: job.assetRecord, asset: job.asset },
         'Upload status poll',
       );
 
@@ -649,17 +650,12 @@ export class MediaUploadClient {
 
       // Job completed
       if (job.isSuccess) {
+        logger.info({ rawJob: JSON.stringify(job) }, 'Upload job completed — raw response');
         // Squarespace returns asset info in two formats:
-        // 1. Newer: top-level `assetId` + `assetRecord` (no URL)
+        // 1. Newer: top-level `assetId` + `assetRecord` with `assetUrl`
         // 2. Older: nested `asset: { id, url }` object
         const assetId = job.assetId ?? job.asset?.id;
-        let assetUrl = job.asset?.url;
-
-        // Construct CDN URL from asset ID if no direct URL provided
-        if (!assetUrl && assetId) {
-          assetUrl = `https://images.squarespace-cdn.com/content/v1/${this.libraryId}/${assetId}`;
-          logger.info({ assetId, constructedUrl: assetUrl }, 'Constructed asset URL from ID');
-        }
+        const assetUrl = job.assetRecord?.assetUrl ?? job.asset?.url;
 
         const result: MediaUploadResult = {
           jobId,
