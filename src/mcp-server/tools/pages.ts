@@ -70,7 +70,7 @@ export function registerPageTools(server: McpServer) {
 
   // ── sq_delete_page ──────────────────────────────────────────────────────────
   server.registerTool('sq_delete_page', {
-    description: 'Delete a Squarespace page by its collection ID. Use sq_list_pages to find collection IDs. ⚠️ BEST-EFFORT — the DELETE API returns 404 on most sites. Falls back to hiding the page from navigation. If this fails, ask the user to delete the page manually in Squarespace.',
+    description: 'Delete (move to trash) a Squarespace page by its collection ID. Use sq_list_pages to find collection IDs. Uses the RemoveCollection API to move the page to the trash (retained for ~30 days). Falls back to hiding from navigation if RemoveCollection fails.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
       collectionId: z.string().describe('Collection ID of the page to delete'),
@@ -110,23 +110,56 @@ export function registerPageTools(server: McpServer) {
 
   // ── sq_list_pages ───────────────────────────────────────────────────────────
   server.registerTool('sq_list_pages', {
-    description: 'List all pages and collections on a Squarespace site. Returns id, urlId, title, type, and typeName for each.',
+    description: 'List all pages and collections on a Squarespace site. Returns id, urlId, title, type, typeName, and status (mainNav, notLinked, or deleted) for each. By default excludes deleted pages — set includeDeleted to true to show them.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
+      includeDeleted: z.boolean().optional().describe('Include deleted/trashed pages (default: false)'),
     },
-  }, async ({ siteId }) => {
+  }, async ({ siteId, includeDeleted }) => {
     try {
       const client = getClient(siteId);
-      const collections = await client.listCollections();
+      const [collections, navResult] = await Promise.all([
+        client.listCollections(),
+        client.getNavigation(),
+      ]);
 
-      const summary = collections.map((c: any) => ({
-        id: c.id,
-        urlId: c.urlId,
-        title: c.title,
-        type: c.type,
-        typeName: c.typeName,
-        itemCount: c.itemCount ?? 0,
-      }));
+      // Build lookup sets from navigation data
+      const mainNavIds = new Set<string>();
+      const notLinkedIds = new Set<string>();
+      if (navResult.success && navResult.data) {
+        const addIds = (items: Array<{ id?: string; collectionId?: string }>, set: Set<string>) => {
+          for (const item of items) {
+            if (item.collectionId) set.add(item.collectionId);
+            if (item.id) set.add(item.id);
+          }
+        };
+        addIds(navResult.data.mainNavigation, mainNavIds);
+        addIds(navResult.data.notLinked, notLinkedIds);
+      }
+
+      const summary = collections
+        .filter((c: any) => includeDeleted || !c.deleted)
+        .map((c: any) => {
+          let status: string;
+          if (c.deleted) {
+            status = 'deleted';
+          } else if (mainNavIds.has(c.id)) {
+            status = 'mainNav';
+          } else if (notLinkedIds.has(c.id)) {
+            status = 'notLinked';
+          } else {
+            status = 'notLinked';
+          }
+          return {
+            id: c.id,
+            urlId: c.urlId,
+            title: c.title,
+            type: c.type,
+            typeName: c.typeName,
+            status,
+            itemCount: c.itemCount ?? 0,
+          };
+        });
 
       return {
         content: [{

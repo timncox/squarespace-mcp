@@ -125,6 +125,8 @@ The `content-save/` directory uses **TypeScript prototype augmentation** to spli
 - **Adding blocks must expand gridSettings.rows**: All `addBlock` methods call `updateSectionRows()`.
 - **Section IDs must be 24-char hex**: `generateSectionId()` for sections, `generateBlockId()` (20-char) for blocks.
 - **Blog post create-then-update**: Create endpoint ignores body/tags. Follow-up PUT sets them.
+- **Page deletion uses `RemoveCollection`**: `POST /api/commondata/RemoveCollection` with `collectionId` as form data and `X-CSRF-Token` header. Moves page to trash (30-day retention). `SaveCollectionSettings` is create-only — cannot update or delete. `DELETE /api/collections/{id}` returns 404.
+- **Image blocks need `definitionName` + `imageId`**: Blocks require `definitionName: "website.components.imageFluid"` (or PUT returns 500) and `imageId` (24-char hex content image record, or block renders empty). Content images created via `POST /api/uploads/images/asset-reference` with form data `assetId={uuid}&libraryId={websiteId}&recordType=2`. See `createContentImage()` in `client.ts`.
 - **Stale sessions return 500, not 401**: `isLikelyAuthError()` detects this pattern.
 - **MCP server stdio**: NEVER `console.log()` — corrupts JSON-RPC. Use `console.error()`.
 - **Zod version**: Must use Zod 3. Zod 4 breaks `zod-to-json-schema`.

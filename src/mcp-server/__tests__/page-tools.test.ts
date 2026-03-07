@@ -183,22 +183,63 @@ describe('Page Tools', () => {
   // ── sq_list_pages ───────────────────────────────────────────────────────────
 
   describe('sq_list_pages', () => {
-    it('should list all collections', async () => {
+    const mockNavSuccess = () => {
+      mockClient.getNavigation.mockResolvedValue({
+        success: true,
+        data: {
+          mainNavigation: [{ id: 'c1', collectionId: 'c1' }],
+          notLinked: [{ id: 'c2', collectionId: 'c2' }],
+        },
+      });
+    };
+
+    it('should list all collections with status', async () => {
       mockClient.listCollections.mockResolvedValue([
         { id: 'c1', urlId: 'home', title: 'Home', type: 1, typeName: 'page', itemCount: 0 },
         { id: 'c2', urlId: 'blog', title: 'Blog', type: 11, typeName: 'blog', itemCount: 5 },
       ]);
+      mockNavSuccess();
 
       const result = await server.callTool('sq_list_pages', { siteId: 'test-site' });
 
       const data = JSON.parse(result.content[0].text);
       expect(data.pageCount).toBe(2);
       expect(data.pages[0].urlId).toBe('home');
-      expect(data.pages[1].type).toBe(11);
+      expect(data.pages[0].status).toBe('mainNav');
+      expect(data.pages[1].status).toBe('notLinked');
+    });
+
+    it('should exclude deleted pages by default', async () => {
+      mockClient.listCollections.mockResolvedValue([
+        { id: 'c1', urlId: 'home', title: 'Home', type: 1, typeName: 'page', deleted: false },
+        { id: 'c3', urlId: 'old', title: 'Old', type: 1, typeName: 'page', deleted: true },
+      ]);
+      mockNavSuccess();
+
+      const result = await server.callTool('sq_list_pages', { siteId: 'test-site' });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.pageCount).toBe(1);
+      expect(data.pages[0].urlId).toBe('home');
+    });
+
+    it('should include deleted pages when includeDeleted is true', async () => {
+      mockClient.listCollections.mockResolvedValue([
+        { id: 'c1', urlId: 'home', title: 'Home', type: 1, typeName: 'page', deleted: false },
+        { id: 'c3', urlId: 'old', title: 'Old', type: 1, typeName: 'page', deleted: true },
+      ]);
+      mockNavSuccess();
+
+      const result = await server.callTool('sq_list_pages', { siteId: 'test-site', includeDeleted: true });
+
+      const data = JSON.parse(result.content[0].text);
+      expect(data.pageCount).toBe(2);
+      expect(data.pages[1].status).toBe('deleted');
     });
 
     it('should return empty array on error', async () => {
       mockClient.listCollections.mockResolvedValue([]);
+      mockClient.getNavigation.mockResolvedValue({ success: true, data: { mainNavigation: [], notLinked: [] } });
 
       const result = await server.callTool('sq_list_pages', { siteId: 'test-site' });
 

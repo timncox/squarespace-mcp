@@ -16,7 +16,7 @@
  * Discovered Feb 2026 via network interception of Squarespace editor save (Cmd+S).
  */
 
-import { readFileSync, existsSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, statSync } from 'fs';
 import { randomBytes } from 'crypto';
 import { join } from 'path';
 import { logger } from '../../utils/logger.js';
@@ -328,6 +328,7 @@ export class ContentSaveClient {
   memberAccountIdCache: string | null = null;
   _preWriteCache: Map<string, PageSection[]> = new Map();
   _snapshotSiteId: string | null = null;
+  _lastCrumbRefreshMs: number = 0;
 
   constructor(siteSubdomain: string) {
     this.siteSubdomain = siteSubdomain;
@@ -488,9 +489,10 @@ export class ContentSaveClient {
     pageSectionsId: string,
     collectionId: string,
     sections: PageSection[],
+    _isRetry = false,
   ): Promise<ContentSaveResult> {
-    // Auto-snapshot: save pre-edit state before writing
-    const cachedBefore = this._preWriteCache.get(pageSectionsId);
+    // Auto-snapshot: save pre-edit state before writing (skip on retry)
+    const cachedBefore = _isRetry ? undefined : this._preWriteCache.get(pageSectionsId);
     this._preWriteCache.delete(pageSectionsId);
 
     if (cachedBefore && this._snapshotSiteId) {
@@ -540,8 +542,12 @@ export class ContentSaveClient {
       return { success: false, pageSectionsId, collectionId, sectionsCount: sections.length, error };
     }
 
-    // Check for crumb failure (Squarespace returns 200 with error in body)
-    if (responseBody.includes('"crumbFail":true') || responseBody.includes('Invalid session crumb')) {
+    // Check for crumb failure — auto-refresh and retry once
+    if (this.isCrumbFailure(responseBody)) {
+      if (!_isRetry && await this.handleCrumbFailure(responseBody)) {
+        logger.info({ pageSectionsId }, 'Retrying save after crumb refresh');
+        return this.savePageSections(pageSectionsId, collectionId, sections, true);
+      }
       const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
       const error = `Save rejected: invalid or expired session crumb.${ageInfo} Call sq_login to check session health and re-authenticate.`;
       logger.error({ pageSectionsId }, error);
@@ -597,6 +603,124 @@ export class ContentSaveClient {
     return `${baseError} — THIS IS LIKELY AN EXPIRED SESSION.${ageStr} Call sq_login to check session health and re-authenticate.`;
   }
 
+  // ── Crumb (CSRF Token) Management ────────────────────────────────────────
+
+  /** Detect if response body indicates a crumb (CSRF) validation failure */
+  isCrumbFailure(body: string): boolean {
+    return body.includes('"crumbFail":true') || body.includes('Invalid session crumb');
+  }
+
+  /** Extract fresh crumb from Squarespace error response (it often includes the new value) */
+  extractCrumbFromBody(body: string): string | null {
+    try {
+      const parsed = JSON.parse(body);
+      if (typeof parsed.crumb === 'string' && parsed.crumb.length > 0) return parsed.crumb;
+    } catch {
+      const match = body.match(/"crumb"\s*:\s*"([^"]+)"/);
+      if (match) return match[1];
+    }
+    return null;
+  }
+
+  /** Update crumb token in memory and cookie header */
+  updateCrumb(newCrumb: string): void {
+    this.crumbToken = newCrumb;
+    if (this.siteCookieHeader.includes('crumb=')) {
+      this.siteCookieHeader = this.siteCookieHeader.replace(/crumb=[^;]+/, `crumb=${newCrumb}`);
+    } else {
+      this.siteCookieHeader += `; crumb=${newCrumb}`;
+    }
+  }
+
+  /**
+   * Refresh the crumb (CSRF token) by fetching an authenticated page.
+   * The fresh crumb comes from the Set-Cookie response header.
+   * Rate-limited to once per 30 seconds to avoid hammering the server.
+   */
+  async refreshCrumb(): Promise<boolean> {
+    if (Date.now() - this._lastCrumbRefreshMs < 30_000) {
+      return !!this.crumbToken;
+    }
+    this._lastCrumbRefreshMs = Date.now();
+
+    try {
+      const url = `https://${this.siteSubdomain}.squarespace.com/config`;
+      const response = await fetch(url, {
+        headers: this.buildHeaders(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        redirect: 'follow',
+      });
+
+      // Check Set-Cookie headers for fresh crumb
+      const setCookies = (response.headers as any).getSetCookie?.() ?? [];
+      for (const sc of setCookies) {
+        const match = sc.match(/^crumb=([^;]+)/);
+        if (match) {
+          this.updateCrumb(decodeURIComponent(match[1]));
+          this.persistCrumbToSession();
+          logger.info({ siteSubdomain: this.siteSubdomain }, 'Refreshed crumb from Set-Cookie header');
+          return true;
+        }
+      }
+
+      // Fallback: parse crumb from page HTML/JSON config
+      const html = await response.text().catch(() => '');
+      const crumbMatch = html.match(/"crumb"\s*:\s*"([^"]+)"/);
+      if (crumbMatch) {
+        this.updateCrumb(crumbMatch[1]);
+        this.persistCrumbToSession();
+        logger.info({ siteSubdomain: this.siteSubdomain }, 'Refreshed crumb from page HTML');
+        return true;
+      }
+
+      logger.warn({ siteSubdomain: this.siteSubdomain }, 'refreshCrumb: no crumb found in response');
+      return false;
+    } catch (err) {
+      logger.warn({ err: errMsg(err) }, 'refreshCrumb: failed to fetch fresh crumb');
+      return false;
+    }
+  }
+
+  /**
+   * Handle a crumb failure: extract fresh crumb from error response body,
+   * or fall back to fetching a fresh crumb from the site.
+   * Returns true if the crumb was successfully refreshed.
+   */
+  async handleCrumbFailure(responseBody: string): Promise<boolean> {
+    const freshCrumb = this.extractCrumbFromBody(responseBody);
+    if (freshCrumb) {
+      this.updateCrumb(freshCrumb);
+      this.persistCrumbToSession();
+      logger.info({ siteSubdomain: this.siteSubdomain }, 'Refreshed crumb from error response');
+      return true;
+    }
+    return this.refreshCrumb();
+  }
+
+  /**
+   * Persist the current crumb to the session file on disk so other clients
+   * and future sessions pick up the fresh value.
+   */
+  persistCrumbToSession(): void {
+    try {
+      if (!existsSync(SESSION_PATH) || !this.crumbToken) return;
+      const session = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
+      const cookies: Array<{ name: string; value: string; domain: string }> = session.cookies ?? [];
+      let updated = false;
+      for (const c of cookies) {
+        if (c.name === 'crumb' && c.domain.includes(this.siteSubdomain)) {
+          c.value = this.crumbToken;
+          updated = true;
+        }
+      }
+      if (updated) {
+        writeFileSync(SESSION_PATH, JSON.stringify(session, null, 2), 'utf-8');
+      }
+    } catch {
+      // Persist is best-effort — never block API operations
+    }
+  }
+
   /**
    * Fetch a page's HTML using authenticated session cookies.
    * Used by the page ID resolver when the public HTML fetch fails
@@ -622,6 +746,122 @@ export class ContentSaveClient {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Create a content image record for a Fluid Engine image block.
+   * Returns the 24-char hex imageId needed for image blocks to render.
+   *
+   * Uses POST /api/uploads/images/asset-reference to create a content image
+   * record that references an existing media library asset. This gives immediate
+   * dimensions and processing state (no background processing delay).
+   *
+   * The assetId (media library UUID) is extracted from the CDN assetUrl if not
+   * provided explicitly.
+   */
+  async createContentImage(
+    assetUrl: string,
+    _filenameOrUndefined?: string,
+    _isRetry = false,
+  ): Promise<{ success: boolean; imageId?: string; error?: string }> {
+    try {
+      this.ensureCookies();
+
+      // Extract assetId (UUID) from CDN URL path:
+      // https://images.squarespace-cdn.com/content/{libraryId}/{assetId}/{filename}?...
+      const assetId = ContentSaveClient.extractAssetIdFromUrl(assetUrl);
+      if (!assetId) {
+        return { success: false, error: `Could not extract assetId from URL: ${assetUrl.substring(0, 100)}` };
+      }
+
+      // libraryId is the websiteId — try session cache first, then extract from URL
+      const libraryId = this.getWebsiteId() ?? ContentSaveClient.extractLibraryIdFromUrl(assetUrl);
+      if (!libraryId) {
+        return { success: false, error: 'Could not determine websiteId/libraryId for asset-reference' };
+      }
+
+      const url = this.buildApiUrl('/api/uploads/images/asset-reference', true);
+      const body = new URLSearchParams({ assetId, libraryId, recordType: '2' });
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: body.toString(),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+
+      const responseBody = await response.text().catch(() => '');
+
+      if (!response.ok) {
+        if (this.isCrumbFailure(responseBody) && !_isRetry && await this.handleCrumbFailure(responseBody)) {
+          logger.info('createContentImage: retrying after crumb refresh');
+          return this.createContentImage(assetUrl, undefined, true);
+        }
+        return { success: false, error: `Asset reference failed: ${response.status}. ${responseBody.substring(0, 200)}` };
+      }
+
+      if (this.isCrumbFailure(responseBody)) {
+        if (!_isRetry && await this.handleCrumbFailure(responseBody)) {
+          logger.info('createContentImage: retrying after crumb refresh (200 with crumb error)');
+          return this.createContentImage(assetUrl, undefined, true);
+        }
+        return { success: false, error: 'Crumb validation failed for asset-reference' };
+      }
+
+      const data = JSON.parse(responseBody) as { media?: Array<{ id?: string }> };
+      const imageId = data.media?.[0]?.id;
+      if (!imageId) {
+        return { success: false, error: `Asset reference succeeded but no imageId in response: ${responseBody.substring(0, 200)}` };
+      }
+
+      logger.info({ imageId, assetId }, 'Created content image via asset-reference');
+      return { success: true, imageId };
+    } catch (err) {
+      return { success: false, error: errMsg(err) };
+    }
+  }
+
+  /**
+   * Extract the media library asset UUID from a Squarespace CDN URL.
+   * URL format: https://images.squarespace-cdn.com/content/{libraryId}/{assetId}/{filename}?...
+   */
+  static extractAssetIdFromUrl(assetUrl: string): string | null {
+    try {
+      const url = new URL(assetUrl);
+      const parts = url.pathname.split('/');
+      // pathname: /content/{libraryId}/{assetId}/{filename}
+      // parts[0] = "", parts[1] = "content", parts[2] = libraryId, parts[3] = assetId
+      const candidate = parts[3];
+      if (candidate && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(candidate)) {
+        return candidate;
+      }
+    } catch { /* not a valid URL */ }
+    return null;
+  }
+
+  /**
+   * Extract the libraryId (websiteId) from a Squarespace CDN URL.
+   * URL format: https://images.squarespace-cdn.com/content/{libraryId}/{assetId}/{filename}?...
+   */
+  static extractLibraryIdFromUrl(assetUrl: string): string | null {
+    try {
+      const url = new URL(assetUrl);
+      const parts = url.pathname.split('/');
+      // parts[2] = libraryId (24-char hex)
+      const candidate = parts[2];
+      if (candidate && /^[a-f0-9]{24}$/.test(candidate)) {
+        return candidate;
+      }
+    } catch { /* not a valid URL */ }
+    return null;
+  }
+
+  /** Get the websiteId from session cache or return null */
+  getWebsiteId(): string | null {
+    return this.websiteIdCache;
   }
 
   buildPutUrl(pageSectionsId: string, collectionId: string): string {
@@ -1189,11 +1429,39 @@ export class ContentSaveClient {
     };
   }
 
-  static buildImageBlockContent(blockId: string, assetUrl: string, altText?: string): GridContent['content'] {
+  static buildImageBlockContent(blockId: string, assetUrl: string, altText?: string, imageId?: string): GridContent['content'] {
     const blockContent: Record<string, unknown> = {
       id: blockId,
       type: 1337, // BLOCK_TYPE_IMAGE
-      value: { assetUrl, layout: 'caption-below', linkTo: '' },
+      value: {
+        assetUrl,
+        ...(imageId ? { imageId } : {}),
+        layout: 'caption-below',
+        linkTo: '',
+        imageLink: 'image',
+        buttonText: '',
+        lightbox: false,
+        lightboxTheme: 'dark',
+        stretch: false,
+        description: { source: '', engine: 'wysiwyg', html: '' },
+        title: { source: '', engine: 'wysiwyg', html: '' },
+        subtitle: { source: '', engine: 'wysiwyg', html: '' },
+        designLayout: 'fluid',
+        imagePosition: 'center',
+        combinationAnimation: 'site-default',
+        individualImageAnimation: 'site-default',
+        individualTextAnimation: 'site-default',
+        imageCropType: 'css_styles',
+        borderRadii: {
+          topLeft: { unit: 'px', value: 0 },
+          topRight: { unit: 'px', value: 0 },
+          bottomLeft: { unit: 'px', value: 0 },
+          bottomRight: { unit: 'px', value: 0 },
+        },
+        imageOverlay: { enabled: false, color: { type: 'THEME_COLOR' }, blendMode: 'normal' },
+        imageEffect: { type: 'none' },
+        containerStyles: { backgroundEnabled: false, stretchedToFill: true },
+      },
       definitionName: 'website.components.imageFluid',
     };
     if (altText !== undefined) blockContent.altText = altText;

@@ -82,6 +82,20 @@ export function cachePageIds(
   logger.debug({ subdomain, slug: normalizedSlug }, 'Cached page IDs');
 }
 
+/**
+ * Invalidate cached page IDs for a given collectionId.
+ * Call after deleting a page to prevent stale cache hits.
+ */
+export function invalidateCacheByCollectionId(collectionId: string): void {
+  const db = getDb();
+  const deleted = db.prepare(
+    'DELETE FROM page_id_cache WHERE collection_id = ?',
+  ).run(collectionId);
+  if (deleted.changes > 0) {
+    logger.info({ collectionId, rowsDeleted: deleted.changes }, 'Invalidated page ID cache');
+  }
+}
+
 // ── Resolution chain ─────────────────────────────────────────────────────────
 
 /**

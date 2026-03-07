@@ -105,6 +105,8 @@ describe('ContentSaveClient — addImageBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    // Mock createContentImage to avoid real HTTP calls for content image creation
+    vi.spyOn(client, 'createContentImage').mockResolvedValue({ success: true, imageId: 'abcdef0123456789abcdef01' });
   });
 
   afterEach(() => {
@@ -371,11 +373,13 @@ describe('ContentSaveClient — addImageBlock', () => {
     expect(newBlock.content.value.type).toBe(1337);
     expect(newBlock.content.value.id).toHaveLength(20);
 
-    // Content
+    // Content (uses full buildImageBlockContent structure)
     expect(newBlock.content.value.value.assetUrl).toBe('https://images.squarespace-cdn.com/content/v1/photo.jpg');
     expect(newBlock.content.value.value.layout).toBe('caption-below');
     expect(newBlock.content.value.value.linkTo).toBe('');
-    expect(newBlock.content.value.value.title).toBe('My Photo');
+    expect(newBlock.content.value.value.imageId).toBe('abcdef0123456789abcdef01');
+    expect(newBlock.content.value.value.designLayout).toBe('fluid');
+    expect(newBlock.content.value.definitionName).toBe('website.components.imageFluid');
     expect(newBlock.content.value.altText).toBe('A photo');
 
     // Desktop layout
@@ -409,7 +413,7 @@ describe('ContentSaveClient — addImageBlock', () => {
     fetchSpy.mockRestore();
   });
 
-  it('stores optional metadata fields (description, subtitle, linkTo)', async () => {
+  it('stores altText via buildImageBlockContent full structure', async () => {
     const sections = makeSections();
     const data = makePageSectionsData(sections);
 
@@ -419,24 +423,19 @@ describe('ContentSaveClient — addImageBlock', () => {
 
     await client.addImageBlock(
       'psid-1', 'cid-1', 0, 'https://example.com/img.jpg',
-      {
-        title: 'Sunset',
-        description: 'A beautiful sunset',
-        subtitle: 'By Tim',
-        altText: 'Sunset over ocean',
-        linkTo: 'https://example.com/gallery',
-      },
+      { altText: 'Sunset over ocean' },
     );
 
     const [, putOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
     const putBody = JSON.parse(putOptions.body as string);
     const newBlock = putBody.sections[0].fluidEngineContext.gridContents[0];
 
-    expect(newBlock.content.value.value.title).toBe('Sunset');
-    expect(newBlock.content.value.value.description).toBe('A beautiful sunset');
-    expect(newBlock.content.value.value.subtitle).toBe('By Tim');
-    expect(newBlock.content.value.value.linkTo).toBe('https://example.com/gallery');
+    // buildImageBlockContent sets default empty objects for title/description/subtitle
+    expect(newBlock.content.value.value.title).toEqual({ source: '', engine: 'wysiwyg', html: '' });
+    expect(newBlock.content.value.value.description).toEqual({ source: '', engine: 'wysiwyg', html: '' });
+    expect(newBlock.content.value.value.linkTo).toBe('');
     expect(newBlock.content.value.altText).toBe('Sunset over ocean');
+    expect(newBlock.content.value.definitionName).toBe('website.components.imageFluid');
 
     fetchSpy.mockRestore();
   });
@@ -468,6 +467,8 @@ describe('ContentSaveClient — addImageBlockBatch', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    // Mock createContentImage to avoid real HTTP calls for content image creation
+    vi.spyOn(client, 'createContentImage').mockResolvedValue({ success: true, imageId: 'abcdef0123456789abcdef01' });
   });
 
   afterEach(() => {
@@ -644,7 +645,7 @@ describe('ContentSaveClient — addImageBlockBatch', () => {
     fetchSpy.mockRestore();
   });
 
-  it('supports altText and title per image', async () => {
+  it('supports altText per image via buildImageBlockContent', async () => {
     const sections = makeSections();
     const data = makePageSectionsData(sections);
 
@@ -653,7 +654,7 @@ describe('ContentSaveClient — addImageBlockBatch', () => {
       .mockResolvedValueOnce(new Response('{}', { status: 200 }));
 
     await client.addImageBlockBatch('psid-1', 'cid-1', 0, [
-      { assetUrl: 'https://example.com/img1.jpg', altText: 'Photo 1', title: 'Sunset' },
+      { assetUrl: 'https://example.com/img1.jpg', altText: 'Photo 1' },
       { assetUrl: 'https://example.com/img2.jpg', altText: 'Photo 2' },
     ]);
 
@@ -662,7 +663,8 @@ describe('ContentSaveClient — addImageBlockBatch', () => {
     const gridContents = putBody.sections[0].fluidEngineContext.gridContents;
 
     expect(gridContents[0].content.value.altText).toBe('Photo 1');
-    expect(gridContents[0].content.value.value.title).toBe('Sunset');
+    expect(gridContents[0].content.value.definitionName).toBe('website.components.imageFluid');
+    expect(gridContents[0].content.value.value.imageId).toBe('abcdef0123456789abcdef01');
     expect(gridContents[1].content.value.altText).toBe('Photo 2');
 
     fetchSpy.mockRestore();

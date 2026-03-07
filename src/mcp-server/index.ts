@@ -59,9 +59,8 @@ You have tools to edit Squarespace websites via the Content Save API. Here's how
 ### Page Creation — sq_create_page
 Creates a new page and adds it to site navigation. Supports page type ("page" or "blog") and navigation placement ("mainNav" for visible, "_hidden" for not linked). After creation, use sq_add_section and content tools to build out the page.
 
-### Page Deletion — sq_delete_page is best-effort
-The DELETE collections endpoint returns 404 on most sites. The tool falls back to hiding the page from navigation, but cannot fully delete it.
-**Workaround:** Ask the user to delete the page manually in Squarespace.
+### Page Deletion — sq_delete_page
+Moves the page to the trash (~30 day retention) via the RemoveCollection API. Use sq_list_pages to find the collection ID, then call sq_delete_page with it.
 
 ### Sections — API-added sections can be wiped by the editor
 If the user has the Squarespace editor open while you make API changes, their next save will overwrite your changes.
@@ -284,7 +283,7 @@ Uses session cookies (same auth as all other tools — no separate API key neede
 
 **Creating a new page:** sq_create_page usually fails (404). Instead, ask the user to create a blank page in Squarespace (Pages → + → Blank Page), then build it out with sq_add_section, sq_add_text_block, etc.
 
-**Deleting a page:** sq_delete_page is best-effort. If it fails, ask the user to delete it manually.
+**Deleting a page:** sq_delete_page moves the page to trash. Use sq_list_pages to get the collection ID.
 
 **Blog post body:** The create endpoint ignores body — sq_create_blog_post handles this via create-then-update, but check the result for errors.
 

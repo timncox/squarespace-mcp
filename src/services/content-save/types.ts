@@ -530,6 +530,7 @@ export interface CollectionInfo {
   typeName: string;
   itemCount?: number;
   enabled?: boolean;
+  deleted?: boolean;
   ordering?: number;
   navigationTitle?: string;
   description?: string;
@@ -639,6 +640,7 @@ export interface PageMetadataUpdateOptions {
   seoDescription?: string;
   navigationTitle?: string;
   enabled?: boolean;
+  deleted?: boolean;
 }
 
 /** Result of updatePageMetadata */

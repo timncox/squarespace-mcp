@@ -70,6 +70,8 @@ describe('ContentSaveClient — Section Operations', () => {
     client.loadSessionCookies();
     mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
+    // Mock createContentImage to avoid real HTTP calls for content image creation
+    vi.spyOn(client, 'createContentImage').mockResolvedValue({ success: true, imageId: 'abcdef0123456789abcdef01' });
   });
 
   afterEach(() => {

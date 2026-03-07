@@ -203,54 +203,34 @@ describe('ContentSaveClient — Page Management APIs', () => {
       const result = await client.deletePageViaApi('coll-123');
       expect(result.success).toBe(true);
       expect(result.collectionId).toBe('coll-123');
-      expect(result.error).toBeUndefined();
 
-      // Should have called DELETE
       expect(mockFetch).toHaveBeenCalledTimes(1);
       const [fetchUrl, fetchOpts] = mockFetch.mock.calls[0];
       expect(fetchUrl).toContain('/api/collections/coll-123');
-      expect(fetchUrl).toContain('crumb=');
       expect(fetchOpts.method).toBe('DELETE');
     });
 
-    it('returns error on 401 (session expired)', async () => {
-      mockFetch.mockResolvedValueOnce(errorResponse(401));
+    it('returns error when all strategies fail', async () => {
+      mockFetch.mockResolvedValueOnce(errorResponse(404)); // Strategy 1: DELETE fails
+      mockFetch.mockResolvedValueOnce(errorResponse(500)); // Strategy 2: RemoveCollection fails
+      mockFetch.mockResolvedValueOnce(errorResponse(500)); // Strategy 3: tryHidePageFromNav → getNavigation fails
 
       const result = await client.deletePageViaApi('coll-123');
       expect(result.success).toBe(false);
       expect(result.collectionId).toBe('coll-123');
-      expect(result.error).toContain('Session expired');
-    });
-
-    it('returns error on crumb failure', async () => {
-      mockFetch.mockResolvedValueOnce(
-        jsonResponse({ crumbFail: true }, 200),
-      );
-
-      const result = await client.deletePageViaApi('coll-123');
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('invalid or expired session crumb');
-    });
-
-    it('returns error on 404 (page not found)', async () => {
-      mockFetch.mockResolvedValueOnce(errorResponse(404));
-
-      const result = await client.deletePageViaApi('nonexistent');
-      expect(result.success).toBe(false);
-      expect(result.collectionId).toBe('nonexistent');
-      expect(result.error).toContain('404');
+      expect(result.error).toContain('All delete strategies failed');
     });
 
     it('never throws on network error', async () => {
-      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+      mockFetch.mockRejectedValueOnce(new Error('Network error')); // Strategy 1: DELETE fails
+      mockFetch.mockResolvedValueOnce(errorResponse(500)); // Strategy 2: RemoveCollection fails
+      mockFetch.mockResolvedValueOnce(errorResponse(500)); // Strategy 3: tryHidePageFromNav fails
 
       const result = await client.deletePageViaApi('coll-123');
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Network error');
     });
 
     it('handles empty response body on successful DELETE', async () => {
-      // Some DELETE endpoints return empty body
       mockFetch.mockResolvedValueOnce({
         ok: true,
         status: 200,

@@ -266,6 +266,14 @@ ContentSaveClient.prototype.updateImageBlock = async function (
     if (fields.assetUrl !== undefined) {
       blockValue.value.assetUrl = fields.assetUrl;
       updatedFields.push('assetUrl');
+      // Create new content image record for the new asset URL
+      const contentImg = await this.createContentImage(fields.assetUrl);
+      if (contentImg.imageId) {
+        blockValue.value.imageId = contentImg.imageId;
+        updatedFields.push('imageId');
+      } else {
+        logger.warn({ error: contentImg.error }, 'Could not create content image for updated assetUrl');
+      }
     }
 
     if (updatedFields.length === 0) {
@@ -643,30 +651,21 @@ ContentSaveClient.prototype.addImageBlock = async function (
     }, 0);
     const zIndex = maxZ + 1;
 
-    const imageValue: Record<string, unknown> = {
-      assetUrl,
-      layout: 'caption-below',
-      linkTo: options?.linkTo ?? '',
-    };
-    if (options?.title !== undefined) imageValue.title = options.title;
-    if (options?.description !== undefined) imageValue.description = options.description;
-    if (options?.subtitle !== undefined) imageValue.subtitle = options.subtitle;
+    // Create content image record (required for Fluid Engine to render the image)
+    const contentImg = await this.createContentImage(assetUrl);
+    if (!contentImg.imageId) {
+      logger.warn({ error: contentImg.error }, 'Could not create content image — block may not render');
+    }
 
-    const blockContent: Record<string, unknown> = {
-      id: blockId,
-      type: BLOCK_TYPE_IMAGE,
-      value: imageValue,
-    };
-    if (options?.altText !== undefined) blockContent.altText = options.altText;
+    // Use full block structure (required by Squarespace PUT validation)
+    const content = ContentSaveClient.buildImageBlockContent(blockId, assetUrl, options?.altText, contentImg.imageId);
 
     const newBlock: GridContent = {
       layout: {
         mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
         desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
       },
-      content: {
-        value: blockContent as GridContent['content']['value'],
-      },
+      content,
     };
 
     // Step 5: Push to gridContents and update section rows
@@ -799,24 +798,21 @@ ContentSaveClient.prototype.addImageBlockBatch = async function (
       const blockId = ContentSaveClient.generateBlockId();
       maxZ += 1;
 
+      // Create content image record (required for Fluid Engine to render)
+      const contentImg = await this.createContentImage(img.assetUrl);
+      if (!contentImg.imageId) {
+        logger.warn({ error: contentImg.error, assetUrl: img.assetUrl }, 'Could not create content image — block may not render');
+      }
+
+      // Use full block structure (required by Squarespace PUT validation)
+      const content = ContentSaveClient.buildImageBlockContent(blockId, img.assetUrl, img.altText, contentImg.imageId);
+
       const newBlock: GridContent = {
         layout: {
           mobile: { start: { x: 1, y: maxMobileY + effectiveGap }, end: { x: 9, y: maxMobileY + effectiveGap + rowHeight }, visible: true, verticalAlignment: 'top', zIndex: maxZ },
           desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex: maxZ },
         },
-        content: {
-          value: {
-            id: blockId,
-            type: BLOCK_TYPE_IMAGE,
-            value: {
-              assetUrl: img.assetUrl,
-              layout: 'caption-below',
-              linkTo: '',
-              ...(img.title !== undefined ? { title: img.title } : {}),
-            },
-            ...(img.altText !== undefined ? { altText: img.altText } : {}),
-          } as GridContent['content']['value'],
-        },
+        content,
       };
 
       gridContents.push(newBlock);

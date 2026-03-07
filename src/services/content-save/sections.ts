@@ -57,6 +57,7 @@ declare module './index.js' {
       sourceWebsiteId: string,
       sourceCollectionId: string,
       sourceSectionId: string,
+      _isRetry?: boolean,
     ): Promise<CopyTemplateSectionResult>;
     verifySectionAdded(
       pageSectionsId: string,
@@ -587,11 +588,17 @@ ContentSaveClient.prototype.addSectionWithBlocks = async function (
           defaultCols = 7;
           defaultRowHeight = 2;
           break;
-        case 'image':
-          content = ContentSaveClient.buildImageBlockContent(blockId, spec.assetUrl, spec.altText);
+        case 'image': {
+          // Create content image record (required for Fluid Engine to render)
+          const contentImg = await this.createContentImage(spec.assetUrl);
+          if (!contentImg.imageId) {
+            logger.warn({ error: contentImg.error }, 'Could not create content image — block may not render');
+          }
+          content = ContentSaveClient.buildImageBlockContent(blockId, spec.assetUrl, spec.altText, contentImg.imageId);
           defaultCols = 12;
           defaultRowHeight = 8;
           break;
+        }
         case 'video':
           content = ContentSaveClient.buildVideoBlockContent(blockId, spec.videoUrl, spec.title, spec.description);
           defaultCols = maxColumns;
@@ -692,6 +699,7 @@ ContentSaveClient.prototype.copyTemplateSection = async function (
   sourceWebsiteId: string,
   sourceCollectionId: string,
   sourceSectionId: string,
+  _isRetry = false,
 ): Promise<CopyTemplateSectionResult> {
   try {
     this.ensureCookies();
@@ -723,6 +731,10 @@ ContentSaveClient.prototype.copyTemplateSection = async function (
 
     // Handle crumb refresh if needed
     if (data.crumbFail) {
+      if (!_isRetry && await this.handleCrumbFailure(JSON.stringify(data))) {
+        logger.info('copyTemplateSection: retrying after crumb refresh');
+        return this.copyTemplateSection(sourceWebsiteId, sourceCollectionId, sourceSectionId, true);
+      }
       return { success: false, error: `Crumb validation failed. ${data.error || ''}` };
     }
 

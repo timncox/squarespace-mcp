@@ -253,7 +253,8 @@ describe('sq_login_browser', () => {
 
     const result = await promise;
 
-    expect(mockContextCookies).toHaveBeenCalledTimes(3);
+    // 2 polls without member-session + 1 with it + 1 re-collection after site visits
+    expect(mockContextCookies).toHaveBeenCalledTimes(4);
     const data = JSON.parse(result.content[0].text);
     expect(data.status).toBe('saved');
     expect(data.hasMemberSession).toBe(true);

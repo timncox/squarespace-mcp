@@ -16,6 +16,7 @@ import type {
 } from './types.js';
 import { logger } from '../../utils/logger.js';
 import { errMsg } from '../../utils/errors.js';
+import { invalidateCacheByCollectionId } from '../page-id-resolver.js';
 
 declare module './index.js' {
   interface ContentSaveClient {
@@ -40,6 +41,7 @@ declare module './index.js' {
         type?: number;
         navigation?: 'mainNav' | '_hidden';
       },
+      _isRetry?: boolean,
     ): Promise<PageCreateResult>;
     resolveWebsiteId(): Promise<string | null>;
     addPageToNavigation(
@@ -64,16 +66,18 @@ declare module './index.js' {
       collectionId: string,
       itemId: string,
       updates: BlogPostUpdateOptions,
+      _isRetry?: boolean,
     ): Promise<BlogPostUpdateResult>;
     findBlogPostByTitle(
       collectionId: string,
       searchTitle: string,
     ): Promise<CollectionItem | null>;
-    deletePageViaApi(collectionId: string): Promise<PageDeleteResult>;
+    deletePageViaApi(collectionId: string, _isRetry?: boolean): Promise<PageDeleteResult>;
     tryHidePageFromNav(collectionId: string): Promise<PageDeleteResult | null>;
     updatePageMetadata(
       collectionId: string,
       updates: PageMetadataUpdateOptions,
+      _isRetry?: boolean,
     ): Promise<PageMetadataUpdateResult>;
   }
 }
@@ -208,6 +212,7 @@ ContentSaveClient.prototype.listCollections = async function (
         typeName: ContentSaveClient.TYPE_NAMES[typeNum] ?? 'unknown',
         ...(coll.itemCount != null ? { itemCount: Number(coll.itemCount) } : {}),
         ...(coll.enabled != null ? { enabled: Boolean(coll.enabled) } : {}),
+        ...(coll.deleted != null ? { deleted: Boolean(coll.deleted) } : {}),
         ...(coll.ordering != null ? { ordering: Number(coll.ordering) } : {}),
         ...(coll.navigationTitle != null ? { navigationTitle: String(coll.navigationTitle) } : {}),
         ...(coll.description != null ? { description: String(coll.description) } : {}),
@@ -320,6 +325,7 @@ ContentSaveClient.prototype.createPageViaApi = async function (
     type?: number;
     navigation?: 'mainNav' | '_hidden';
   },
+  _isRetry = false,
 ): Promise<PageCreateResult> {
   this.ensureCookies();
 
@@ -396,7 +402,11 @@ ContentSaveClient.prototype.createPageViaApi = async function (
     const data = (await response.json()) as Record<string, unknown>;
 
     // Check for crumb failure
-    if (data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
+    if ((data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb')))) {
+      if (!_isRetry && await this.handleCrumbFailure(JSON.stringify(data))) {
+        logger.info('createPageViaApi: retrying after crumb refresh');
+        return this.createPageViaApi(title, slug, options, true);
+      }
       const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
       return {
         success: false,
@@ -465,7 +475,8 @@ ContentSaveClient.prototype.resolveWebsiteId = async function (
 
     const data = (await response.json()) as Record<string, unknown>;
     // Collections response includes items with websiteId
-    const collections = Array.isArray(data) ? data : (data.collections ?? data.items ?? []) as unknown[];
+    const raw = Array.isArray(data) ? data : (data.collections ?? data.items ?? []);
+    const collections = Array.isArray(raw) ? raw : (typeof raw === 'object' && raw ? Object.values(raw) : []);
     for (const col of collections as Record<string, unknown>[]) {
       if (typeof col.websiteId === 'string') {
         this.websiteIdCache = col.websiteId;
@@ -637,6 +648,7 @@ ContentSaveClient.prototype.updateBlogPost = async function (
   collectionId: string,
   itemId: string,
   updates: BlogPostUpdateOptions,
+  _isRetry = false,
 ): Promise<BlogPostUpdateResult> {
   this.ensureCookies();
 
@@ -704,6 +716,10 @@ ContentSaveClient.prototype.updateBlogPost = async function (
 
     const data = (await response.json()) as Record<string, unknown>;
     if (data.crumbFail || (typeof data.error === 'string' && data.error.includes('Invalid session crumb'))) {
+      if (!_isRetry && await this.handleCrumbFailure(JSON.stringify(data))) {
+        logger.info('updateBlogPost: retrying after crumb refresh');
+        return this.updateBlogPost(collectionId, itemId, updates, true);
+      }
       return { success: false, itemId, updatedFields: [], error: 'Session crumb invalid — call sq_login to check session health and re-authenticate.' };
     }
 
@@ -735,9 +751,12 @@ ContentSaveClient.prototype.findBlogPostByTitle = async function (
 ContentSaveClient.prototype.deletePageViaApi = async function (
   this: ContentSaveClient,
   collectionId: string,
+  _isRetry = false,
 ): Promise<PageDeleteResult> {
   this.ensureCookies();
+  const errors: string[] = [];
 
+  // Strategy 1: DELETE endpoint (works on some sites)
   try {
     const path = `/api/collections/${collectionId}`;
     const url = this.buildApiUrl(path, true);
@@ -748,65 +767,79 @@ ContentSaveClient.prototype.deletePageViaApi = async function (
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
 
-    if (response.status === 401) {
-      // Session expired — try nav-hiding fallback before giving up
-      const fallback = await this.tryHidePageFromNav(collectionId);
-      if (fallback) return fallback;
-      return {
-        success: false,
-        collectionId,
-        error: 'Session expired — call sq_login to check session health and re-authenticate.',
-      };
+    if (response.ok) {
+      let data: Record<string, unknown> = {};
+      try {
+        data = (await response.json()) as Record<string, unknown>;
+      } catch {
+        // Empty body on success is fine
+      }
+
+      if (!data.crumbFail && !(typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
+        logger.info({ collectionId }, 'deletePageViaApi: page deleted via DELETE');
+        invalidateCacheByCollectionId(collectionId);
+        return { success: true, collectionId, method: 'deleted' };
+      }
+      errors.push(`DELETE: crumb failure`);
+    } else {
+      const body = await response.text().catch(() => '');
+      errors.push(`DELETE: ${response.status} ${body.slice(0, 100)}`);
     }
-
-    if (!response.ok) {
-      // DELETE endpoint failed — try nav-hiding fallback
-      const fallback = await this.tryHidePageFromNav(collectionId);
-      if (fallback) return fallback;
-      return {
-        success: false,
-        collectionId,
-        error: `API returned ${response.status}`,
-      };
-    }
-
-    // Check for crumb failure in response body
-    let data: Record<string, unknown> = {};
-    try {
-      data = (await response.json()) as Record<string, unknown>;
-    } catch {
-      // Some DELETE endpoints return empty body on success — that's fine
-    }
-
-    if (data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
-      const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
-      // Crumb failure — try nav-hiding fallback
-      const fallback = await this.tryHidePageFromNav(collectionId);
-      if (fallback) return fallback;
-      return {
-        success: false,
-        collectionId,
-        error: `deletePageViaApi rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.`,
-      };
-    }
-
-    logger.info({ collectionId }, 'deletePageViaApi: page deleted');
-
-    return {
-      success: true,
-      collectionId,
-      method: 'deleted',
-    };
   } catch (err) {
-    // Network/timeout error — try nav-hiding fallback
-    const fallback = await this.tryHidePageFromNav(collectionId);
-    if (fallback) return fallback;
-    return {
-      success: false,
-      collectionId,
-      error: errMsg(err),
-    };
+    errors.push(`DELETE: ${errMsg(err)}`);
+    logger.warn({ collectionId, error: errMsg(err) }, 'deletePageViaApi: DELETE endpoint failed');
   }
+
+  // Strategy 2: RemoveCollection (moves to trash — the same endpoint the editor uses)
+  try {
+    const url = this.buildApiUrl('/api/commondata/RemoveCollection');
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...this.buildHeaders(),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+      },
+      body: `collectionId=${encodeURIComponent(collectionId)}`,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+
+    if (response.ok) {
+      let data: Record<string, unknown> = {};
+      try { data = (await response.json()) as Record<string, unknown>; } catch { /* empty ok */ }
+      if (!data.crumbFail && !(typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
+        logger.info({ collectionId }, 'deletePageViaApi: page moved to trash via RemoveCollection');
+        invalidateCacheByCollectionId(collectionId);
+        return { success: true, collectionId, method: 'deleted' };
+      }
+      errors.push(`RemoveCollection: crumb failure`);
+    } else {
+      const errBody = await response.text().catch(() => '');
+      errors.push(`RemoveCollection: ${response.status} ${errBody.slice(0, 100)}`);
+      logger.warn({ collectionId, status: response.status, body: errBody.slice(0, 300) }, 'deletePageViaApi: RemoveCollection failed');
+    }
+  } catch (err) {
+    errors.push(`RemoveCollection: ${errMsg(err)}`);
+    logger.warn({ collectionId, error: errMsg(err) }, 'deletePageViaApi: RemoveCollection failed');
+  }
+
+  // Retry once if any strategy failed due to crumb
+  if (!_isRetry && errors.some(e => e.includes('crumb failure'))) {
+    if (await this.handleCrumbFailure('{"crumbFail":true}')) {
+      logger.info({ collectionId }, 'deletePageViaApi: retrying after crumb refresh');
+      return this.deletePageViaApi(collectionId, true);
+    }
+  }
+
+  // Strategy 3: Hide from navigation as fallback
+  const fallback = await this.tryHidePageFromNav(collectionId);
+  if (fallback) return fallback;
+
+  return {
+    success: false,
+    collectionId,
+    error: `All delete strategies failed: ${errors.join(' | ')}`,
+  };
 };
 
 ContentSaveClient.prototype.tryHidePageFromNav = async function (
@@ -886,6 +919,7 @@ ContentSaveClient.prototype.updatePageMetadata = async function (
   this: ContentSaveClient,
   collectionId: string,
   updates: PageMetadataUpdateOptions,
+  _isRetry = false,
 ): Promise<PageMetadataUpdateResult> {
   this.ensureCookies();
 
@@ -903,6 +937,7 @@ ContentSaveClient.prototype.updatePageMetadata = async function (
     if (updates.seoDescription != null) { body.seoDescription = updates.seoDescription; updatedFields.push('seoDescription'); }
     if (updates.navigationTitle != null) { body.navigationTitle = updates.navigationTitle; updatedFields.push('navigationTitle'); }
     if (updates.enabled != null) { body.enabled = updates.enabled; updatedFields.push('enabled'); }
+    if (updates.deleted != null) { body.deleted = updates.deleted; updatedFields.push('deleted'); }
 
     if (updatedFields.length === 0) {
       return {
@@ -944,6 +979,10 @@ ContentSaveClient.prototype.updatePageMetadata = async function (
     const data = (await response.json()) as Record<string, unknown>;
 
     if (data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
+      if (!_isRetry && await this.handleCrumbFailure(JSON.stringify(data))) {
+        logger.info('updatePageMetadata: retrying after crumb refresh');
+        return this.updatePageMetadata(collectionId, updates, true);
+      }
       const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
       return {
         success: false,

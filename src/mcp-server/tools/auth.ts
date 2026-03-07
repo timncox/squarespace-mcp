@@ -12,7 +12,7 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { reloadAllSessions } from '../session.js';
+import { reloadAllSessions, listSites } from '../session.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
@@ -125,7 +125,7 @@ export function registerAuthTools(server: McpServer) {
     try {
       const { chromium } = await import('playwright');
 
-      browser = await chromium.launch({ headless: false });
+      browser = await chromium.launch({ headless: false, channel: 'chrome' });
       const context = await browser.newContext();
       const page = await context.newPage();
 
@@ -143,6 +143,28 @@ export function registerAuthTools(server: McpServer) {
         );
 
         if (hasMemberSession) {
+          // Navigate to each configured site to pick up site-specific cookies
+          // (member-session + crumb scoped to the site subdomain)
+          const visitedSites: string[] = [];
+          try {
+            const sites = listSites();
+            for (const site of sites) {
+              if (site.subdomain === 'account') continue;
+              const siteUrl = `https://${site.subdomain}.squarespace.com/config`;
+              try {
+                await page.goto(siteUrl, { waitUntil: 'networkidle', timeout: 15_000 });
+                visitedSites.push(site.subdomain);
+              } catch {
+                // Site navigation failed — skip but continue with others
+              }
+            }
+          } catch {
+            // listSites may fail if no DB — continue with account-level cookies
+          }
+
+          // Re-collect cookies after site visits (now includes site-specific cookies)
+          const allCookies = await context.cookies();
+
           // Save session
           mkdirSync(SESSION_DIR, { recursive: true });
 
@@ -150,7 +172,7 @@ export function registerAuthTools(server: McpServer) {
             copyFileSync(SESSION_PATH, SESSION_PATH + '.bak');
           }
 
-          const storageState = { cookies, origins: [] as any[] };
+          const storageState = { cookies: allCookies, origins: [] as any[] };
           writeFileSync(
             SESSION_PATH,
             JSON.stringify(storageState, null, 2),
@@ -159,7 +181,7 @@ export function registerAuthTools(server: McpServer) {
 
           reloadAllSessions();
 
-          const hasCrumb = cookies.some(
+          const hasCrumb = allCookies.some(
             (c: { name: string }) => c.name === 'crumb',
           );
 
@@ -168,11 +190,12 @@ export function registerAuthTools(server: McpServer) {
               type: 'text' as const,
               text: JSON.stringify({
                 status: 'saved',
-                cookieCount: cookies.length,
+                cookieCount: allCookies.length,
                 hasCrumb,
                 hasMemberSession: true,
+                visitedSites,
                 sessionPath: SESSION_PATH,
-                message: `Session saved with ${cookies.length} cookies. Squarespace API is ready.`,
+                message: `Session saved with ${allCookies.length} cookies. Visited ${visitedSites.length} site(s): ${visitedSites.join(', ') || 'none'}. Squarespace API is ready.`,
               }, null, 2),
             }],
           };

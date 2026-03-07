@@ -20,13 +20,13 @@ import { errMsg } from '../../utils/errors.js';
 declare module './index.js' {
   interface ContentSaveClient {
     getCustomCSS(): Promise<{ success: boolean; css: string; error?: string }>;
-    saveCustomCSS(css: string): Promise<{ success: boolean; error?: string }>;
+    saveCustomCSS(css: string, _isRetry?: boolean): Promise<{ success: boolean; error?: string }>;
     getSiteIdentity(): Promise<SiteIdentityResult>;
     updateSiteIdentity(updates: SiteIdentityUpdateOptions): Promise<SiteIdentityResult>;
     getSettings(): Promise<SettingsResult>;
     updateSettings(fields: Partial<SiteSettings>): Promise<SettingsResult>;
     getCodeInjection(): Promise<{ success: boolean; data?: CodeInjectionData; error?: string }>;
-    saveCodeInjection(header?: string, footer?: string): Promise<{ success: boolean; error?: string }>;
+    saveCodeInjection(header?: string, footer?: string, _isRetry?: boolean): Promise<{ success: boolean; error?: string }>;
     getNavigation(): Promise<NavigationResult>;
     updateNavigation(fieldName: string, items: UpdateNavigationItem[]): Promise<UpdateNavigationResult>;
     getSocialAccounts(): Promise<{ success: boolean; data?: SocialAccount[]; error?: string }>;
@@ -77,6 +77,7 @@ ContentSaveClient.prototype.getCustomCSS = async function (
 ContentSaveClient.prototype.saveCustomCSS = async function (
   this: ContentSaveClient,
   css: string,
+  _isRetry = false,
 ): Promise<{ success: boolean; error?: string }> {
   this.ensureCookies();
 
@@ -108,8 +109,12 @@ ContentSaveClient.prototype.saveCustomCSS = async function (
       return { success: false, error };
     }
 
-    // Check for crumb failure
-    if (responseBody.includes('"crumbFail":true') || responseBody.includes('Invalid session crumb')) {
+    // Check for crumb failure — auto-refresh and retry once
+    if (this.isCrumbFailure(responseBody) && !_isRetry && await this.handleCrumbFailure(responseBody)) {
+      logger.info('saveCustomCSS: retrying after crumb refresh');
+      return this.saveCustomCSS(css, true);
+    }
+    if (this.isCrumbFailure(responseBody)) {
       const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
       const error = `CSS save rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.`;
       logger.error(error);
@@ -395,6 +400,7 @@ ContentSaveClient.prototype.saveCodeInjection = async function (
   this: ContentSaveClient,
   header?: string,
   footer?: string,
+  _isRetry = false,
 ): Promise<{ success: boolean; error?: string }> {
   this.ensureCookies();
 
@@ -429,7 +435,12 @@ ContentSaveClient.prototype.saveCodeInjection = async function (
       return { success: false, error };
     }
 
-    if (responseBody.includes('"crumbFail":true') || responseBody.includes('Invalid session crumb')) {
+    // Check for crumb failure — auto-refresh and retry once
+    if (this.isCrumbFailure(responseBody) && !_isRetry && await this.handleCrumbFailure(responseBody)) {
+      logger.info('saveCodeInjection: retrying after crumb refresh');
+      return this.saveCodeInjection(header, footer, true);
+    }
+    if (this.isCrumbFailure(responseBody)) {
       const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
       const error = `Code injection save rejected: invalid or expired session crumb.${ageInfo} Run a browser session to refresh cookies.`;
       logger.error(error);
