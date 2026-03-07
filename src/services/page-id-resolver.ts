@@ -96,6 +96,22 @@ export function invalidateCacheByCollectionId(collectionId: string): void {
   }
 }
 
+/**
+ * Invalidate cached page IDs for a given subdomain + slug.
+ * Call when creating a page to clear stale entries from a previously
+ * deleted page with the same slug.
+ */
+export function invalidateCacheBySlug(subdomain: string, slug: string): void {
+  const normalizedSlug = normalizeSlug(slug);
+  const db = getDb();
+  const deleted = db.prepare(
+    'DELETE FROM page_id_cache WHERE subdomain = ? AND slug = ?',
+  ).run(subdomain, normalizedSlug);
+  if (deleted.changes > 0) {
+    logger.info({ subdomain, slug: normalizedSlug, rowsDeleted: deleted.changes }, 'Invalidated page ID cache by slug');
+  }
+}
+
 // ── Resolution chain ─────────────────────────────────────────────────────────
 
 /**

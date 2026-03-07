@@ -9,6 +9,7 @@ import type {
   BlogPostCreateResult,
   BlogPostUpdateOptions,
   BlogPostUpdateResult,
+  BlogPostFeaturedImageResult,
   PageDeleteResult,
   PageMetadataUpdateOptions,
   PageMetadataUpdateResult,
@@ -16,7 +17,7 @@ import type {
 } from './types.js';
 import { logger } from '../../utils/logger.js';
 import { errMsg } from '../../utils/errors.js';
-import { invalidateCacheByCollectionId } from '../page-id-resolver.js';
+import { invalidateCacheByCollectionId, invalidateCacheBySlug, cachePageIds } from '../page-id-resolver.js';
 
 declare module './index.js' {
   interface ContentSaveClient {
@@ -72,6 +73,13 @@ declare module './index.js' {
       collectionId: string,
       searchTitle: string,
     ): Promise<CollectionItem | null>;
+    setBlogPostFeaturedImage(
+      collectionId: string,
+      itemId: string,
+      imageBuffer: Buffer,
+      filename: string,
+      contentType?: string,
+    ): Promise<BlogPostFeaturedImageResult>;
     deletePageViaApi(collectionId: string, _isRetry?: boolean): Promise<PageDeleteResult>;
     tryHidePageFromNav(collectionId: string): Promise<PageDeleteResult | null>;
     updatePageMetadata(
@@ -419,6 +427,20 @@ ContentSaveClient.prototype.createPageViaApi = async function (
     const urlId = data.urlId ? String(data.urlId) : undefined;
 
     logger.info({ pageId, urlId, title }, 'createPageViaApi: page created');
+
+    // Invalidate stale page ID cache for this slug (prevents stale hits from
+    // a previously deleted page with the same slug)
+    const effectiveSlug = urlId ?? slug ?? '';
+    if (effectiveSlug && pageId) {
+      invalidateCacheBySlug(this.siteSubdomain, effectiveSlug);
+      // Also cache the new page's IDs immediately.
+      // pageSectionsId follows the pattern: collectionId with last hex char + 1
+      const lastChar = pageId.slice(-1);
+      const nextChar = ((parseInt(lastChar, 16) + 1) % 16).toString(16);
+      const pageSectionsId = pageId.slice(0, -1) + nextChar;
+      cachePageIds(this.siteSubdomain, effectiveSlug, pageSectionsId, pageId);
+      logger.info({ subdomain: this.siteSubdomain, slug: effectiveSlug, pageId, pageSectionsId }, 'createPageViaApi: cached new page IDs');
+    }
 
     // Add to navigation
     const navField = options?.navigation ?? '_hidden';
@@ -1006,5 +1028,97 @@ ContentSaveClient.prototype.updatePageMetadata = async function (
       updatedFields: [],
       error: errMsg(err),
     };
+  }
+};
+
+// ── Blog Post Featured Image ────────────────────────────────────────────
+
+ContentSaveClient.prototype.setBlogPostFeaturedImage = async function (
+  this: ContentSaveClient,
+  collectionId: string,
+  itemId: string,
+  imageBuffer: Buffer,
+  filename: string,
+  contentType = 'image/jpeg',
+): Promise<BlogPostFeaturedImageResult> {
+  this.ensureCookies();
+
+  try {
+    const url = this.buildApiUrl('/api/commondata/SaveMedia');
+    const fd = new FormData();
+    fd.append('process', 'true');
+    fd.append('contentType', contentType);
+    fd.append('isWordpressXmlFile', 'false');
+    fd.append('recordType', '2');
+    fd.append('collectionId', collectionId);
+    fd.append('replaceItemId', itemId);
+    fd.append('imageDestination', 'content-item-main-image');
+    fd.append('fileName', filename);
+    fd.append('fileSize', String(imageBuffer.length));
+    fd.append('Filedata', new Blob([new Uint8Array(imageBuffer)], { type: contentType }), filename);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...this.buildHeaders(),
+        ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+      },
+      body: fd,
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      return { success: false, itemId, error: `SaveMedia returned ${response.status}: ${text.slice(0, 200)}` };
+    }
+
+    const data = (await response.json()) as Record<string, unknown>;
+
+    // Poll the job until complete
+    const job = data.job as Record<string, unknown> | undefined;
+    const jobId = job?.id as string | undefined;
+    if (jobId) {
+      const jobUrl = this.buildApiUrl(`/api/rest/jobs?id=${encodeURIComponent(jobId)}`);
+      for (let i = 0; i < 15; i++) {
+        await new Promise(r => setTimeout(r, 2000));
+        const jobResp = await fetch(jobUrl, {
+          headers: this.buildHeaders(),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+        if (!jobResp.ok) continue;
+        const jobData = (await jobResp.json()) as Record<string, unknown>;
+        if (jobData.completed || jobData.percentComplete === 100) break;
+        if (jobData.error) {
+          return { success: false, itemId, error: `Job failed: ${JSON.stringify(jobData).slice(0, 200)}` };
+        }
+      }
+    }
+
+    // Verify the image was linked by checking the blog post
+    const checkUrl = this.buildApiUrl(`/api/content/blogs/${collectionId}/text-posts/${itemId}`);
+    const checkResp = await fetch(checkUrl, {
+      headers: this.buildHeaders(),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+
+    if (checkResp.ok) {
+      const post = (await checkResp.json()) as Record<string, unknown>;
+      if (post.hasFileData) {
+        logger.info({ collectionId, itemId, coverImageUrl: String(post.coverImageUrl ?? '').slice(0, 80) },
+          'setBlogPostFeaturedImage: image set successfully');
+        return {
+          success: true,
+          itemId,
+          coverImageUrl: post.coverImageUrl as string | undefined,
+        };
+      }
+    }
+
+    // SaveMedia returned OK but post doesn't show the image yet — still report success
+    // as the job may still be processing
+    logger.warn({ collectionId, itemId }, 'setBlogPostFeaturedImage: SaveMedia OK but post verification inconclusive');
+    return { success: true, itemId };
+  } catch (err) {
+    return { success: false, itemId, error: errMsg(err) };
   }
 };

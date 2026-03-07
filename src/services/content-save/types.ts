@@ -618,6 +618,14 @@ export interface BlogPostUpdateResult {
   error?: string;
 }
 
+/** Result of setBlogPostFeaturedImage */
+export interface BlogPostFeaturedImageResult {
+  success: boolean;
+  itemId: string;
+  coverImageUrl?: string;
+  error?: string;
+}
+
 // ── Page Deletion/Update Types ──────────────────────────────────────────────
 
 /** Result of deletePageViaApi */

@@ -3,6 +3,7 @@
  *
  * sq_create_blog_post: Create a new blog post
  * sq_update_blog_post: Update an existing blog post
+ * sq_set_blog_featured_image: Set a blog post's featured/thumbnail image
  * sq_list_blog_posts: List blog posts in a collection
  * sq_find_blog_post: Find a blog post by title
  * sq_get_menu: Read menu block data
@@ -117,6 +118,73 @@ export function registerContentTools(server: McpServer) {
           type: 'text' as const,
           text: JSON.stringify(result, null, 2),
         }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_set_blog_featured_image ────────────────────────────────────────────
+  server.registerTool('sq_set_blog_featured_image', {
+    description:
+      'Set the featured/thumbnail image for a blog post. Uses the SaveMedia API to upload and link the image directly to the post. ' +
+      'Accepts a local file path, HTTP/HTTPS URL, or base64-encoded image data. ' +
+      'Note: coverImageUrl on sq_create_blog_post / sq_update_blog_post does NOT work — use this tool instead.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      collectionId: z.string().describe('Blog collection ID'),
+      postId: z.string().describe('Blog post item ID'),
+      imagePath: z.string().optional().describe('Local file path to image'),
+      imageUrl: z.string().optional().describe('HTTP/HTTPS URL of image to download'),
+      imageData: z.string().optional().describe('Base64-encoded image data'),
+      filename: z.string().optional().describe('Filename (required with imageData, optional otherwise, e.g. "featured.jpg")'),
+    },
+  }, async ({ siteId, collectionId, postId, imagePath, imageUrl, imageData, filename }) => {
+    try {
+      if (!imagePath && !imageUrl && !imageData) {
+        return { content: [{ type: 'text' as const, text: 'Error: Must provide imagePath, imageUrl, or imageData' }], isError: true };
+      }
+
+      const client = getClient(siteId);
+      let imageBuffer: Buffer;
+      let resolvedFilename: string;
+      let contentType = 'image/jpeg';
+
+      if (imageData) {
+        imageBuffer = Buffer.from(imageData, 'base64');
+        resolvedFilename = filename || 'featured.jpg';
+      } else if (imageUrl) {
+        const resp = await fetch(imageUrl, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+        if (!resp.ok) {
+          return { content: [{ type: 'text' as const, text: `Error: Failed to download image: ${resp.status}` }], isError: true };
+        }
+        imageBuffer = Buffer.from(await resp.arrayBuffer());
+        const urlPath = new URL(imageUrl).pathname;
+        resolvedFilename = filename || urlPath.split('/').pop() || 'featured.jpg';
+        const respType = resp.headers.get('content-type');
+        if (respType) contentType = respType.split(';')[0].trim();
+      } else {
+        const { readFileSync } = await import('node:fs');
+        const path = await import('node:path');
+        imageBuffer = readFileSync(imagePath!);
+        resolvedFilename = filename || path.default.basename(imagePath!);
+        const ext = path.default.extname(resolvedFilename).toLowerCase();
+        if (ext === '.png') contentType = 'image/png';
+        else if (ext === '.webp') contentType = 'image/webp';
+        else if (ext === '.gif') contentType = 'image/gif';
+      }
+
+      const result = await client.setBlogPostFeaturedImage(collectionId, postId, imageBuffer, resolvedFilename, contentType);
+
+      if (!result.success) {
+        return { content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Unknown error'}` }], isError: true };
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
       };
     } catch (err) {
       return {

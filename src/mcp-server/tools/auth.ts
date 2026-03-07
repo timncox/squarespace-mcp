@@ -162,8 +162,8 @@ export function registerAuthTools(server: McpServer) {
             // listSites may fail if no DB — continue with account-level cookies
           }
 
-          // Re-collect cookies after site visits (now includes site-specific cookies)
-          const allCookies = await context.cookies();
+          // Capture full storage state (cookies + localStorage with statsig data)
+          const fullState = await context.storageState() as { cookies: any[]; origins: any[] };
 
           // Save session
           mkdirSync(SESSION_DIR, { recursive: true });
@@ -172,12 +172,13 @@ export function registerAuthTools(server: McpServer) {
             copyFileSync(SESSION_PATH, SESSION_PATH + '.bak');
           }
 
-          const storageState = { cookies: allCookies, origins: [] as any[] };
           writeFileSync(
             SESSION_PATH,
-            JSON.stringify(storageState, null, 2),
+            JSON.stringify(fullState, null, 2),
             'utf-8',
           );
+
+          const allCookies = fullState.cookies;
 
           reloadAllSessions();
 
