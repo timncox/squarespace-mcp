@@ -16,6 +16,7 @@ const mockClient = {
   removeGalleryImage: vi.fn(),
   reorderGalleryImages: vi.fn(),
   addGalleryImage: vi.fn(),
+  deleteBlogPost: vi.fn(),
 };
 
 const mockMediaClient = {
@@ -60,9 +61,10 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
     registerContentTools(server as any);
   });
 
-  it('should register all 12 content tools', () => {
+  it('should register all content tools', () => {
     expect(server.tools.has('sq_create_blog_post')).toBe(true);
     expect(server.tools.has('sq_update_blog_post')).toBe(true);
+    expect(server.tools.has('sq_delete_blog_post')).toBe(true);
     expect(server.tools.has('sq_list_blog_posts')).toBe(true);
     expect(server.tools.has('sq_find_blog_post')).toBe(true);
     expect(server.tools.has('sq_get_menu')).toBe(true);
@@ -270,6 +272,60 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
       const result = await server.callTool('sq_find_blog_post', { siteId: 'smyth-tavern', collectionId: 'blog-col-1', title: 'nonexistent' });
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('No blog post found');
+    });
+  });
+
+  // ── Delete Blog Post ───────────────────────────────────────────────────────
+
+  describe('sq_delete_blog_post', () => {
+    it('should delete a blog post without resolvePageIds', async () => {
+      mockClient.deleteBlogPost.mockResolvedValue({
+        success: true,
+        postId: 'post-123',
+      });
+
+      const result = await server.callTool('sq_delete_blog_post', {
+        siteId: 'smyth-tavern',
+        collectionId: 'blog-col-1',
+        postId: 'post-123',
+      });
+
+      expect(resolvePageIds).not.toHaveBeenCalled();
+      expect(mockClient.deleteBlogPost).toHaveBeenCalledWith('blog-col-1', 'post-123');
+      expect(result.isError).toBeUndefined();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(data.postId).toBe('post-123');
+    });
+
+    it('should return error on API failure', async () => {
+      mockClient.deleteBlogPost.mockResolvedValue({
+        success: false,
+        postId: 'post-123',
+        error: 'RemoveItem returned 500',
+      });
+
+      const result = await server.callTool('sq_delete_blog_post', {
+        siteId: 'smyth-tavern',
+        collectionId: 'blog-col-1',
+        postId: 'post-123',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('RemoveItem returned 500');
+    });
+
+    it('should return error on thrown exception', async () => {
+      mockClient.deleteBlogPost.mockRejectedValue(new Error('Network timeout'));
+
+      const result = await server.callTool('sq_delete_blog_post', {
+        siteId: 'smyth-tavern',
+        collectionId: 'blog-col-1',
+        postId: 'post-456',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Network timeout');
     });
   });
 

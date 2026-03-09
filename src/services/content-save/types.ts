@@ -597,6 +597,10 @@ export interface BlogPostCreateResult {
   urlId?: string;
   endpointAvailable: boolean;
   error?: string;
+  /** When slug collision detected, the ID of the existing post with that slug */
+  existingPostId?: string;
+  /** When slug collision detected, the title of the existing post with that slug */
+  existingPostTitle?: string;
 }
 
 /** Options for updateBlogPost */
@@ -638,6 +642,13 @@ export interface PageDeleteResult {
   method?: 'deleted' | 'hidden_from_nav';
   /** Human-readable note about what happened (especially for fallback) */
   note?: string;
+  error?: string;
+}
+
+/** Result of deleteBlogPost */
+export interface BlogPostDeleteResult {
+  success: boolean;
+  postId: string;
   error?: string;
 }
 

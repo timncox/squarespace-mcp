@@ -10,6 +10,7 @@ import type {
   BlogPostUpdateOptions,
   BlogPostUpdateResult,
   BlogPostFeaturedImageResult,
+  BlogPostDeleteResult,
   PageDeleteResult,
   PageMetadataUpdateOptions,
   PageMetadataUpdateResult,
@@ -80,6 +81,7 @@ declare module './index.js' {
       filename: string,
       contentType?: string,
     ): Promise<BlogPostFeaturedImageResult>;
+    deleteBlogPost(collectionId: string, postId: string, _isRetry?: boolean): Promise<BlogPostDeleteResult>;
     deletePageViaApi(collectionId: string, _isRetry?: boolean): Promise<PageDeleteResult>;
     tryHidePageFromNav(collectionId: string): Promise<PageDeleteResult | null>;
     updatePageMetadata(
@@ -627,6 +629,40 @@ ContentSaveClient.prototype.createBlogPost = async function (
     if (!response.ok) {
       const errBody = await response.text().catch(() => '');
       logger.warn({ collectionId, status: response.status, body: errBody }, 'createBlogPost: API error');
+
+      // Detect slug collision: 400 with "This URL is already in use"
+      if (response.status === 400 && errBody.includes('This URL is already in use')) {
+        const requestedSlug = options?.slug;
+        if (requestedSlug) {
+          try {
+            const itemsResult = await this.getCollectionItems(collectionId);
+            if (itemsResult.success && itemsResult.items) {
+              const existing = itemsResult.items.find(
+                (item) => item.urlId?.toLowerCase() === requestedSlug.toLowerCase(),
+              );
+              if (existing) {
+                return {
+                  success: false,
+                  endpointAvailable: true,
+                  error: `Slug "${requestedSlug}" is already in use by post "${existing.title}" (${existing.id}). Use sq_update_blog_post to update it instead.`,
+                  existingPostId: existing.id,
+                  existingPostTitle: existing.title,
+                };
+              }
+            }
+          } catch (lookupErr) {
+            logger.warn({ error: errMsg(lookupErr), collectionId, slug: requestedSlug },
+              'createBlogPost: slug collision detected but failed to look up existing post');
+          }
+        }
+        // Fallback if we couldn't find the exact post or no slug was provided
+        return {
+          success: false,
+          endpointAvailable: true,
+          error: `Slug "${requestedSlug ?? '(auto)'}" is already in use. Use sq_list_blog_posts to find the existing post, then sq_update_blog_post to update it.`,
+        };
+      }
+
       return {
         success: false,
         endpointAvailable: true,
@@ -775,6 +811,56 @@ ContentSaveClient.prototype.findBlogPostByTitle = async function (
   } catch (err) {
     logger.warn({ error: errMsg(err), collectionId, searchTitle }, 'findBlogPostByTitle: failed');
     return null;
+  }
+};
+
+// ── Blog Post Delete ─────────────────────────────────────────────────────
+
+ContentSaveClient.prototype.deleteBlogPost = async function (
+  this: ContentSaveClient,
+  collectionId: string,
+  postId: string,
+  _isRetry = false,
+): Promise<BlogPostDeleteResult> {
+  this.ensureCookies();
+
+  try {
+    const url = this.buildApiUrl('/api/commondata/RemoveItem');
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...this.buildHeaders(),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+      },
+      body: `itemId=${encodeURIComponent(postId)}`,
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+
+    if (response.status === 401) {
+      return { success: false, postId, error: 'Session expired — call sq_login to check session health and re-authenticate.' };
+    }
+
+    if (!response.ok) {
+      const errBody = await response.text().catch(() => '');
+      return { success: false, postId, error: `RemoveItem returned ${response.status}: ${errBody.slice(0, 200)}` };
+    }
+
+    let data: Record<string, unknown> = {};
+    try { data = (await response.json()) as Record<string, unknown>; } catch { /* empty ok */ }
+
+    if (data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
+      if (!_isRetry && await this.handleCrumbFailure(JSON.stringify(data))) {
+        logger.info('deleteBlogPost: retrying after crumb refresh');
+        return this.deleteBlogPost(collectionId, postId, true);
+      }
+      return { success: false, postId, error: 'Session crumb invalid — call sq_login to check session health and re-authenticate.' };
+    }
+
+    logger.info({ collectionId, postId }, 'deleteBlogPost: post moved to trash');
+    return { success: true, postId };
+  } catch (err) {
+    return { success: false, postId, error: errMsg(err) };
   }
 };
 

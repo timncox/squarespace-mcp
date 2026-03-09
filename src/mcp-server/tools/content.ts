@@ -3,9 +3,12 @@
  *
  * sq_create_blog_post: Create a new blog post
  * sq_update_blog_post: Update an existing blog post
+ * sq_update_blog_posts: Batch update multiple blog posts
  * sq_set_blog_featured_image: Set a blog post's featured/thumbnail image
+ * sq_set_blog_featured_images: Batch set featured images for multiple posts
  * sq_list_blog_posts: List blog posts in a collection
  * sq_find_blog_post: Find a blog post by title
+ * sq_delete_blog_post: Delete a blog post (moves to trash)
  * sq_get_menu: Read menu block data
  * sq_update_menu: Update menu block
  * sq_add_menu: Add a new menu block
@@ -24,8 +27,9 @@ export function registerContentTools(server: McpServer) {
   // ── sq_create_blog_post ─────────────────────────────────────────────────────
   server.registerTool('sq_create_blog_post', {
     description:
-      'Create a new blog post on a Squarespace site. Requires the blog collectionId (get it from sq_list_pages). Returns the new post itemId and urlId. ' +
-      'Body, tags, excerpt, and categories are set via an automatic follow-up update after creation (the Squarespace create endpoint ignores these fields). ' +
+      'Create a blog post. Pass title, body, tags, excerpt, and draft status — the tool handles everything automatically ' +
+      '(including the internal follow-up for body/tags which Squarespace requires). Returns the post ID for use with sq_set_blog_featured_image. ' +
+      'Do NOT call sq_update_blog_post separately for body — this tool does it for you. ' +
       'WARNING: coverImageUrl does NOT work — Squarespace silently strips it. To set a featured image, call sq_set_blog_featured_image separately after creation.',
     inputSchema: {
       siteId: z.string().describe('Site identifier (e.g. "my-site")'),
@@ -130,6 +134,55 @@ export function registerContentTools(server: McpServer) {
     }
   });
 
+  // ── sq_update_blog_posts (batch) ──────────────────────────────────────────
+  server.registerTool('sq_update_blog_posts', {
+    description:
+      'Batch update multiple blog posts in one call. Runs updates concurrently via Promise.allSettled. ' +
+      'Returns counts and per-post results. Use sq_list_blog_posts to get post IDs first.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      collectionId: z.string().describe('Blog collection ID'),
+      posts: z.array(z.object({
+        postId: z.string().describe('Blog post item ID to update'),
+        title: z.string().optional().describe('New title'),
+        body: z.string().optional().describe('New body HTML'),
+        tags: z.array(z.string()).optional().describe('New tags'),
+        excerpt: z.string().optional().describe('Post excerpt / summary text'),
+        draft: z.boolean().optional().describe('Set draft status (true=draft, false=published)'),
+      })).describe('Array of posts to update'),
+    },
+  }, async ({ siteId, collectionId, posts }) => {
+    try {
+      const client = getClient(siteId);
+      const settled = await Promise.allSettled(
+        posts.map(({ postId, title, body, tags, excerpt, draft }) =>
+          client.updateBlogPost(collectionId, postId, { title, body, tags, excerpt, draft })
+            .then(result => ({ postId, ...result }))
+        )
+      );
+
+      const results = settled.map((s, i) => {
+        if (s.status === 'fulfilled') {
+          return { postId: posts[i].postId, success: s.value.success, ...(s.value.error ? { error: s.value.error } : {}) };
+        }
+        return { postId: posts[i].postId, success: false, error: s.reason instanceof Error ? s.reason.message : String(s.reason) };
+      });
+
+      const updated = results.filter(r => r.success).length;
+      const failed = results.length - updated;
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ updated, failed, results }, null, 2) }],
+        ...(failed > 0 ? { isError: true } : {}),
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
   // ── sq_set_blog_featured_image ────────────────────────────────────────────
   server.registerTool('sq_set_blog_featured_image', {
     description:
@@ -183,6 +236,80 @@ export function registerContentTools(server: McpServer) {
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_set_blog_featured_images (batch) ──────────────────────────────────
+  server.registerTool('sq_set_blog_featured_images', {
+    description:
+      'Batch set featured/thumbnail images for multiple blog posts. Processes sequentially to avoid overwhelming the upload endpoint. ' +
+      'Each entry accepts a local file path or HTTP/HTTPS URL. Returns counts and per-post results.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      collectionId: z.string().describe('Blog collection ID'),
+      images: z.array(z.object({
+        postId: z.string().describe('Blog post item ID'),
+        imagePath: z.string().optional().describe('Local file path to image'),
+        imageUrl: z.string().optional().describe('HTTP/HTTPS URL of image to download'),
+      })).describe('Array of posts with image sources'),
+    },
+  }, async ({ siteId, collectionId, images }) => {
+    try {
+      const client = getClient(siteId);
+      const results: { postId: string; success: boolean; error?: string }[] = [];
+
+      for (const { postId, imagePath, imageUrl } of images) {
+        try {
+          if (!imagePath && !imageUrl) {
+            results.push({ postId, success: false, error: 'Must provide imagePath or imageUrl' });
+            continue;
+          }
+
+          let imageBuffer: Buffer;
+          let resolvedFilename: string;
+          let contentType = 'image/jpeg';
+
+          if (imageUrl) {
+            const resp = await fetch(imageUrl, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+            if (!resp.ok) {
+              results.push({ postId, success: false, error: `Failed to download image: ${resp.status}` });
+              continue;
+            }
+            imageBuffer = Buffer.from(await resp.arrayBuffer());
+            const urlPath = new URL(imageUrl).pathname;
+            resolvedFilename = urlPath.split('/').pop() || 'featured.jpg';
+            const respType = resp.headers.get('content-type');
+            if (respType) contentType = respType.split(';')[0].trim();
+          } else {
+            const { readFileSync } = await import('node:fs');
+            const path = await import('node:path');
+            imageBuffer = readFileSync(imagePath!);
+            resolvedFilename = path.default.basename(imagePath!);
+            const ext = path.default.extname(resolvedFilename).toLowerCase();
+            if (ext === '.png') contentType = 'image/png';
+            else if (ext === '.webp') contentType = 'image/webp';
+            else if (ext === '.gif') contentType = 'image/gif';
+          }
+
+          const result = await client.setBlogPostFeaturedImage(collectionId, postId, imageBuffer, resolvedFilename, contentType);
+          results.push({ postId, success: result.success, ...(result.error ? { error: result.error } : {}) });
+        } catch (err) {
+          results.push({ postId, success: false, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+
+      const set = results.filter(r => r.success).length;
+      const failed = results.length - set;
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ set, failed, results }, null, 2) }],
+        ...(failed > 0 ? { isError: true } : {}),
       };
     } catch (err) {
       return {
@@ -256,6 +383,41 @@ export function registerContentTools(server: McpServer) {
         content: [{
           type: 'text' as const,
           text: JSON.stringify(post, null, 2),
+        }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_delete_blog_post ────────────────────────────────────────────────────
+  server.registerTool('sq_delete_blog_post', {
+    description:
+      'Delete a blog post (moves to trash, ~30 day retention). Use sq_list_blog_posts or sq_find_blog_post to get the post ID.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      collectionId: z.string().describe('Blog collection ID'),
+      postId: z.string().describe('Blog post item ID to delete'),
+    },
+  }, async ({ siteId, collectionId, postId }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.deleteBlogPost(collectionId, postId);
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Unknown error'}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify(result, null, 2),
         }],
       };
     } catch (err) {

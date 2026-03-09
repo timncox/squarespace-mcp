@@ -68,10 +68,10 @@ If the user has the Squarespace editor open while you make API changes, their ne
 ### Adding new sections — use sq_add_section (not sq_add_blank_section)
 Blank sections created via API may reject subsequent block insertions (500 errors). Use sq_add_section to create sections with initial content blocks atomically. This is the preferred approach for building new pages.
 
-### Blog Posts — three-step workflow
-1. **Create:** sq_create_blog_post creates the post. The Squarespace create endpoint ignores body/tags/excerpt/categories, so the tool automatically does a follow-up update to set them. If the follow-up fails (e.g. session expired), the post will exist with an empty body — check the result for errors.
-2. **Edit:** Use sq_update_blog_post to change title, body, tags, excerpt, categories, or publish status.
-3. **Featured image:** coverImageUrl is silently stripped by Squarespace on both create and update. Use sq_set_blog_featured_image as a separate call after creation to set the thumbnail/featured image.
+### Blog Posts — two-step workflow
+1. **Create:** sq_create_blog_post handles everything — pass title, body, tags, excerpt, categories, and draft status directly. The tool internally handles the Squarespace API quirk (create ignores body/tags) with an automatic follow-up update. Do NOT call sq_update_blog_post separately for body — sq_create_blog_post does it for you.
+2. **Featured image:** coverImageUrl is silently stripped by Squarespace. Use sq_set_blog_featured_image as a separate call after creation — this is the ONLY extra step needed.
+Use sq_update_blog_post only for editing posts that already exist (changing title, body, tags, etc. after initial creation).
 
 ### Session Cookies
 All API calls require valid Squarespace editor session cookies. If you get 401 or "session expired" errors, call sq_login to check session health. Use sq_login_browser to launch a visible Chromium browser — the user logs in manually and the tool automatically captures all cookies (including HTTP-only member-session) and saves the session.
@@ -212,8 +212,9 @@ server.registerPrompt('squarespace-guide', {
 - sq_update_page_metadata — update SEO title, description, nav title
 
 ### Blog Posts
-- sq_create_blog_post — create post (body set via follow-up update)
-- sq_update_blog_post — update post title, body, tags, excerpt, categories
+- sq_create_blog_post — create post with title, body, tags, excerpt, draft status (pass everything directly — body is handled automatically)
+- sq_set_blog_featured_image — set featured/thumbnail image (the only separate step needed after creation)
+- sq_update_blog_post — update an EXISTING post (title, body, tags, excerpt, categories, publish status)
 - sq_list_blog_posts — list posts in a blog collection
 - sq_find_blog_post — find post by title
 
@@ -271,7 +272,7 @@ Uses session cookies (same auth as all other tools — no separate API key neede
 
 **Deleting a page:** sq_delete_page moves the page to trash. Use sq_list_pages to get the collection ID.
 
-**Blog post workflow:** Create → update body (automatic) → set featured image (separate step). The create endpoint ignores body/tags, so sq_create_blog_post does a follow-up update. coverImageUrl is silently stripped — use sq_set_blog_featured_image after creation.
+**Blog post workflow:** Pass title, body, tags, excerpt directly to sq_create_blog_post — the tool handles everything internally. Do NOT call sq_update_blog_post separately for body. The only separate step is sq_set_blog_featured_image for the featured image (coverImageUrl is silently stripped by Squarespace).
 
 **Adding a contact form:** Use sq_list_forms → if no forms exist, sq_create_form → sq_add_form_block. The full flow is automated — no need to ask the user to create forms manually. NEVER use sq_add_embed with third-party form services as a workaround.
 
