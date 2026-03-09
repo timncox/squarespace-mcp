@@ -1,6 +1,6 @@
 # Squarespace MCP
 
-MCP server that edits Squarespace websites via the Content Save API. Exposes ~112 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop or Claude Code.
+MCP server that edits Squarespace websites via the Content Save API. Exposes 131 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop or Claude Code.
 
 ## Setup
 
@@ -56,8 +56,8 @@ Add to `claude_desktop_config.json`:
 ```json
 {
   "squarespace": {
-    "command": "/usr/local/bin/npx",
-    "args": ["tsx", "/path/to/squarespace-mcp/src/mcp-server/index.ts"],
+    "command": "node",
+    "args": ["/path/to/squarespace-mcp/dist/src/mcp-server/index.js"],
     "env": {
       "SESSION_DIR": "/path/to/squarespace-mcp/storage/auth",
       "DB_PATH": "/path/to/squarespace-mcp/data/sqhelper.db"
@@ -66,7 +66,7 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
-Uses `tsx` to run TypeScript source directly — no compile step needed.
+Requires a compiled build (`npm run build` first). Alternatively, use `npx tsx /path/to/squarespace-mcp/src/mcp-server/index.ts` to run from source.
 
 ### Claude Code Setup
 
@@ -124,7 +124,7 @@ Optionally, set `GMAIL_REFRESH_TOKEN` in `.env` to bootstrap without running the
 ```bash
 npm run mcp     # Start MCP server (tsx src/mcp-server/index.ts)
 npm run build   # TypeScript compile
-npm test        # Run test suite (~1368 tests, 58 files)
+npm test        # Run test suite (~1442 tests, 63 files)
 ```
 
 ## MCP Tool Categories
@@ -134,15 +134,14 @@ npm test        # Run test suite (~1368 tests, 58 files)
 | Text | 8 | read page, update/patch/format text, add text, update header/footer text |
 | Sections | 6 | add blank/template, move, duplicate, edit style |
 | Section Dividers | 2 | update/remove section dividers |
-| Blocks | 30 | button, image, video, embed, accordion, quote, marquee, newsletter, divider, code, social links, map — add/update + move/resize/swap/remove/duplicate |
+| Blocks | 43 | button, image, video, embed, accordion, quote, marquee, newsletter, divider, code, social links, map, audio, page link, horizontal rule, search, markdown, summary, product — add/update + move/resize/swap/remove/duplicate |
 | Pages | 6 | create, delete, list, update metadata, get/update navigation |
 | Blog | 4 | create/update/list/find blog posts |
 | Gallery | 5 | list/add/remove/reorder gallery images, update gallery settings |
-| Site-wide | 15 | list sites, settings, CSS, code injection, design, fonts/colors, social links, site identity, advanced settings |
+| Site-wide | 20 | list sites, settings, CSS, CSS patching, code injection, design, fonts/colors, color themes, social links, site identity, advanced settings, header/footer config |
 | Forms | 6 | list/create/get/update forms, add/update form block |
 | Menu | 3 | get/update/add menu blocks (structured JSON) |
-| Announcement Bar | 2 | get/update announcement bar |
-| Screenshot | 1 | take page screenshot |
+| Announcement Bar | 2 | get/update announcement bar (with style passthrough) |
 | PDF Menu | 1 | parse PDF file into structured menu JSON |
 | Images | 2 | upload single (path, URL, or base64), upload batch |
 | Commerce | 9 | products CRUD, variants, images (attach/remove/replace), store pages |
@@ -158,12 +157,12 @@ Pure MCP server — no web server, no orchestrator, no dashboard. Claude Desktop
 
 ```
 src/
-  mcp-server/           # MCP server — ~110 tools across 17 modules
+  mcp-server/           # MCP server — 131 tools across 16 modules
     tools/              # Tool modules (registerXxxTools pattern)
     session.ts          # Client cache + resolvePageIds + dynamic site discovery
     index.ts            # Tool registration entry point
   services/             # API clients and business logic
-    content-save/       # Content Save API client (86+ methods, split into domain modules)
+    content-save/       # Content Save API client (100+ methods, split into domain modules)
       client.ts         # Base class, infrastructure, static helpers
       types.ts          # All type definitions
       blocks.ts         # Block add/update (image, button, video, quote, code, etc.)
@@ -211,7 +210,7 @@ The API client (`ContentSaveClient`) uses a read-modify-write pattern: GET page 
 ## Testing
 
 ```bash
-npm test    # ~1368 tests across 58 files
+npm test    # ~1442 tests across 63 files
 ```
 
 Tests use vitest with mocked API responses. No live Squarespace session required.

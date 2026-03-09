@@ -2,14 +2,14 @@
 
 ## What This Project Is
 
-MCP server that edits Squarespace websites via the Content Save API. Exposes ~112 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop.
+MCP server that edits Squarespace websites via the Content Save API. Exposes 131 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop.
 
 ## Commands
 
 ```bash
 npm run mcp     # Start MCP server (tsx src/mcp-server/index.ts)
 npm run build   # TypeScript compile
-npm test        # vitest run (~1368 tests, 58 files)
+npm test        # vitest run (~1442 tests, 63 files)
 ```
 
 ## Architecture
@@ -22,22 +22,22 @@ Entry point: `src/mcp-server/index.ts` — registers all tools, starts stdio tra
 
 ```
 src/
-  mcp-server/       # MCP server — ~90 tools across 17 modules
+  mcp-server/       # MCP server — 131 tools across 16 modules
     tools/          # Tool modules (registerXxxTools pattern)
     session.ts      # Client cache + resolvePageIds + dynamic site discovery
     index.ts        # Tool registration entry point
   services/         # API clients and business logic
-    content-save/   # Content Save API client (86+ methods, 14 domain modules)
+    content-save/   # Content Save API client (100+ methods, 14 domain modules)
       client.ts     # Base class, infrastructure, static helpers
       types.ts      # All type definitions
-      blocks.ts     # Block add/update (image, button, video, quote, code, etc.)
+      blocks.ts     # Block add/update (image, button, video, quote, code, audio, markdown, summary, product, etc.)
       block-layout.ts # Move, resize, remove, duplicate, swap blocks
       text.ts       # Text block operations
       sections.ts   # Section add/move/duplicate/style/dividers
       pages.ts      # Page/blog CRUD
       header-footer.ts # Header and footer editing
-      site.ts       # CSS, settings, navigation, social accounts
-      design.ts     # Fonts, colors, template tweaks
+      site.ts       # CSS, CSS patching, settings, navigation, social accounts
+      design.ts     # Fonts, colors, color themes, template tweaks
       gallery.ts    # Gallery settings, images, section catalog
       mobile.ts     # Mobile layout and visibility
       commerce.ts   # Products, store pages, product images
@@ -63,11 +63,11 @@ storage/            # Session cookies, uploads, screenshots
 
 | File | Purpose |
 |------|---------|
-| `src/mcp-server/index.ts` | MCP server entry — ~90 tools across 17 modules |
+| `src/mcp-server/index.ts` | MCP server entry — 131 tools across 16 modules |
 | `src/mcp-server/session.ts` | Client cache + `resolvePageIds` + dynamic site discovery |
-| `src/services/content-save/` | Content Save API client (86+ methods across 14 modules) |
+| `src/services/content-save/` | Content Save API client (100+ methods across 14 modules) |
 | `src/services/content-save/client.ts` | Base class, infrastructure, static helpers |
-| `src/services/content-save/blocks.ts` | Block add/update (34 methods) |
+| `src/services/content-save/blocks.ts` | Block add/update (47 methods) |
 | `src/services/media-upload.ts` | Image upload to Squarespace asset service |
 | `src/services/page-id-resolver.ts` | Resolve page slugs to API IDs (HTML parse + DB cache) |
 | `src/services/menu-parser.ts` | Menu text ↔ structured JSON |
@@ -115,7 +115,7 @@ The `content-save/` directory uses **TypeScript prototype augmentation** to spli
 ## Testing
 
 - `npm test` runs vitest with dist excluded
-- 57 test files, ~1367 tests
+- 63 test files, ~1442 tests
 - Service tests in `src/services/__tests__/`
 - MCP tool tests in `src/mcp-server/__tests__/`
 
