@@ -50,14 +50,17 @@ export function registerPageTools(server: McpServer) {
         };
       }
 
+      const response: Record<string, unknown> = {
+        success: true,
+        pageId: result.pageId ?? null,
+        urlId: result.urlId ?? null,
+      };
+      if (result.warning) response.warning = result.warning;
+
       return {
         content: [{
           type: 'text' as const,
-          text: JSON.stringify({
-            success: true,
-            pageId: result.pageId ?? null,
-            urlId: result.urlId ?? null,
-          }, null, 2),
+          text: JSON.stringify(response, null, 2),
         }],
       };
     } catch (err) {

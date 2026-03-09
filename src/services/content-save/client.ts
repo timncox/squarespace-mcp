@@ -496,7 +496,7 @@ export class ContentSaveClient {
     if (!response.ok) {
       const body = await response.text().catch(() => '');
       const baseError = `Failed to fetch page sections: ${response.status} ${response.statusText}. Body: ${body}`;
-      throw new Error(this.enhanceWriteError(response.status, body, baseError));
+      throw new Error(this.enhanceError(response.status, body, baseError));
     }
 
     return (await response.json()) as PageSectionsData;
@@ -623,7 +623,7 @@ export class ContentSaveClient {
 
     if (!response.ok) {
       const baseError = `Save failed: ${response.status} ${response.statusText}. Body: ${responseBody}`;
-      const error = this.enhanceWriteError(response.status, responseBody, baseError);
+      const error = this.enhanceError(response.status, responseBody, baseError);
       logger.error({ pageSectionsId, status: response.status }, error);
       return { success: false, pageSectionsId, collectionId, sectionsCount: sections.length, error };
     }
@@ -668,29 +668,48 @@ export class ContentSaveClient {
   /**
    * Detect if an HTTP error is likely caused by an expired/invalid session.
    * Squarespace returns 500 "Something went wrong" for many auth failures
-   * instead of a proper 401.
+   * instead of a proper 401. Also catches 302 redirects to login and
+   * empty 500 responses (another stale-session pattern).
    */
   isLikelyAuthError(status: number, body: string): boolean {
     if (status === 401 || status === 403) return true;
+    if (status === 302) return true; // redirect to login page
     if (status === 500) {
       // Squarespace's generic error pattern for auth failures
       if (body.includes('"cleaned":true') && body.includes('"Something went wrong"')) return true;
       if (body.includes('"Something went wrong."') && body.includes('"errorKey"')) return true;
+      // Additional auth-related patterns
+      const lower = body.toLowerCase();
+      if (lower.includes('unauthorized')) return true;
+      if (lower.includes('not logged in')) return true;
+      // Empty body on 500 — Squarespace sometimes returns blank 500s for stale sessions
+      if (body.trim() === '') return true;
     }
     return false;
   }
 
   /**
-   * Enhance a write error message with session context when the error
-   * looks auth-related. Helps Claude Desktop diagnose stale sessions
-   * instead of retrying blindly.
+   * Enhance an error message with session context when the error
+   * looks auth-related or is a server error. Helps Claude Desktop
+   * diagnose stale sessions instead of retrying blindly.
    */
+  enhanceError(status: number, body: string, baseError: string): string {
+    if (this.isLikelyAuthError(status, body)) {
+      const ageStr = this.sessionAgeHours !== null
+        ? ` Session is ${Math.round(this.sessionAgeHours)}h old (max 24h).`
+        : '';
+      return `${baseError} — THIS IS LIKELY AN EXPIRED SESSION.${ageStr} Call sq_login to check session health and re-authenticate.`;
+    }
+    // For any 500+ error, append general session advice
+    if (status >= 500) {
+      return `${baseError} — If this persists, try sq_login to check session health.`;
+    }
+    return baseError;
+  }
+
+  /** @deprecated Use enhanceError() instead */
   enhanceWriteError(status: number, body: string, baseError: string): string {
-    if (!this.isLikelyAuthError(status, body)) return baseError;
-    const ageStr = this.sessionAgeHours !== null
-      ? ` Session is ${Math.round(this.sessionAgeHours)}h old (max 24h).`
-      : '';
-    return `${baseError} — THIS IS LIKELY AN EXPIRED SESSION.${ageStr} Call sq_login to check session health and re-authenticate.`;
+    return this.enhanceError(status, body, baseError);
   }
 
   // ── Crumb (CSRF Token) Management ────────────────────────────────────────

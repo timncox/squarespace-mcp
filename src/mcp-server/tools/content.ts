@@ -24,7 +24,9 @@ export function registerContentTools(server: McpServer) {
   // ── sq_create_blog_post ─────────────────────────────────────────────────────
   server.registerTool('sq_create_blog_post', {
     description:
-      'Create a new blog post on a Squarespace site. Requires the blog collectionId (get it from sq_list_pages). Returns the new post itemId and urlId. Body, tags, excerpt, and categories are set via a follow-up update after creation.',
+      'Create a new blog post on a Squarespace site. Requires the blog collectionId (get it from sq_list_pages). Returns the new post itemId and urlId. ' +
+      'Body, tags, excerpt, and categories are set via an automatic follow-up update after creation (the Squarespace create endpoint ignores these fields). ' +
+      'WARNING: coverImageUrl does NOT work — Squarespace silently strips it. To set a featured image, call sq_set_blog_featured_image separately after creation.',
     inputSchema: {
       siteId: z.string().describe('Site identifier (e.g. "my-site")'),
       collectionId: z.string().describe('Blog collection ID (from sq_list_pages)'),
@@ -76,7 +78,8 @@ export function registerContentTools(server: McpServer) {
   // ── sq_update_blog_post ─────────────────────────────────────────────────────
   server.registerTool('sq_update_blog_post', {
     description:
-      'Update an existing blog post on a Squarespace site. Requires collectionId and the post itemId.',
+      'Update an existing blog post on a Squarespace site. Requires collectionId and the post itemId. ' +
+      'Note: coverImageUrl is silently stripped by Squarespace — use sq_set_blog_featured_image instead.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
       collectionId: z.string().describe('Blog collection ID'),

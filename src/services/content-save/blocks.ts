@@ -2694,7 +2694,7 @@ ContentSaveClient.prototype.createForm = async function (
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, text, `POST /api/rest/forms failed: ${response.status} ${text}`) };
+      return { success: false, error: this.enhanceError(response.status, text, `POST /api/rest/forms failed: ${response.status} ${text}`) };
     }
 
     const data = (await response.json()) as Record<string, unknown>;
@@ -2763,7 +2763,7 @@ ContentSaveClient.prototype.updateForm = async function (
 
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, text, `PUT /api/rest/forms/${formId} failed: ${response.status} ${text}`) };
+      return { success: false, error: this.enhanceError(response.status, text, `PUT /api/rest/forms/${formId} failed: ${response.status} ${text}`) };
     }
 
     const data = (await response.json()) as Record<string, unknown>;

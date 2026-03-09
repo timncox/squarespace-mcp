@@ -94,7 +94,7 @@ ContentSaveClient.prototype.createProductShell = async function (
 
     if (!response.ok) {
       const errBody = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
+      return { success: false, error: this.enhanceError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
     }
 
     const data = (await response.json()) as InternalProduct;
@@ -150,7 +150,7 @@ ContentSaveClient.prototype.updateProduct = async function (
     });
     if (!response.ok) {
       const errBody = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
+      return { success: false, error: this.enhanceError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
     }
     const data = (await response.json()) as InternalProduct;
     logger.info({ productId, name: data.name }, 'updateProduct: product updated');
@@ -178,7 +178,7 @@ ContentSaveClient.prototype.deleteProduct = async function (
     });
     if (!response.ok && response.status !== 204) {
       const errBody = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
+      return { success: false, error: this.enhanceError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
     }
     logger.info({ productId }, 'deleteProduct: product deleted');
     return { success: true };
@@ -211,7 +211,7 @@ ContentSaveClient.prototype.attachProductImage = async function (
     });
     if (!response.ok) {
       const errBody = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
+      return { success: false, error: this.enhanceError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
     }
     const data = (await response.json()) as AssetReferenceResponse;
     logger.info({ productId, imageId: data.id }, 'attachProductImage: image attached');
@@ -245,7 +245,7 @@ ContentSaveClient.prototype.setProductThumbnail = async function (
     });
     if (!response.ok) {
       const errBody = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
+      return { success: false, error: this.enhanceError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
     }
     const data = (await response.json()) as AssetReferenceResponse;
     return { success: true, data };
@@ -276,7 +276,7 @@ ContentSaveClient.prototype.updateProductImage = async function (
     });
     if (!response.ok) {
       const errBody = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
+      return { success: false, error: this.enhanceError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
     }
     const data = (await response.json()) as InternalProductImage;
     return { success: true, data };
@@ -304,7 +304,7 @@ ContentSaveClient.prototype.removeProductImage = async function (
     });
     if (!response.ok && response.status !== 204) {
       const errBody = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
+      return { success: false, error: this.enhanceError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`) };
     }
     logger.info({ productId, imageId }, 'removeProductImage: image removed');
     return { success: true };
@@ -337,7 +337,7 @@ ContentSaveClient.prototype.createStorePage = async function (
     });
     if (!copyResponse.ok) {
       const errBody = await copyResponse.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(copyResponse.status, errBody, `Create store failed ${copyResponse.status}: ${errBody.slice(0, 200)}`) };
+      return { success: false, error: this.enhanceError(copyResponse.status, errBody, `Create store failed ${copyResponse.status}: ${errBody.slice(0, 200)}`) };
     }
     const storeData = (await copyResponse.json()) as { id: string; urlId: string };
 

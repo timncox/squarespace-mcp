@@ -586,6 +586,8 @@ export interface PageCreateResult {
   urlId?: string;
   endpointAvailable: boolean;
   error?: string;
+  /** Warning when page was created but a non-fatal issue occurred (e.g. navigation update failed) */
+  warning?: string;
 }
 
 /** Result of createBlogPost */

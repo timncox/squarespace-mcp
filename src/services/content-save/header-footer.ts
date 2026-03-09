@@ -539,7 +539,7 @@ ContentSaveClient.prototype.saveHeaderFooter = async function (
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');
-    return { success: false, error: this.enhanceWriteError(response.status, body, `${response.status} ${response.statusText}: ${body}`) };
+    return { success: false, error: this.enhanceError(response.status, body, `${response.status} ${response.statusText}: ${body}`) };
   }
 
   return { success: true };

@@ -724,7 +724,7 @@ ContentSaveClient.prototype.copyTemplateSection = async function (
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, body, `Failed to copy template section: ${response.status}. ${body}`) };
+      return { success: false, error: this.enhanceError(response.status, body, `Failed to copy template section: ${response.status}. ${body}`) };
     }
 
     const data = await response.json().catch(() => ({})) as Record<string, unknown>;

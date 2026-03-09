@@ -494,7 +494,7 @@ ContentSaveClient.prototype.getSectionCatalog = async function (
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, body, `Failed to fetch section catalog: ${response.status}. ${body}`) };
+      return { success: false, error: this.enhanceError(response.status, body, `Failed to fetch section catalog: ${response.status}. ${body}`) };
     }
 
     const data = await response.json() as Record<string, unknown>;

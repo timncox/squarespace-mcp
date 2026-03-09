@@ -56,6 +56,7 @@ You have tools to edit Squarespace websites via the Content Save API. Here's how
 
 ### Page Creation — sq_create_page
 Creates a new page and adds it to site navigation. Supports page type ("page" or "blog") and navigation placement ("mainNav" for visible, "_hidden" for not linked). After creation, use sq_add_section and content tools to build out the page.
+**Note:** Page creation may fail if the user has the Squarespace editor open. Ask the user to close the editor before creating pages.
 
 ### Page Deletion — sq_delete_page
 Moves the page to the trash (~30 day retention) via the RemoveCollection API. Use sq_list_pages to find the collection ID, then call sq_delete_page with it.
@@ -67,8 +68,10 @@ If the user has the Squarespace editor open while you make API changes, their ne
 ### Adding new sections — use sq_add_section (not sq_add_blank_section)
 Blank sections created via API may reject subsequent block insertions (500 errors). Use sq_add_section to create sections with initial content blocks atomically. This is the preferred approach for building new pages.
 
-### Blog Posts — body is set via a follow-up update
-The blog creation endpoint ignores the body field. sq_create_blog_post handles this automatically via a create-then-update pattern, but if the follow-up update fails (e.g. session expired), the post will be created with an empty body. Check the result for errors.
+### Blog Posts — three-step workflow
+1. **Create:** sq_create_blog_post creates the post. The Squarespace create endpoint ignores body/tags/excerpt/categories, so the tool automatically does a follow-up update to set them. If the follow-up fails (e.g. session expired), the post will exist with an empty body — check the result for errors.
+2. **Edit:** Use sq_update_blog_post to change title, body, tags, excerpt, categories, or publish status.
+3. **Featured image:** coverImageUrl is silently stripped by Squarespace on both create and update. Use sq_set_blog_featured_image as a separate call after creation to set the thumbnail/featured image.
 
 ### Session Cookies
 All API calls require valid Squarespace editor session cookies. If you get 401 or "session expired" errors, call sq_login to check session health. Use sq_login_browser to launch a visible Chromium browser — the user logs in manually and the tool automatically captures all cookies (including HTTP-only member-session) and saves the session.
@@ -273,11 +276,11 @@ Uses session cookies (same auth as all other tools — no separate API key neede
 
 ## Key Workarounds
 
-**Creating a new page:** sq_create_page usually fails (404). Instead, ask the user to create a blank page in Squarespace (Pages → + → Blank Page), then build it out with sq_add_section, sq_add_text_block, etc.
+**Creating a new page:** Use sq_create_page to create pages via the API. Page creation may fail if the user has the Squarespace editor open — ask them to close it first. After creation, build out the page with sq_add_section, sq_add_text_block, etc.
 
 **Deleting a page:** sq_delete_page moves the page to trash. Use sq_list_pages to get the collection ID.
 
-**Blog post body:** The create endpoint ignores body — sq_create_blog_post handles this via create-then-update, but check the result for errors.
+**Blog post workflow:** Create → update body (automatic) → set featured image (separate step). The create endpoint ignores body/tags, so sq_create_blog_post does a follow-up update. coverImageUrl is silently stripped — use sq_set_blog_featured_image after creation.
 
 **Adding a contact form:** Use sq_list_forms → if no forms exist, sq_create_form → sq_add_form_block. The full flow is automated — no need to ask the user to create forms manually. NEVER use sq_add_embed with third-party form services as a workaround.
 

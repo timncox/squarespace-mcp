@@ -148,8 +148,10 @@ export function registerTextTools(server: McpServer) {
         }],
       };
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const hint = msg.includes('sq_login') ? '' : ' If this is a session issue, call sq_login to check session health.';
       return {
-        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        content: [{ type: 'text' as const, text: `Error: ${msg}${hint}` }],
         isError: true,
       };
     }

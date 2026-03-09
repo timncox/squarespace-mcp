@@ -84,7 +84,7 @@ ContentSaveClient.prototype.updateWebsiteFonts = async function (
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, body, `PUT /api/website-fonts failed: ${response.status} ${body}`) };
+      return { success: false, error: this.enhanceError(response.status, body, `PUT /api/website-fonts failed: ${response.status} ${body}`) };
     }
 
     logger.info({ siteSubdomain: this.siteSubdomain, fontPack: data.name }, 'Website fonts updated');
@@ -176,7 +176,7 @@ ContentSaveClient.prototype.updateWebsiteColors = async function (
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, body, `PUT /api/website-colors failed: ${response.status} ${body}`) };
+      return { success: false, error: this.enhanceError(response.status, body, `PUT /api/website-colors failed: ${response.status} ${body}`) };
     }
 
     const responseData = await response.json().catch(() => null) as WebsiteColorsData | null;
@@ -268,7 +268,7 @@ ContentSaveClient.prototype.saveAdvancedSettings = async function (
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, body, `POST /api/config/SaveAdvancedSettings failed: ${response.status} ${body}`) };
+      return { success: false, error: this.enhanceError(response.status, body, `POST /api/config/SaveAdvancedSettings failed: ${response.status} ${body}`) };
     }
 
     logger.info({ siteSubdomain: this.siteSubdomain }, 'Advanced settings saved');
@@ -336,7 +336,7 @@ ContentSaveClient.prototype.setTemplateTweakSettings = async function (
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, body, `POST /api/template/SetTemplateTweakSettings failed: ${response.status} ${body}`) };
+      return { success: false, error: this.enhanceError(response.status, body, `POST /api/template/SetTemplateTweakSettings failed: ${response.status} ${body}`) };
     }
 
     logger.info(

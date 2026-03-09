@@ -131,7 +131,7 @@ describe('ContentSaveClient — auth error detection', () => {
       fetchSpy.mockRestore();
     });
 
-    it('returns normal error when 500 + non-auth body', async () => {
+    it('returns soft hint (not EXPIRED SESSION) when 500 + non-auth body', async () => {
       const sections = makeSections(makeTextBlock('block-1', '<p>Hi</p>'));
       const normalErrorBody = JSON.stringify({ error: 'Invalid block structure' });
 
@@ -142,9 +142,10 @@ describe('ContentSaveClient — auth error detection', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('Save failed: 500');
-      // Should NOT contain auth enhancement
+      // Should NOT contain strong auth enhancement
       expect(result.error).not.toContain('EXPIRED SESSION');
-      expect(result.error).not.toContain('sq_login');
+      // Should contain soft session hint for any 500+ error
+      expect(result.error).toContain('If this persists');
 
       fetchSpy.mockRestore();
     });
@@ -229,7 +230,7 @@ describe('ContentSaveClient — auth error detection', () => {
       fetchSpy.mockRestore();
     });
 
-    it('throws normal error when 500 + non-auth body', async () => {
+    it('throws soft hint (not EXPIRED SESSION) when 500 + non-auth body', async () => {
       const normalBody = JSON.stringify({ error: 'Invalid page ID' });
 
       const fetchSpy = vi.spyOn(globalThis, 'fetch')
@@ -241,6 +242,8 @@ describe('ContentSaveClient — auth error detection', () => {
       } catch (err: any) {
         expect(err.message).toContain('Failed to fetch page sections: 500');
         expect(err.message).not.toContain('EXPIRED SESSION');
+        // Should contain soft session hint for any 500+ error
+        expect(err.message).toContain('If this persists');
       }
 
       fetchSpy.mockRestore();

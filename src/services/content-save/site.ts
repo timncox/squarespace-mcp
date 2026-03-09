@@ -107,7 +107,7 @@ ContentSaveClient.prototype.saveCustomCSS = async function (
 
     if (!response.ok) {
       const baseError = `CSS save failed: ${response.status} ${response.statusText}. Body: ${responseBody}`;
-      const error = this.enhanceWriteError(response.status, responseBody, baseError);
+      const error = this.enhanceError(response.status, responseBody, baseError);
       logger.error({ status: response.status }, error);
       return { success: false, error };
     }
@@ -367,7 +367,7 @@ ContentSaveClient.prototype.updateSiteIdentity = async function (
       });
       if (!putRes.ok) {
         const body = await putRes.text().catch(() => '');
-        return { success: false, error: this.enhanceWriteError(putRes.status, body, `PUT /api/rest/websites/mine failed: ${putRes.status} ${body}`) };
+        return { success: false, error: this.enhanceError(putRes.status, body, `PUT /api/rest/websites/mine failed: ${putRes.status} ${body}`) };
       }
     }
 
@@ -398,7 +398,7 @@ ContentSaveClient.prototype.updateSiteIdentity = async function (
       });
       if (!putRes.ok) {
         const body = await putRes.text().catch(() => '');
-        return { success: false, error: this.enhanceWriteError(putRes.status, body, `PUT /api/settings failed: ${putRes.status} ${body}`) };
+        return { success: false, error: this.enhanceError(putRes.status, body, `PUT /api/settings failed: ${putRes.status} ${body}`) };
       }
     }
 
@@ -481,7 +481,7 @@ ContentSaveClient.prototype.updateSettings = async function (
     });
     if (!putRes.ok) {
       const body = await putRes.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(putRes.status, body, `PUT /api/settings failed: ${putRes.status} ${body}`) };
+      return { success: false, error: this.enhanceError(putRes.status, body, `PUT /api/settings failed: ${putRes.status} ${body}`) };
     }
 
     logger.info({ siteSubdomain: this.siteSubdomain, updatedFields: fieldKeys }, 'Settings updated');
@@ -566,7 +566,7 @@ ContentSaveClient.prototype.saveCodeInjection = async function (
 
     if (!response.ok) {
       const baseError = `Code injection save failed: ${response.status} ${response.statusText}. Body: ${responseBody}`;
-      const error = this.enhanceWriteError(response.status, responseBody, baseError);
+      const error = this.enhanceError(response.status, responseBody, baseError);
       logger.error({ status: response.status }, error);
       return { success: false, error };
     }
@@ -775,7 +775,7 @@ ContentSaveClient.prototype.addSocialAccount = async function (
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      return { success: false, error: this.enhanceWriteError(response.status, body, `POST CreateNonOAuthAccount failed: ${response.status} ${body}`) };
+      return { success: false, error: this.enhanceError(response.status, body, `POST CreateNonOAuthAccount failed: ${response.status} ${body}`) };
     }
 
     const raw = (await response.json()) as { account?: SocialAccount };

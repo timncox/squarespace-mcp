@@ -403,7 +403,7 @@ ContentSaveClient.prototype.createPageViaApi = async function (
       return {
         success: false,
         endpointAvailable: true,
-        error: this.enhanceWriteError(response.status, errBody, baseError),
+        error: this.enhanceError(response.status, errBody, baseError),
       };
     }
 
@@ -434,7 +434,10 @@ ContentSaveClient.prototype.createPageViaApi = async function (
     if (effectiveSlug && pageId) {
       invalidateCacheBySlug(this.siteSubdomain, effectiveSlug);
       // Also cache the new page's IDs immediately.
-      // pageSectionsId follows the pattern: collectionId with last hex char + 1
+      // EMPIRICAL PATTERN: pageSectionsId is the collectionId with its last hex
+      // digit incremented by 1 (wrapping at f→0). This has been observed
+      // consistently across multiple sites but is not documented by Squarespace
+      // and may need verification if page creation starts producing mismatches.
       const lastChar = pageId.slice(-1);
       const nextChar = ((parseInt(lastChar, 16) + 1) % 16).toString(16);
       const pageSectionsId = pageId.slice(0, -1) + nextChar;
@@ -464,6 +467,13 @@ ContentSaveClient.prototype.createPageViaApi = async function (
 
     if (!navResult.success) {
       logger.warn({ pageId, navField, error: navResult.error }, 'createPageViaApi: page created but navigation update failed');
+      return {
+        success: true,
+        endpointAvailable: true,
+        pageId,
+        urlId,
+        warning: `Page was created but could not be added to navigation (${navField}): ${navResult.error ?? 'unknown error'}. The page exists but is not visible in site navigation.`,
+      };
     }
 
     return {
@@ -620,7 +630,7 @@ ContentSaveClient.prototype.createBlogPost = async function (
       return {
         success: false,
         endpointAvailable: true,
-        error: this.enhanceWriteError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`),
+        error: this.enhanceError(response.status, errBody, `API returned ${response.status}: ${errBody.slice(0, 200)}`),
       };
     }
 
@@ -733,7 +743,7 @@ ContentSaveClient.prototype.updateBlogPost = async function (
     }
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      return { success: false, itemId, updatedFields: [], error: this.enhanceWriteError(response.status, text, `HTTP ${response.status}: ${text}`) };
+      return { success: false, itemId, updatedFields: [], error: this.enhanceError(response.status, text, `HTTP ${response.status}: ${text}`) };
     }
 
     const data = (await response.json()) as Record<string, unknown>;
