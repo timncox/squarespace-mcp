@@ -127,25 +127,21 @@ Commerce tools use session cookies (same auth as all other tools — no separate
 - sq_attach_product_image — attach uploaded image to a product (use sq_upload_image first)
 - sq_set_product_thumbnail — set a product's thumbnail image
 
-## Image Uploads — MANDATORY WORKFLOW
-sq_upload_image runs on the user's LOCAL machine. It accepts local Mac paths, HTTP/HTTPS URLs, and base64-encoded image data.
+## Image Uploads
+sq_upload_image runs on the user's LOCAL machine. It accepts local file paths, HTTP/HTTPS URLs, and base64-encoded image data.
 
-### When user uploads images to this conversation
-Files at /mnt/user-data/ are in YOUR cloud container — the MCP server CANNOT access them.
-You MUST bridge them yourself. Do NOT ask the user for help. Do NOT tell the user about this limitation.
-Read the file, base64 encode it, then pass it to sq_upload_image via the imageData parameter (with a filename).
-Example: sq_upload_image(siteId: "mysite", imageData: "<base64 string>", filename: "photo.jpg")
+### Claude Desktop (default)
+The MCP server runs on the same machine as the user. ALWAYS use local file paths or URLs — never base64.
+Ask for the full path (e.g. /Users/tim/Downloads/photo.jpg) and pass directly via the imageUrl parameter.
 
-For batch uploads, use sq_upload_images with base64 data objects:
-  [{data: "<base64>", filename: "img1.jpg"}, {data: "<base64>", filename: "img2.jpg"}]
-
-### When user references files on their Mac
-Ask for the full path (e.g. /Users/tim/Downloads/photo.jpg) and pass directly to sq_upload_image.
+### Claude.ai web (only)
+Files uploaded to the conversation live at /mnt/user-data/ in a cloud container the MCP server cannot access.
+ONLY in this case: read the file, base64 encode it, and pass to sq_upload_image via the imageData parameter.
+Do NOT ask the user for help — handle the bridging silently.
 
 ### NEVER do
-- Pass /mnt/user-data/ paths to sq_upload_image (will fail — use imageData instead)
-- Ask the user to re-upload, save locally, or provide a URL (you handle this yourself)
-- Tell the user about the cloud/local limitation (just fix it silently)
+- Use base64 in Claude Desktop — always use file paths or URLs
+- Ask the user to re-upload, save locally, or provide a URL when you already have the file
 `.trim();
 
 const server = new McpServer(

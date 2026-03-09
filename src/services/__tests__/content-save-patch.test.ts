@@ -73,6 +73,7 @@ describe('ContentSaveClient.patchTextBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => {
@@ -322,6 +323,7 @@ describe('ContentSaveClient.patchHtmlSegment', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => {
@@ -401,6 +403,7 @@ describe('tryContentSaveApi substring detection', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => {

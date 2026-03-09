@@ -18,6 +18,7 @@ vi.mock('fs', () => ({
 function makeClient(): ContentSaveClient {
   const client = new ContentSaveClient('test-site');
   client.loadSessionCookies('/fake/session.json');
+  (client as any)._checkForConflict = async () => null;
   return client;
 }
 

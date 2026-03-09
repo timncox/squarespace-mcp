@@ -139,6 +139,7 @@ describe('ContentSaveClient — addTextBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => {
@@ -883,6 +884,7 @@ describe('ContentSaveClient — fillLastTextBlockInSection', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => {

@@ -165,6 +165,7 @@ describe('ContentSaveClient — addAccordionBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => { vi.restoreAllMocks(); });
@@ -250,6 +251,7 @@ describe('ContentSaveClient — updateAccordionBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => { vi.restoreAllMocks(); });
@@ -297,6 +299,7 @@ describe('ContentSaveClient — addNewsletterBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => { vi.restoreAllMocks(); });
@@ -378,6 +381,7 @@ describe('ContentSaveClient — updateNewsletterBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => { vi.restoreAllMocks(); });
@@ -433,6 +437,7 @@ describe('ContentSaveClient — addEmbedBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => { vi.restoreAllMocks(); });
@@ -516,6 +521,7 @@ describe('ContentSaveClient — updateEmbedBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => { vi.restoreAllMocks(); });
@@ -578,6 +584,7 @@ describe('ContentSaveClient — addMarqueeBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => { vi.restoreAllMocks(); });
@@ -672,6 +679,7 @@ describe('ContentSaveClient — updateMarqueeBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => { vi.restoreAllMocks(); });
@@ -719,6 +727,7 @@ describe('ContentSaveClient — addSocialLinksBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => { vi.restoreAllMocks(); });
@@ -805,6 +814,7 @@ describe('ContentSaveClient — updateSocialLinksBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => { vi.restoreAllMocks(); });

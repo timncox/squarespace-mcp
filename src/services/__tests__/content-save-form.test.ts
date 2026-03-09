@@ -108,6 +108,7 @@ describe('ContentSaveClient — addFormBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => {
@@ -205,6 +206,7 @@ describe('ContentSaveClient — updateFormBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => {
@@ -251,6 +253,7 @@ describe('ContentSaveClient — getAvailableForms', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => {

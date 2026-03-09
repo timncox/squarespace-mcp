@@ -126,6 +126,7 @@ describe('Map Block — addMapBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => {
@@ -224,6 +225,7 @@ describe('Map Block — updateMapBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
   });
 
   afterEach(() => {

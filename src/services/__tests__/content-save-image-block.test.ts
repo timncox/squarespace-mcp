@@ -105,6 +105,7 @@ describe('ContentSaveClient — addImageBlock', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
     // Mock createContentImage to avoid real HTTP calls for content image creation
     vi.spyOn(client, 'createContentImage').mockResolvedValue({ success: true, imageId: 'abcdef0123456789abcdef01' });
   });
@@ -467,6 +468,7 @@ describe('ContentSaveClient — addImageBlockBatch', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies('/fake/session.json');
+    (client as any)._checkForConflict = async () => null;
     // Mock createContentImage to avoid real HTTP calls for content image creation
     vi.spyOn(client, 'createContentImage').mockResolvedValue({ success: true, imageId: 'abcdef0123456789abcdef01' });
   });

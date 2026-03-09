@@ -18,6 +18,7 @@ export function getDb(): Database.Database {
 
   // Enable WAL mode for better concurrent read/write performance
   db.pragma('journal_mode = WAL');
+  db.pragma('busy_timeout = 5000');
   db.pragma('foreign_keys = ON');
 
   // Run migrations
@@ -116,7 +117,29 @@ function migrate(db: Database.Database): void {
       ON section_snapshots(created_at);
   `);
 
+  // Phase 22: Crumb token cache — atomic crumb persistence to prevent race conditions
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS crumb_cache (
+      site_subdomain TEXT PRIMARY KEY,
+      crumb_token TEXT NOT NULL,
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+    );
+  `);
+
   logger.debug('Database migrations applied');
+}
+
+export function getCachedCrumb(siteSubdomain: string): string | null {
+  const db = getDb();
+  const row = db.prepare('SELECT crumb_token FROM crumb_cache WHERE site_subdomain = ?').get(siteSubdomain) as { crumb_token: string } | undefined;
+  return row?.crumb_token ?? null;
+}
+
+export function setCachedCrumb(siteSubdomain: string, crumbToken: string): void {
+  const db = getDb();
+  db.prepare(
+    'INSERT INTO crumb_cache (site_subdomain, crumb_token, updated_at) VALUES (?, ?, unixepoch()) ON CONFLICT(site_subdomain) DO UPDATE SET crumb_token = excluded.crumb_token, updated_at = excluded.updated_at'
+  ).run(siteSubdomain, crumbToken);
 }
 
 export function closeDb(): void {

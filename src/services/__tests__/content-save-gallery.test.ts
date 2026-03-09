@@ -101,6 +101,7 @@ describe('ContentSaveClient — Gallery', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies();
+    (client as any)._checkForConflict = async () => null;
     mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
   });

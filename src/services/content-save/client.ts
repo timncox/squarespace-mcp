@@ -17,10 +17,11 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, statSync } from 'fs';
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash } from 'crypto';
 import { join } from 'path';
 import { logger } from '../../utils/logger.js';
 import { errMsg } from '../../utils/errors.js';
+import { getCachedCrumb, setCachedCrumb } from '../../db/database.js';
 
 // ── Re-export all types from types.ts for backward compatibility ─
 export type {
@@ -341,6 +342,7 @@ export class ContentSaveClient {
   websiteIdCache: string | null = null;
   memberAccountIdCache: string | null = null;
   _preWriteCache: Map<string, PageSection[]> = new Map();
+  _sectionsHashCache: Map<string, string> = new Map();
   _snapshotSiteId: string | null = null;
   _lastCrumbRefreshMs: number = 0;
 
@@ -397,6 +399,20 @@ export class ContentSaveClient {
         this.crumbToken = c.value;
         break;
       }
+    }
+
+    // SQLite crumb cache is authoritative — it's atomically written and safe under concurrency
+    try {
+      const cachedCrumb = getCachedCrumb(this.siteSubdomain);
+      if (cachedCrumb) {
+        this.crumbToken = cachedCrumb;
+        // Also update the cookie header to use the SQLite crumb
+        if (this.siteCookieHeader.includes('crumb=')) {
+          this.siteCookieHeader = this.siteCookieHeader.replace(/crumb=[^;]+/, `crumb=${cachedCrumb}`);
+        }
+      }
+    } catch {
+      // SQLite read is best-effort — fall back to session file crumb
     }
 
     // Extract websiteId and member_account_id from Statsig localStorage (needed for blog post creation)
@@ -462,15 +478,14 @@ export class ContentSaveClient {
   }
 
   /**
-   * Get the current page sections data.
-   * Uses GET /api/page-sections/{pageSectionsId} (no collection suffix needed).
+   * Fetch page sections from the API without caching.
+   * Used internally by getPageSections() and for conflict detection in savePageSections().
    */
-  async getPageSections(pageSectionsId: string): Promise<PageSectionsData> {
+  async _fetchPageSectionsRaw(pageSectionsId: string): Promise<PageSectionsData> {
     this.ensureCookies();
 
     const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
     const url = `${siteUrl}/api/page-sections/${pageSectionsId}`;
-    logger.info({ pageSectionsId }, 'Fetching page sections');
 
     const response = await fetch(url, {
       method: 'GET',
@@ -484,9 +499,62 @@ export class ContentSaveClient {
       throw new Error(this.enhanceWriteError(response.status, body, baseError));
     }
 
-    const data = (await response.json()) as PageSectionsData;
+    return (await response.json()) as PageSectionsData;
+  }
+
+  /**
+   * Check for concurrent modifications before saving.
+   * Re-fetches the page sections from the API and compares with the hash
+   * stored at read time. Returns a CONFLICT result if sections changed,
+   * or null if no conflict (or if the check could not be performed).
+   *
+   * Designed as a separate method so tests can stub it without affecting
+   * the fetch mock chain used by other operations.
+   */
+  async _checkForConflict(
+    pageSectionsId: string,
+    collectionId: string,
+    sectionsCount: number,
+  ): Promise<ContentSaveResult | null> {
+    const originalHash = this._sectionsHashCache.get(pageSectionsId);
+    if (!originalHash) return null;
+
+    try {
+      const currentData = await this._fetchPageSectionsRaw(pageSectionsId);
+      const currentHash = ContentSaveClient.computeSectionsHash(currentData.sections);
+      if (currentHash !== originalHash) {
+        logger.warn(
+          { pageSectionsId, originalHash, currentHash },
+          'Concurrent modification detected — page was changed by another session since last read',
+        );
+        this._sectionsHashCache.delete(pageSectionsId);
+        return {
+          success: false,
+          pageSectionsId,
+          collectionId,
+          sectionsCount,
+          error: 'CONFLICT: Page was modified by another session since you last read it. Re-read the page and try again.',
+        };
+      }
+    } catch (err) {
+      // If re-fetch fails, log warning but proceed with save — don't make the system less reliable
+      logger.warn({ pageSectionsId, error: errMsg(err) }, 'Could not verify page state before save — proceeding anyway');
+    }
+
+    return null;
+  }
+
+  /**
+   * Get the current page sections data.
+   * Uses GET /api/page-sections/{pageSectionsId} (no collection suffix needed).
+   */
+  async getPageSections(pageSectionsId: string): Promise<PageSectionsData> {
+    logger.info({ pageSectionsId }, 'Fetching page sections');
+
+    const data = await this._fetchPageSectionsRaw(pageSectionsId);
     if (data.sections) {
       this._preWriteCache.set(pageSectionsId, structuredClone(data.sections));
+      this._sectionsHashCache.set(pageSectionsId, ContentSaveClient.computeSectionsHash(data.sections));
     }
     logger.info(
       { pageSectionsId, sectionsCount: data.sections?.length ?? 0 },
@@ -528,6 +596,10 @@ export class ContentSaveClient {
 
     this.ensureCookies();
 
+    // Optimistic locking: check for concurrent modifications before saving
+    const conflictResult = await this._checkForConflict(pageSectionsId, collectionId, sections.length);
+    if (conflictResult) return conflictResult;
+
     const url = this.buildPutUrl(pageSectionsId, collectionId);
     const body = JSON.stringify({ sections });
 
@@ -567,6 +639,10 @@ export class ContentSaveClient {
       logger.error({ pageSectionsId }, error);
       return { success: false, pageSectionsId, collectionId, sectionsCount: sections.length, error };
     }
+
+    // Clean up hash cache after successful save
+    this._sectionsHashCache.delete(pageSectionsId);
+
     return { success: true, pageSectionsId, collectionId, sectionsCount: sections.length };
   }
 
@@ -717,7 +793,17 @@ export class ContentSaveClient {
    */
   persistCrumbToSession(): void {
     try {
-      if (!existsSync(SESSION_PATH) || !this.crumbToken) return;
+      if (!this.crumbToken) return;
+
+      // Write to SQLite first — atomic and safe under concurrency
+      try {
+        setCachedCrumb(this.siteSubdomain, this.crumbToken);
+      } catch {
+        // SQLite write is best-effort
+      }
+
+      // Also update the JSON session file for backward compatibility
+      if (!existsSync(SESSION_PATH)) return;
       const session = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
       const cookies: Array<{ name: string; value: string; domain: string }> = session.cookies ?? [];
       let updated = false;
@@ -1254,6 +1340,14 @@ export class ContentSaveClient {
   /** Generate a 24-char hex ID for sections (Squarespace validates 12-byte ObjectID format). */
   static generateSectionId(): string {
     return randomBytes(12).toString('hex');
+  }
+
+  /**
+   * Compute an MD5 hash of sections JSON for optimistic locking.
+   * Not security-critical — just detects whether sections changed between GET and PUT.
+   */
+  static computeSectionsHash(sections: PageSection[]): string {
+    return createHash('md5').update(JSON.stringify(sections)).digest('hex');
   }
 
   /**

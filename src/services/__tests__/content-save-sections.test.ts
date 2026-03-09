@@ -68,6 +68,7 @@ describe('ContentSaveClient — Section Operations', () => {
   beforeEach(() => {
     client = new ContentSaveClient('test-site');
     client.loadSessionCookies();
+    (client as any)._checkForConflict = async () => null;
     mockFetch = vi.fn();
     vi.stubGlobal('fetch', mockFetch);
     // Mock createContentImage to avoid real HTTP calls for content image creation
