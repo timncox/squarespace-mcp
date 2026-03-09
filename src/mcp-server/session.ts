@@ -9,12 +9,13 @@
  */
 
 import { createContentSaveClient } from '../services/content-save.js';
-import { ContentSaveClient } from '../services/content-save.js';
+import { ContentSaveClient, SESSION_PATH } from '../services/content-save.js';
 import { MediaUploadClient } from '../services/media-upload.js';
 import { resolvePageIds as resolvePageIdsImpl } from '../services/page-id-resolver.js';
-import { readFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/database.js';
+import logger from '../utils/logger.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,7 @@ interface SitesConfig {
 const clientCache = new Map<string, ContentSaveClient>();
 const mediaClientCache = new Map<string, MediaUploadClient>();
 let sitesConfig: SitesConfig | null = null;
+let accountSitesFetched = false;
 
 // ── Config Loading ──────────────────────────────────────────────────────────
 
@@ -90,6 +92,73 @@ export function saveSite(subdomain: string, siteTitle?: string, customDomain?: s
       custom_domain = COALESCE(excluded.custom_domain, custom_domain),
       last_verified_at = datetime('now')
   `).run(subdomain, siteTitle || null, adminUrl, customDomain || null);
+}
+
+/**
+ * Fetch all sites from the Squarespace account API and upsert into discovered_sites.
+ * Uses GET /api/account/1/website-briefs with account-level session cookies.
+ * Called once per session — results are cached via the accountSitesFetched flag.
+ */
+export function fetchAccountSites(): void {
+  if (accountSitesFetched) return;
+  accountSitesFetched = true;
+
+  try {
+    if (!existsSync(SESSION_PATH)) return;
+
+    const session = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
+    const cookies: Array<{ name: string; value: string; domain: string }> = session.cookies ?? [];
+
+    // Build cookie header for account.squarespace.com
+    const accountCookies = cookies.filter(c => {
+      const d = c.domain.replace(/^\./, '');
+      return d === 'squarespace.com' || d === 'account.squarespace.com';
+    });
+    if (accountCookies.length === 0) return;
+
+    const cookieHeader = accountCookies.map(c => `${c.name}=${c.value}`).join('; ');
+    const crumb = accountCookies.find(c => c.name === 'crumb')?.value;
+
+    // Fire-and-forget async fetch — don't block listSites()
+    fetch('https://account.squarespace.com/api/account/1/website-briefs', {
+      headers: {
+        Cookie: cookieHeader,
+        ...(crumb ? { 'X-CSRF-Token': crumb } : {}),
+      },
+    }).then(async res => {
+      if (!res.ok) return;
+      const ct = res.headers.get('content-type') ?? '';
+      if (!ct.includes('json')) return;
+
+      const briefs = await res.json() as Array<{
+        identifier: string;
+        title: string;
+        canonicalUrl: string;
+        internalUrl: string;
+        active: boolean;
+      }>;
+
+      let count = 0;
+      for (const brief of briefs) {
+        if (!brief.active || !brief.identifier) continue;
+        const customDomain = brief.canonicalUrl !== brief.internalUrl
+          ? brief.canonicalUrl
+          : undefined;
+        try {
+          saveSite(brief.identifier, brief.title, customDomain);
+          count++;
+        } catch { /* best-effort */ }
+      }
+
+      if (count > 0) {
+        logger.info({ count, total: briefs.length }, 'Discovered sites from account API');
+      }
+    }).catch(() => {
+      // Silently fail — fall back to DB-only discovery
+    });
+  } catch {
+    // Session file parse error etc — silently ignore
+  }
 }
 
 /**
@@ -214,6 +283,8 @@ export function listSites(): Array<{
   adminUrl: string;
   customDomain?: string;
 }> {
+  // Trigger account API discovery on first call (async, non-blocking)
+  fetchAccountSites();
   const allSites = getAllSites();
   return allSites.map((c) => {
     const subdomain = new URL(c.site.adminUrl).hostname.split('.')[0];
@@ -285,4 +356,5 @@ export function reloadAllSessions(): void {
   clientCache.clear();
   mediaClientCache.clear();
   sitesConfig = null;
+  accountSitesFetched = false;
 }

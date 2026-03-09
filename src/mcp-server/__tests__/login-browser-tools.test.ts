@@ -8,8 +8,11 @@ const mockPageClose = vi.fn();
 const mockContextCookies = vi.fn();
 const mockNewPage = vi.fn();
 
+const mockStorageState = vi.fn();
+
 const mockBrowserContext = {
   cookies: mockContextCookies,
+  storageState: mockStorageState,
   newPage: mockNewPage,
   close: vi.fn(),
 };
@@ -48,9 +51,11 @@ vi.mock('fs', async () => {
 // ── Mock session ─────────────────────────────────────────────────────────────
 
 const mockReloadAllSessions = vi.fn();
+const mockListSites = vi.fn().mockReturnValue([]);
 
 vi.mock('../session.js', () => ({
   reloadAllSessions: () => mockReloadAllSessions(),
+  listSites: (...args: any[]) => mockListSites(...args),
 }));
 
 // ── Import after mocks ──────────────────────────────────────────────────────
@@ -127,6 +132,10 @@ describe('sq_login_browser', () => {
     mockBrowser.newContext.mockResolvedValue(mockBrowserContext);
     mockChromiumLaunch.mockResolvedValue(mockBrowser);
     mockExistsSync.mockReturnValue(false);
+    mockStorageState.mockImplementation(async () => ({
+      cookies: await mockContextCookies(),
+      origins: [],
+    }));
 
     server = createMockServer();
     registerAuthTools(server as any);
@@ -253,7 +262,7 @@ describe('sq_login_browser', () => {
 
     const result = await promise;
 
-    // 2 polls without member-session + 1 with it + 1 re-collection after site visits
+    // 2 polls without member-session + 1 with it + 1 from storageState() mock
     expect(mockContextCookies).toHaveBeenCalledTimes(4);
     const data = JSON.parse(result.content[0].text);
     expect(data.status).toBe('saved');

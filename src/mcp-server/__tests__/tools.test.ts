@@ -33,7 +33,6 @@ vi.mock('../../services/section-catalog.js', () => ({
 import { resolvePageIds, getClient } from '../session.js';
 import { registerTextTools } from '../tools/text.js';
 import { registerSectionTools } from '../tools/section.js';
-import { registerScreenshotTools } from '../tools/screenshot.js';
 
 // Create a mock McpServer that captures registrations
 function createMockServer() {
@@ -155,24 +154,6 @@ describe('MCP Tools', () => {
       });
 
       expect(result.isError).toBe(true);
-    });
-  });
-
-  describe('registerScreenshotTools', () => {
-    beforeEach(() => {
-      registerScreenshotTools(server as any);
-    });
-
-    it('should register sq_take_screenshot', () => {
-      expect(server.tools.has('sq_take_screenshot')).toBe(true);
-    });
-
-    it('should return placeholder message about needing browser session', async () => {
-      const result = await server.callTool('sq_take_screenshot', {
-        siteId: 'smyth-tavern',
-      });
-
-      expect(result.content[0].text).toContain('browser session');
     });
   });
 

@@ -192,7 +192,7 @@ export function registerSectionTools(server: McpServer) {
         })).optional(),
         images: z.array(z.object({
           searchText: z.string(),
-          filePath: z.string(),
+          assetUrl: z.string().describe('CDN URL from sq_upload_image'),
           altText: z.string().optional(),
         })).optional(),
         removeBlocks: z.array(z.string()).optional(),
@@ -300,12 +300,32 @@ export function registerSectionTools(server: McpServer) {
         results.replacementsApplied.removeBlocks = removeResults;
       }
 
-      // Button and image replacements — noted as TODO
+      // Button replacements
       if (replacements?.buttons?.length) {
-        results.replacementsApplied.buttons = { note: 'Button replacements not yet implemented via MCP. Use sq_update_text as a workaround for button labels.' };
+        const buttonResults = [];
+        for (const { searchText, newLabel, url } of replacements.buttons) {
+          try {
+            const r = await client.updateButtonBlock(pageSectionsId, collectionId, searchText, { newLabel, url });
+            buttonResults.push({ searchText, success: r.success, error: r.error ?? null });
+          } catch (e) {
+            buttonResults.push({ searchText, success: false, error: e instanceof Error ? e.message : String(e) });
+          }
+        }
+        results.replacementsApplied.buttons = buttonResults;
       }
+
+      // Image replacements
       if (replacements?.images?.length) {
-        results.replacementsApplied.images = { note: 'Image replacements not yet implemented via MCP. Use browser agent for image uploads.' };
+        const imageResults = [];
+        for (const { searchText, assetUrl, altText } of replacements.images) {
+          try {
+            const r = await client.updateImageBlock(pageSectionsId, collectionId, searchText, { assetUrl, altText });
+            imageResults.push({ searchText, success: r.success, error: r.error ?? null });
+          } catch (e) {
+            imageResults.push({ searchText, success: false, error: e instanceof Error ? e.message : String(e) });
+          }
+        }
+        results.replacementsApplied.images = imageResults;
       }
 
       return {

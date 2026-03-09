@@ -10,3 +10,4 @@ data/*.json
 .mcp.json
 .worktrees/
 .claude/worktrees/
+.playwright-mcp/

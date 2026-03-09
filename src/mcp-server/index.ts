@@ -25,7 +25,6 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { registerTextTools } from './tools/text.js';
-import { registerScreenshotTools } from './tools/screenshot.js';
 import { registerSectionTools } from './tools/section.js';
 import { registerBlockTools } from './tools/blocks.js';
 import { registerPageTools } from './tools/pages.js';
@@ -52,7 +51,6 @@ You have tools to edit Squarespace websites via the Content Save API. Here's how
 1. Call sq_list_sites first to discover available sites and their IDs.
 2. Call sq_list_pages to see all pages on a site.
 3. Call sq_get_page_sections to inspect a page's current content before making changes.
-4. Use sq_take_screenshot to visually verify the result after edits.
 
 ## Known Limitations & Workarounds
 
@@ -78,7 +76,7 @@ All API calls require valid Squarespace editor session cookies. If you get 401 o
 ## Content Editing Workflow
 1. **Read first**: Always call sq_get_page_sections to see current content before editing.
 2. **Edit specifically**: Use sq_update_text for text changes, sq_update_image for images, etc.
-3. **Verify**: Call sq_take_screenshot after changes to confirm the result looks correct.
+3. **Verify**: Call sq_get_page_sections after changes to confirm the result looks correct.
 
 ## Grid System
 Squarespace uses a 24-column desktop grid. Coordinates: X ranges 1-24, start is inclusive, end is exclusive. Mobile layout auto-reflows from desktop — you only control desktop positioning.
@@ -103,7 +101,7 @@ When the user asks you to create a new page (contact, about, services, etc.):
 3. Use sq_add_template_section to add pre-designed template sections (call sq_list_section_templates to see available templates).
 4. For contact pages, use sq_add_form_block to add a native Squarespace form (see "Forms & Contact Pages" above).
 5. Use sq_update_text, sq_update_image to customize content after creation.
-6. Screenshot to verify.
+6. Call sq_get_page_sections to verify.
 
 ## Announcement Bar
 - sq_get_announcement_bar — read current announcement bar state (enabled, text, URL)
@@ -156,7 +154,6 @@ const server = new McpServer(
 );
 
 registerTextTools(server);
-registerScreenshotTools(server);
 registerSectionTools(server);
 registerBlockTools(server);
 registerPageTools(server);
@@ -194,7 +191,6 @@ server.registerPrompt('squarespace-guide', {
 - sq_list_pages — list all pages on a site
 - sq_get_page_sections — read a page's current sections and blocks
 - sq_list_section_templates — browse available section templates
-- sq_take_screenshot — visually verify changes
 
 ### Text & Content
 - sq_update_text — update text block HTML content (find block by text search)
@@ -291,7 +287,7 @@ Uses session cookies (same auth as all other tools — no separate API key neede
 
 **Always read before writing:** Call sq_get_page_sections before making changes so you understand the current structure.
 
-**Always verify:** Call sq_take_screenshot after changes to confirm the result.`,
+**Always verify:** Call sq_get_page_sections after changes to confirm the result.`,
       },
     }],
   };
