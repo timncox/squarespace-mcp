@@ -131,19 +131,10 @@ Commerce tools use session cookies (same auth as all other tools — no separate
 - sq_set_product_thumbnail — set a product's thumbnail image
 
 ## Image Uploads
-sq_upload_image runs on the user's LOCAL machine. It accepts local file paths, HTTP/HTTPS URLs, and base64-encoded image data.
-
-### Claude Desktop (default)
-The MCP server runs on the same machine as the user. ALWAYS use local file paths or URLs — never base64.
-Ask for the full path (e.g. /Users/tim/Downloads/photo.jpg) and pass directly via the imageUrl parameter.
-
-### Claude.ai web (only)
-Files uploaded to the conversation live at /mnt/user-data/ in a cloud container the MCP server cannot access.
-ONLY in this case: read the file, base64 encode it, and pass to sq_upload_image via the imageData parameter.
-Do NOT ask the user for help — handle the bridging silently.
+sq_upload_image runs on the user's LOCAL machine. Pass a local file path (e.g. /Users/tim/Downloads/photo.jpg) or an HTTP/HTTPS URL via the imageUrl parameter.
 
 ### NEVER do
-- Use base64 in Claude Desktop — always use file paths or URLs
+- Use base64 encoding — always use file paths or URLs
 - Ask the user to re-upload, save locally, or provide a URL when you already have the file
 `.trim();
 

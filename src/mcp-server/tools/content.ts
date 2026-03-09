@@ -134,21 +134,19 @@ export function registerContentTools(server: McpServer) {
   server.registerTool('sq_set_blog_featured_image', {
     description:
       'Set the featured/thumbnail image for a blog post. Uses the SaveMedia API to upload and link the image directly to the post. ' +
-      'Accepts a local file path, HTTP/HTTPS URL, or base64-encoded image data. ' +
+      'Accepts a local file path or HTTP/HTTPS URL. ' +
       'Note: coverImageUrl on sq_create_blog_post / sq_update_blog_post does NOT work — use this tool instead.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
       collectionId: z.string().describe('Blog collection ID'),
       postId: z.string().describe('Blog post item ID'),
-      imagePath: z.string().optional().describe('Local file path to image'),
+      imagePath: z.string().optional().describe('Local file path to image (e.g. /Users/tim/photo.jpg)'),
       imageUrl: z.string().optional().describe('HTTP/HTTPS URL of image to download'),
-      imageData: z.string().optional().describe('Base64-encoded image data'),
-      filename: z.string().optional().describe('Filename (required with imageData, optional otherwise, e.g. "featured.jpg")'),
     },
-  }, async ({ siteId, collectionId, postId, imagePath, imageUrl, imageData, filename }) => {
+  }, async ({ siteId, collectionId, postId, imagePath, imageUrl }) => {
     try {
-      if (!imagePath && !imageUrl && !imageData) {
-        return { content: [{ type: 'text' as const, text: 'Error: Must provide imagePath, imageUrl, or imageData' }], isError: true };
+      if (!imagePath && !imageUrl) {
+        return { content: [{ type: 'text' as const, text: 'Error: Must provide imagePath or imageUrl' }], isError: true };
       }
 
       const client = getClient(siteId);
@@ -156,24 +154,21 @@ export function registerContentTools(server: McpServer) {
       let resolvedFilename: string;
       let contentType = 'image/jpeg';
 
-      if (imageData) {
-        imageBuffer = Buffer.from(imageData, 'base64');
-        resolvedFilename = filename || 'featured.jpg';
-      } else if (imageUrl) {
+      if (imageUrl) {
         const resp = await fetch(imageUrl, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
         if (!resp.ok) {
           return { content: [{ type: 'text' as const, text: `Error: Failed to download image: ${resp.status}` }], isError: true };
         }
         imageBuffer = Buffer.from(await resp.arrayBuffer());
         const urlPath = new URL(imageUrl).pathname;
-        resolvedFilename = filename || urlPath.split('/').pop() || 'featured.jpg';
+        resolvedFilename = urlPath.split('/').pop() || 'featured.jpg';
         const respType = resp.headers.get('content-type');
         if (respType) contentType = respType.split(';')[0].trim();
       } else {
         const { readFileSync } = await import('node:fs');
         const path = await import('node:path');
         imageBuffer = readFileSync(imagePath!);
-        resolvedFilename = filename || path.default.basename(imagePath!);
+        resolvedFilename = path.default.basename(imagePath!);
         const ext = path.default.extname(resolvedFilename).toLowerCase();
         if (ext === '.png') contentType = 'image/png';
         else if (ext === '.webp') contentType = 'image/webp';
@@ -637,18 +632,16 @@ export function registerContentTools(server: McpServer) {
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
       pageSlug: z.string().describe('Page URL slug containing the gallery'),
-      imagePath: z.string().optional().describe('Local file path to image'),
+      imagePath: z.string().optional().describe('Local file path to image (e.g. /Users/tim/photo.jpg)'),
       imageUrl: z.string().optional().describe('HTTP/HTTPS URL of image to download and upload'),
-      imageData: z.string().optional().describe('Base64-encoded image data (for Claude Desktop cloud-to-local bridge)'),
-      filename: z.string().optional().describe('Filename when using imageData (e.g. "photo.jpg")'),
       title: z.string().optional().describe('Image title/caption'),
       description: z.string().optional().describe('Image description/alt text'),
       searchText: z.string().optional().describe('Gallery block ID or text to find specific gallery (optional — uses first gallery if omitted)'),
     },
-  }, async ({ siteId, pageSlug, imagePath, imageUrl, imageData, filename, title, description, searchText }) => {
+  }, async ({ siteId, pageSlug, imagePath, imageUrl, title, description, searchText }) => {
     try {
-      if (!imagePath && !imageUrl && !imageData) {
-        return { content: [{ type: 'text' as const, text: 'Error: Must provide imagePath, imageUrl, or imageData' }], isError: true };
+      if (!imagePath && !imageUrl) {
+        return { content: [{ type: 'text' as const, text: 'Error: Must provide imagePath or imageUrl' }], isError: true };
       }
 
       const ids = await resolvePageIds(siteId, pageSlug);
@@ -667,20 +660,11 @@ export function registerContentTools(server: McpServer) {
 
       // Upload the image
       let uploadResult;
-      if (imageData && filename) {
-        // Base64 bridge: write to temp file, upload, clean up
-        const os = await import('node:os');
-        const path = await import('node:path');
-        const { writeFile, unlink } = await import('node:fs/promises');
-        const tmpPath = path.join(os.default.tmpdir(), `sq-gallery-${Date.now()}-${filename}`);
-        await writeFile(tmpPath, Buffer.from(imageData, 'base64'));
-        try {
-          uploadResult = await mediaClient.uploadImage(tmpPath);
-        } finally {
-          await unlink(tmpPath).catch(() => {});
-        }
-      } else if (imageUrl) {
-        uploadResult = await mediaClient.uploadImageFromUrl(imageUrl);
+      if (imageUrl) {
+        const isUrl = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
+        uploadResult = isUrl
+          ? await mediaClient.uploadImageFromUrl(imageUrl)
+          : await mediaClient.uploadImage(imageUrl);
       } else if (imagePath) {
         uploadResult = await mediaClient.uploadImage(imagePath);
       }

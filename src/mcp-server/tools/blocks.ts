@@ -198,57 +198,28 @@ export function registerBlockTools(server: McpServer) {
   // ── sq_upload_image ─────────────────────────────────────────────────────────
   server.registerTool('sq_upload_image', {
     description:
-      'Upload an image to the Squarespace media library. Accepts a local Mac file path, HTTP/HTTPS URL, or base64-encoded image data (via imageData param). ' +
+      'Upload an image to the Squarespace media library. Accepts a local Mac file path or HTTP/HTTPS URL. ' +
       'Returns an assetUrl + assetId for use with sq_add_image, sq_update_image, or sq_attach_product_image.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
-      imageUrl: z.string().optional().describe('Local file path OR http/https URL of the image to upload'),
-      imageData: z.string().optional().describe('Base64-encoded image data. Use this when the image is in a cloud path (/mnt/user-data/) that the MCP server cannot access.'),
-      filename: z.string().optional().describe('Filename for the image when using imageData (e.g., "photo.jpg")'),
+      imageUrl: z.string().describe('Local file path (e.g. /Users/tim/photo.jpg) OR http/https URL of the image to upload'),
     },
-  }, async ({ siteId, imageUrl, imageData, filename }) => {
+  }, async ({ siteId, imageUrl }) => {
     try {
-      // Validate: need either imageUrl or imageData
-      if (!imageUrl && !imageData) {
+      if (!imageUrl) {
         return {
-          content: [{ type: 'text' as const, text: 'Error: Either imageUrl or imageData is required' }],
-          isError: true,
-        };
-      }
-
-      // Detect cloud container paths — direct the caller to use imageData instead
-      if (imageUrl && (imageUrl.startsWith('/mnt/') || imageUrl.startsWith('/tmp/user-data') || imageUrl.startsWith('/home/user/'))) {
-        return {
-          content: [{ type: 'text' as const, text:
-            `CLOUD_PATH_DETECTED: The file at this path is in your cloud environment and inaccessible to the MCP server. ` +
-            `To fix this: read the file using your file reading tools, base64 encode it, then call sq_upload_image again with the imageData parameter (base64 string) and filename parameter instead of imageUrl.`
-          }],
+          content: [{ type: 'text' as const, text: 'Error: imageUrl is required (local file path or HTTP/HTTPS URL)' }],
           isError: true,
         };
       }
 
       const mediaClient = getMediaClient(siteId);
 
-      // Handle base64 image data: decode → temp file → upload → cleanup
-      if (imageData) {
-        const tempName = filename || `upload-${Date.now()}.jpg`;
-        const tempPath = path.join(os.tmpdir(), tempName);
-        try {
-          await writeFile(tempPath, Buffer.from(imageData, 'base64'));
-          const result = await mediaClient.uploadImage(tempPath);
-          return {
-            content: [{ type: 'text' as const, text: JSON.stringify({ assetUrl: result.assetUrl ?? null, ...result }, null, 2) }],
-          };
-        } finally {
-          await unlink(tempPath).catch(() => {});
-        }
-      }
-
       // Handle URL or local path
-      const isUrl = imageUrl!.startsWith('http://') || imageUrl!.startsWith('https://');
+      const isUrl = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
       const result = isUrl
-        ? await mediaClient.uploadImageFromUrl(imageUrl!)
-        : await mediaClient.uploadImage(imageUrl!);
+        ? await mediaClient.uploadImageFromUrl(imageUrl)
+        : await mediaClient.uploadImage(imageUrl);
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ assetUrl: result.assetUrl ?? null, ...result }, null, 2) }],
