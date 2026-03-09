@@ -7,7 +7,8 @@
  * sq_update_design: Update fonts, colors, and/or tweaks
  * sq_get_code_injection: Read header/footer code injection
  * sq_update_code_injection: Save header/footer scripts
- * sq_update_css: Update custom CSS
+ * sq_update_css: Update custom CSS (full replacement)
+ * sq_patch_css: Patch custom CSS (surgical add/replace/remove)
  * sq_list_social_links: List social link accounts
  * sq_add_social_link: Add a social link by URL
  * sq_remove_social_link: Remove a social link account
@@ -15,6 +16,8 @@
  * sq_update_site_identity: Update site identity fields
  * sq_get_advanced_settings: Read advanced settings including URL redirects
  * sq_save_advanced_settings: Save advanced settings (URL redirects, etc.)
+ * sq_get_header_footer_config: Read full header/footer configuration
+ * sq_update_header_footer_config: Update header/footer configuration (read-modify-write)
  */
 
 import { z } from 'zod';
@@ -327,6 +330,43 @@ export function registerSiteTools(server: McpServer) {
     }
   });
 
+  // ── sq_patch_css ─────────────────────────────────────────────────────────
+  server.registerTool('sq_patch_css', {
+    description: 'Patch custom CSS without replacing everything. Supports add (append new rule), replace (update existing rule by selector), and remove (delete rule by selector). Safer than sq_update_css for targeted changes.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      operations: z.array(z.object({
+        action: z.enum(['add', 'replace', 'remove']).describe('add=append new rule, replace=update rule by selector, remove=delete rule by selector'),
+        selector: z.string().optional().describe('CSS selector to find (required for replace/remove)'),
+        css: z.string().optional().describe('Full CSS rule for add, or replacement rule body for replace'),
+      })).describe('Array of CSS patch operations to apply in order'),
+    },
+  }, async ({ siteId, operations }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.patchCustomCSS(operations);
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Failed to patch CSS'}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({ success: true, appliedOps: result.appliedOps }, null, 2),
+        }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
   // ── Social Links ────────────────────────────────────────────────────────
 
   const SOCIAL_SERVICE_MAP: Record<string, number> = {
@@ -519,6 +559,76 @@ export function registerSiteTools(server: McpServer) {
     }
   });
 
+  // ── sq_list_color_themes ─────────────────────────────────────────────
+  server.registerTool('sq_list_color_themes', {
+    description: 'List all color themes on the site with their names and number of variable mappings. Themes are used by sections (via sectionTheme) to control colors. Use sq_get_design for full palette and theme details.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+    },
+  }, async ({ siteId }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.listColorThemes();
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Failed to list color themes'}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify(result, null, 2),
+        }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_update_color_theme ───────────────────────────────────────────
+  server.registerTool('sq_update_color_theme', {
+    description: 'Update a color theme\'s variable-to-color mappings. Changes how a theme (e.g., "dark") maps CSS variables to palette colors. Use sq_list_color_themes to see available themes, and sq_get_design to see palette color IDs and current mappings.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      themeName: z.string().describe('Theme name to update (e.g., "white", "light", "dark", "black")'),
+      mappings: z.array(z.object({
+        variableName: z.string().describe('CSS variable name (e.g., "paragraphSmallColor", "headingLargeColor")'),
+        colorName: z.string().describe('Palette color ID to map to (e.g., "white", "black", "accent")'),
+        alphaModifier: z.number().optional().describe('Alpha/opacity modifier 0-1 (default: 1)'),
+      })).describe('Variable-to-color mappings to update. Only specified mappings change; others are preserved.'),
+    },
+  }, async ({ siteId, themeName, mappings }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.updateColorTheme(themeName, mappings);
+
+      if (!result.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Failed to update color theme'}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify(result, null, 2),
+        }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
   // ── sq_save_advanced_settings ───────────────────────────────────────────
   server.registerTool('sq_save_advanced_settings', {
     description: 'Save advanced site settings. Primary use: URL redirects (301/302). Get current settings via sq_get_advanced_settings, modify the mappings field, then save back. The mappings value must be a JSON string.',
@@ -539,6 +649,117 @@ export function registerSiteTools(server: McpServer) {
       return {
         content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
         ...(result.success ? {} : { isError: true }),
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_get_header_footer_config ───────────────────────────────────────────
+  server.registerTool('sq_get_header_footer_config', {
+    description:
+      'Read the full header and footer configuration including layout, background, navigation style, and all design properties. ' +
+      'Returns the raw API response from /api/site-header-footer.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+    },
+  }, async ({ siteId }) => {
+    try {
+      const client = getClient(siteId);
+      const result = await client.getHeaderFooter();
+
+      if (!result.success || !result.config) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Failed to get header/footer config'}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify(result.config, null, 2),
+        }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_update_header_footer_config ────────────────────────────────────────
+  server.registerTool('sq_update_header_footer_config', {
+    description:
+      'Update header and/or footer configuration. Uses read-modify-write: reads current config, merges your updates, writes back. ' +
+      'Use sq_get_header_footer_config first to see available fields. ' +
+      'Common fields include layout type, background color, logo settings, and navigation style.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      header: z.record(z.unknown()).optional().describe('Header config fields to merge'),
+      footer: z.record(z.unknown()).optional().describe('Footer config fields to merge'),
+      topLevel: z.record(z.unknown()).optional().describe('Top-level config fields to merge (not under header/footer)'),
+    },
+  }, async ({ siteId, header, footer, topLevel }) => {
+    try {
+      const client = getClient(siteId);
+
+      // Read current config
+      const current = await client.getHeaderFooter();
+      if (!current.success || !current.config) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${current.error ?? 'Failed to read current header/footer config'}` }],
+          isError: true,
+        };
+      }
+
+      const config = current.config as Record<string, any>;
+
+      // Merge header updates
+      if (header) {
+        if (config.header && typeof config.header === 'object') {
+          Object.assign(config.header, header);
+        } else {
+          config.header = header;
+        }
+      }
+
+      // Merge footer updates
+      if (footer) {
+        if (config.footer && typeof config.footer === 'object') {
+          Object.assign(config.footer, footer);
+        } else {
+          config.footer = footer;
+        }
+      }
+
+      // Merge top-level fields (excluding header/footer)
+      if (topLevel) {
+        for (const [k, v] of Object.entries(topLevel)) {
+          if (k !== 'header' && k !== 'footer') {
+            config[k] = v;
+          }
+        }
+      }
+
+      // Write back
+      const saveResult = await client.saveHeaderFooter(config);
+      if (!saveResult.success) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${saveResult.error ?? 'Failed to save header/footer config'}` }],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({ success: true }, null, 2),
+        }],
       };
     } catch (err) {
       return {

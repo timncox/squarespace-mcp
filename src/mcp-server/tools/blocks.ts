@@ -26,6 +26,8 @@
  * sq_update_code: Update a code block
  * sq_add_social_links_block: Add a social links display block
  * sq_update_social_links_block: Update social links block display options
+ * sq_add_audio: Add a native audio player block
+ * sq_update_audio: Update an existing audio block
  */
 
 import { z } from 'zod';
@@ -1343,6 +1345,495 @@ export function registerBlockTools(server: McpServer) {
         content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
         isError: true,
       };
+    }
+  });
+
+  // ── sq_add_audio ──────────────────────────────────────────────────────────
+  server.registerTool('sq_add_audio', {
+    description:
+      'Add a native audio player block to a section on a Squarespace page. Requires an audioAssetId from a previously uploaded audio file. Default: full-width (24 cols), 2 rows tall.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      sectionIndex: z.number().describe('0-based section index to add the audio to'),
+      audioAssetId: z.string().describe('Audio asset ID (24-char hex) from uploaded audio file'),
+      title: z.string().optional().describe('Track title'),
+      author: z.string().optional().describe('Artist/author name'),
+      designStyle: z.string().optional().describe('Player design style (default: "minimal")'),
+      colorTheme: z.enum(['dark', 'light']).optional().describe('Player color theme (default: "dark")'),
+      showDownload: z.boolean().optional().describe('Show download button (default: false)'),
+      layout: z.object({
+        columns: z.number().optional().describe('Grid columns to span (default: 24)'),
+        offsetColumns: z.number().optional().describe('Push block right by N columns (e.g. 12 = right half)'),
+        rowHeight: z.number().optional().describe('Rows tall (default: 2)'),
+        startX: z.number().optional().describe('Absolute grid start X (overrides columns/offset)'),
+        endX: z.number().optional().describe('Absolute grid end X'),
+        startY: z.number().optional().describe('Absolute grid start Y'),
+        endY: z.number().optional().describe('Absolute grid end Y'),
+      }).optional().describe('Optional grid layout settings'),
+    },
+  }, async ({ siteId, pageSlug, sectionIndex, audioAssetId, title, author, designStyle, colorTheme, showDownload, layout }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+
+      // Resolve offsetColumns to startX/endX, then strip convenience keys
+      const resolvedLayout = layout ? { ...layout } : undefined;
+      if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
+        resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
+        resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 24);
+      }
+      if (resolvedLayout) delete resolvedLayout.offsetColumns;
+
+      const options: Record<string, any> = {};
+      if (title !== undefined) options.title = title;
+      if (author !== undefined) options.author = author;
+      if (designStyle !== undefined) options.designStyle = designStyle;
+      if (colorTheme !== undefined) options.colorTheme = colorTheme;
+      if (showDownload !== undefined) options.showDownload = showDownload;
+      if (resolvedLayout) options.layout = resolvedLayout;
+      const result = await client.addAudioBlock(ids.pageSectionsId, ids.collectionId, sectionIndex, audioAssetId, Object.keys(options).length > 0 ? options : undefined);
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_update_audio ───────────────────────────────────────────────────────
+  server.registerTool('sq_update_audio', {
+    description:
+      'Update an existing audio block on a Squarespace page. Finds the audio by search text (matches title, author, or audioAssetId) and updates fields.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      searchText: z.string().describe('Text to find the audio block (matches title, author, or audioAssetId)'),
+      title: z.string().optional().describe('New track title'),
+      author: z.string().optional().describe('New artist/author name'),
+      designStyle: z.string().optional().describe('New player design style'),
+      colorTheme: z.enum(['dark', 'light']).optional().describe('New player color theme'),
+      showDownload: z.boolean().optional().describe('Show download button'),
+    },
+  }, async ({ siteId, pageSlug, searchText, title, author, designStyle, colorTheme, showDownload }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) {
+        return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      }
+      const client = getClient(siteId);
+      const updates: Record<string, any> = {};
+      if (title !== undefined) updates.title = title;
+      if (author !== undefined) updates.author = author;
+      if (designStyle !== undefined) updates.designStyle = designStyle;
+      if (colorTheme !== undefined) updates.colorTheme = colorTheme;
+      if (showDownload !== undefined) updates.showDownload = showDownload;
+      const result = await client.updateAudioBlock(ids.pageSectionsId, ids.collectionId, searchText, updates);
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_add_page_link ──────────────────────────────────────────────────────
+  server.registerTool('sq_add_page_link', {
+    description:
+      'Add a page link block to a section. Links to an internal page or external URL.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      sectionIndex: z.number().describe('0-based section index'),
+      linkTitle: z.string().describe('Display text for the link'),
+      linkTarget: z.string().describe('URL or page slug to link to'),
+      newWindow: z.boolean().optional().describe('Open link in new window (default: false)'),
+      layout: z.object({
+        columns: z.number().optional().describe('Column span (default: 24)'),
+        offsetColumns: z.number().optional().describe('Left offset in columns (0-based)'),
+        gapRows: z.number().optional().describe('Gap rows above the block'),
+        rowHeight: z.number().optional().describe('Row height (default: 2)'),
+        startX: z.number().optional(), endX: z.number().optional(),
+        startY: z.number().optional(), endY: z.number().optional(),
+      }).optional().describe('Optional grid layout settings'),
+    },
+  }, async ({ siteId, pageSlug, sectionIndex, linkTitle, linkTarget, newWindow, layout }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      const client = getClient(siteId);
+      const resolvedLayout = layout ? { ...layout } : undefined;
+      if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
+        resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
+        resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 24);
+      }
+      if (resolvedLayout) delete resolvedLayout.offsetColumns;
+      const result = await client.addPageLinkBlock(ids.pageSectionsId, ids.collectionId, sectionIndex, linkTitle, linkTarget, { newWindow, layout: resolvedLayout });
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_update_page_link ───────────────────────────────────────────────────
+  server.registerTool('sq_update_page_link', {
+    description:
+      'Update an existing page link block. Finds the block by search text (matches linkTitle or linkTarget).',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      searchText: z.string().describe('Text to find the page link block'),
+      linkTitle: z.string().optional().describe('New display text'),
+      linkTarget: z.string().optional().describe('New URL or page slug'),
+      newWindow: z.boolean().optional().describe('Open in new window'),
+    },
+  }, async ({ siteId, pageSlug, searchText, linkTitle, linkTarget, newWindow }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      const client = getClient(siteId);
+      const updates: Record<string, any> = {};
+      if (linkTitle !== undefined) updates.linkTitle = linkTitle;
+      if (linkTarget !== undefined) updates.linkTarget = linkTarget;
+      if (newWindow !== undefined) updates.newWindow = newWindow;
+      const result = await client.updatePageLinkBlock(ids.pageSectionsId, ids.collectionId, searchText, updates);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_add_horizontal_rule ────────────────────────────────────────────────
+  server.registerTool('sq_add_horizontal_rule', {
+    description:
+      'Add a horizontal rule (line separator) block to a section.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      sectionIndex: z.number().describe('0-based section index'),
+      layout: z.object({
+        columns: z.number().optional().describe('Column span (default: 24)'),
+        offsetColumns: z.number().optional().describe('Left offset in columns'),
+        gapRows: z.number().optional().describe('Gap rows above the block'),
+        rowHeight: z.number().optional().describe('Row height (default: 1)'),
+        startX: z.number().optional(), endX: z.number().optional(),
+        startY: z.number().optional(), endY: z.number().optional(),
+      }).optional().describe('Optional grid layout settings'),
+    },
+  }, async ({ siteId, pageSlug, sectionIndex, layout }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      const client = getClient(siteId);
+      const resolvedLayout = layout ? { ...layout } : undefined;
+      if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
+        resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
+        resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 24);
+      }
+      if (resolvedLayout) delete resolvedLayout.offsetColumns;
+      const result = await client.addHorizontalRuleBlock(ids.pageSectionsId, ids.collectionId, sectionIndex, resolvedLayout);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_add_search ──────────────────────────────────────────────────────────
+  server.registerTool('sq_add_search', {
+    description:
+      'Add a search block to a section. Provides a search bar that searches site content or a specific collection.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      sectionIndex: z.number().describe('0-based section index'),
+      targetCollectionId: z.string().optional().describe('Collection ID to search within (empty = all site content)'),
+      searchPreview: z.boolean().optional().describe('Show search preview results (default: true)'),
+      theme: z.enum(['dark', 'light']).optional().describe('Search bar theme (default: dark)'),
+      layout: z.object({
+        columns: z.number().optional(), offsetColumns: z.number().optional(),
+        gapRows: z.number().optional(), rowHeight: z.number().optional(),
+        startX: z.number().optional(), endX: z.number().optional(),
+        startY: z.number().optional(), endY: z.number().optional(),
+      }).optional().describe('Optional grid layout settings'),
+    },
+  }, async ({ siteId, pageSlug, sectionIndex, targetCollectionId, searchPreview, theme, layout }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      const client = getClient(siteId);
+      const resolvedLayout = layout ? { ...layout } : undefined;
+      if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
+        resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
+        resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 24);
+      }
+      if (resolvedLayout) delete resolvedLayout.offsetColumns;
+      const options: Record<string, any> = {};
+      if (targetCollectionId !== undefined) options.targetCollectionId = targetCollectionId;
+      if (searchPreview !== undefined) options.searchPreview = searchPreview;
+      if (theme !== undefined) options.theme = theme;
+      if (resolvedLayout) options.layout = resolvedLayout;
+      const result = await client.addSearchBlock(ids.pageSectionsId, ids.collectionId, sectionIndex, Object.keys(options).length > 0 ? options : undefined);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_update_search ─────────────────────────────────────────────────────
+  server.registerTool('sq_update_search', {
+    description:
+      'Update an existing search block. Finds the block by search text (matches collectionId, theme, or block ID).',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      searchText: z.string().describe('Text to find the search block'),
+      targetCollectionId: z.string().optional().describe('New collection ID to search within'),
+      searchPreview: z.boolean().optional().describe('Show search preview results'),
+      theme: z.enum(['dark', 'light']).optional().describe('Search bar theme'),
+    },
+  }, async ({ siteId, pageSlug, searchText, targetCollectionId, searchPreview, theme }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      const client = getClient(siteId);
+      const updates: Record<string, any> = {};
+      if (targetCollectionId !== undefined) updates.targetCollectionId = targetCollectionId;
+      if (searchPreview !== undefined) updates.searchPreview = searchPreview;
+      if (theme !== undefined) updates.theme = theme;
+      const result = await client.updateSearchBlock(ids.pageSectionsId, ids.collectionId, searchText, updates);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_add_markdown ───────────────────────────────────────────────────────
+  server.registerTool('sq_add_markdown', {
+    description:
+      'Add a markdown block to a section. Squarespace renders the markdown as HTML.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      sectionIndex: z.number().describe('0-based section index'),
+      source: z.string().describe('Markdown source text'),
+      layout: z.object({
+        columns: z.number().optional().describe('Column span (default: 24)'),
+        offsetColumns: z.number().optional().describe('Left offset in columns'),
+        gapRows: z.number().optional().describe('Gap rows above the block'),
+        rowHeight: z.number().optional().describe('Row height (default: 4)'),
+        startX: z.number().optional(), endX: z.number().optional(),
+        startY: z.number().optional(), endY: z.number().optional(),
+      }).optional().describe('Optional grid layout settings'),
+    },
+  }, async ({ siteId, pageSlug, sectionIndex, source, layout }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      const client = getClient(siteId);
+      const resolvedLayout = layout ? { ...layout } : undefined;
+      if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
+        resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
+        resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 24);
+      }
+      if (resolvedLayout) delete resolvedLayout.offsetColumns;
+      const result = await client.addMarkdownBlock(ids.pageSectionsId, ids.collectionId, sectionIndex, source, resolvedLayout);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_update_markdown ────────────────────────────────────────────────────
+  server.registerTool('sq_update_markdown', {
+    description:
+      'Update an existing markdown block. Finds the block by search text (matches markdown source).',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      searchText: z.string().describe('Text to find the markdown block'),
+      source: z.string().describe('New markdown source text'),
+    },
+  }, async ({ siteId, pageSlug, searchText, source }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      const client = getClient(siteId);
+      const result = await client.updateMarkdownBlock(ids.pageSectionsId, ids.collectionId, searchText, { source });
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_add_summary ────────────────────────────────────────────────────────
+  server.registerTool('sq_add_summary', {
+    description:
+      'Add a summary block to display posts/products from a collection. Shows thumbnails, titles, excerpts from a blog, store, or other collection.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      sectionIndex: z.number().describe('0-based section index'),
+      targetCollectionId: z.string().describe('Collection ID to pull content from (blog, store, etc.)'),
+      design: z.string().optional().describe('Layout design: autocolumns, carousel, grid, list (default: autocolumns)'),
+      headerText: z.string().optional().describe('Header text above the summary (default: "Featured")'),
+      pageSize: z.number().optional().describe('Number of items to show (default: 3)'),
+      showTitle: z.boolean().optional().describe('Show item titles (default: true)'),
+      showThumbnail: z.boolean().optional().describe('Show thumbnails (default: true)'),
+      showExcerpt: z.boolean().optional().describe('Show excerpts (default: true)'),
+      showReadMoreLink: z.boolean().optional().describe('Show read more links (default: false)'),
+      showPrice: z.boolean().optional().describe('Show prices for products (default: true)'),
+      textAlignment: z.string().optional().describe('Text alignment: left, center, right (default: left)'),
+      imageAspectRatio: z.number().optional().describe('Image aspect ratio (default: 1.5)'),
+      layout: z.object({
+        columns: z.number().optional(), offsetColumns: z.number().optional(),
+        gapRows: z.number().optional(), rowHeight: z.number().optional(),
+        startX: z.number().optional(), endX: z.number().optional(),
+        startY: z.number().optional(), endY: z.number().optional(),
+      }).optional().describe('Optional grid layout settings'),
+    },
+  }, async ({ siteId, pageSlug, sectionIndex, targetCollectionId, design, headerText, pageSize, showTitle, showThumbnail, showExcerpt, showReadMoreLink, showPrice, textAlignment, imageAspectRatio, layout }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      const client = getClient(siteId);
+      const resolvedLayout = layout ? { ...layout } : undefined;
+      if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
+        resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
+        resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 24);
+      }
+      if (resolvedLayout) delete resolvedLayout.offsetColumns;
+      const options: Record<string, any> = {};
+      if (design !== undefined) options.design = design;
+      if (headerText !== undefined) options.headerText = headerText;
+      if (pageSize !== undefined) options.pageSize = pageSize;
+      if (showTitle !== undefined) options.showTitle = showTitle;
+      if (showThumbnail !== undefined) options.showThumbnail = showThumbnail;
+      if (showExcerpt !== undefined) options.showExcerpt = showExcerpt;
+      if (showReadMoreLink !== undefined) options.showReadMoreLink = showReadMoreLink;
+      if (showPrice !== undefined) options.showPrice = showPrice;
+      if (textAlignment !== undefined) options.textAlignment = textAlignment;
+      if (imageAspectRatio !== undefined) options.imageAspectRatio = imageAspectRatio;
+      if (resolvedLayout) options.layout = resolvedLayout;
+      const result = await client.addSummaryBlock(ids.pageSectionsId, ids.collectionId, sectionIndex, targetCollectionId, Object.keys(options).length > 0 ? options : undefined);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_update_summary ─────────────────────────────────────────────────────
+  server.registerTool('sq_update_summary', {
+    description:
+      'Update an existing summary block. Finds the block by search text (matches headerText).',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      searchText: z.string().describe('Text to find the summary block (matches headerText)'),
+      targetCollectionId: z.string().optional().describe('New collection ID'),
+      design: z.string().optional().describe('Layout design'),
+      headerText: z.string().optional().describe('Header text'),
+      pageSize: z.number().optional().describe('Number of items'),
+      showTitle: z.boolean().optional(), showThumbnail: z.boolean().optional(),
+      showExcerpt: z.boolean().optional(), showReadMoreLink: z.boolean().optional(),
+      showPrice: z.boolean().optional(), textAlignment: z.string().optional(),
+      imageAspectRatio: z.number().optional(),
+    },
+  }, async ({ siteId, pageSlug, searchText, ...updates }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      const client = getClient(siteId);
+      const result = await client.updateSummaryBlock(ids.pageSectionsId, ids.collectionId, searchText, updates);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_add_product ────────────────────────────────────────────────────────
+  server.registerTool('sq_add_product_block', {
+    description:
+      'Add a product block to a section. Displays a single product with image, title, price, and optional buy button.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      sectionIndex: z.number().describe('0-based section index'),
+      productId: z.string().describe('Product ID to display'),
+      showTitle: z.boolean().optional().describe('Show product title (default: true)'),
+      showPrice: z.boolean().optional().describe('Show price (default: true)'),
+      showBuyButton: z.boolean().optional().describe('Show buy/add to cart button (default: false)'),
+      showQuantity: z.boolean().optional().describe('Show quantity selector (default: false)'),
+      showExcerpt: z.boolean().optional().describe('Show product excerpt (default: false)'),
+      showImage: z.boolean().optional().describe('Show product image (default: true)'),
+      alignment: z.string().optional().describe('Text alignment: left, center, right (default: left)'),
+      layout: z.object({
+        columns: z.number().optional(), offsetColumns: z.number().optional(),
+        gapRows: z.number().optional(), rowHeight: z.number().optional(),
+        startX: z.number().optional(), endX: z.number().optional(),
+        startY: z.number().optional(), endY: z.number().optional(),
+      }).optional().describe('Optional grid layout settings'),
+    },
+  }, async ({ siteId, pageSlug, sectionIndex, productId, showTitle, showPrice, showBuyButton, showQuantity, showExcerpt, showImage, alignment, layout }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      const client = getClient(siteId);
+      const resolvedLayout = layout ? { ...layout } : undefined;
+      if (resolvedLayout && resolvedLayout.offsetColumns != null && resolvedLayout.startX == null) {
+        resolvedLayout.startX = resolvedLayout.offsetColumns + 1;
+        resolvedLayout.endX = resolvedLayout.startX + (resolvedLayout.columns ?? 24);
+      }
+      if (resolvedLayout) delete resolvedLayout.offsetColumns;
+      const options: Record<string, any> = {};
+      if (showTitle !== undefined) options.showTitle = showTitle;
+      if (showPrice !== undefined) options.showPrice = showPrice;
+      if (showBuyButton !== undefined) options.showBuyButton = showBuyButton;
+      if (showQuantity !== undefined) options.showQuantity = showQuantity;
+      if (showExcerpt !== undefined) options.showExcerpt = showExcerpt;
+      if (showImage !== undefined) options.showImage = showImage;
+      if (alignment !== undefined) options.alignment = alignment;
+      if (resolvedLayout) options.layout = resolvedLayout;
+      const result = await client.addProductBlock(ids.pageSectionsId, ids.collectionId, sectionIndex, productId, Object.keys(options).length > 0 ? options : undefined);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_update_product_block ───────────────────────────────────────────────
+  server.registerTool('sq_update_product_block', {
+    description:
+      'Update an existing product block. Finds the block by search text (matches productId).',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug'),
+      searchText: z.string().describe('Text to find the product block (matches productId)'),
+      productId: z.string().optional().describe('New product ID'),
+      showTitle: z.boolean().optional(), showPrice: z.boolean().optional(),
+      showBuyButton: z.boolean().optional(), showQuantity: z.boolean().optional(),
+      showExcerpt: z.boolean().optional(), showImage: z.boolean().optional(),
+      alignment: z.string().optional(),
+    },
+  }, async ({ siteId, pageSlug, searchText, ...updates }) => {
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) return { content: [{ type: 'text' as const, text: `Error: Could not resolve page "${pageSlug}" on site "${siteId}"` }], isError: true };
+      const client = getClient(siteId);
+      const result = await client.updateProductBlock(ids.pageSectionsId, ids.collectionId, searchText, updates);
+      return { content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
     }
   });
 }

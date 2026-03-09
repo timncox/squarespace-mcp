@@ -15,7 +15,7 @@ import { resolvePageIds as resolvePageIdsImpl } from '../services/page-id-resolv
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/database.js';
-import logger from '../utils/logger.js';
+import { logger } from '../utils/logger.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 

@@ -704,6 +704,129 @@ export interface DividerBlockAddResult {
   error?: string;
 }
 
+/** Result of adding an audio block */
+export interface AudioBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of updating an audio block */
+export interface AudioBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  updatedFields?: string[];
+  error?: string;
+}
+
+// ── Page Link Block ──────────────────────────────────────────────────────────
+
+/** Result of adding a page link block */
+export interface PageLinkBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of updating a page link block */
+export interface PageLinkBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  updatedFields?: string[];
+  error?: string;
+}
+
+// ── Horizontal Rule Block ────────────────────────────────────────────────────
+
+/** Result of adding a horizontal rule block */
+export interface HorizontalRuleBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+// ── Search Block ─────────────────────────────────────────────────────────────
+
+/** Result of adding a search block */
+export interface SearchBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of updating a search block */
+export interface SearchBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  updatedFields?: string[];
+  error?: string;
+}
+
+// ── Markdown Block ───────────────────────────────────────────────────────────
+
+/** Result of adding a markdown block */
+export interface MarkdownBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of updating a markdown block */
+export interface MarkdownBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  updatedFields?: string[];
+  error?: string;
+}
+
+// ── Summary Block ────────────────────────────────────────────────────────────
+
+/** Result of adding a summary block */
+export interface SummaryBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of updating a summary block */
+export interface SummaryBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  updatedFields?: string[];
+  error?: string;
+}
+
+// ── Product Block ────────────────────────────────────────────────────────────
+
+/** Result of adding a product block */
+export interface ProductBlockAddResult {
+  success: boolean;
+  blockId?: string;
+  sectionId?: string;
+  sectionIndex?: number;
+  error?: string;
+}
+
+/** Result of updating a product block */
+export interface ProductBlockUpdateResult {
+  success: boolean;
+  blockId?: string;
+  updatedFields?: string[];
+  error?: string;
+}
+
 /** Result of adding a video block */
 export interface VideoBlockAddResult {
   success: boolean;
@@ -1181,6 +1304,22 @@ export interface AdvancedSettingsSaveResult {
   error?: string;
 }
 
+/** Result of listColorThemes() */
+export interface ListColorThemesResult {
+  success: boolean;
+  themes?: { themeName: string; mappingCount: number }[];
+  defaultTheme?: string;
+  error?: string;
+}
+
+/** Result of updateColorTheme() */
+export interface UpdateColorThemeResult {
+  success: boolean;
+  themeName?: string;
+  updatedMappings?: number;
+  error?: string;
+}
+
 // ── Template Tweak Settings Types ───────────────────────────────────────────
 
 /** Response from GET /api/template/GetTemplateTweakSettings?version=3 */
@@ -1218,6 +1357,24 @@ export interface MapBlockUpdateResult {
 }
 
 // ── Social Accounts ──────────────────────────────────────────────────────────
+
+// ── CSS Patch Types ─────────────────────────────────────────────────────────
+
+/** A single CSS patch operation */
+export interface CssPatchOperation {
+  action: 'add' | 'replace' | 'remove';
+  /** CSS selector to find (required for replace/remove) */
+  selector?: string;
+  /** Full CSS rule to add (for add), or new CSS body (for replace) */
+  css?: string;
+}
+
+/** Result of a CSS patch operation */
+export interface CssPatchResult {
+  success: boolean;
+  appliedOps?: number;
+  error?: string;
+}
 
 /** A non-OAuth social link account */
 export interface SocialAccount {

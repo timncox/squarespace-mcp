@@ -20,10 +20,14 @@ const mockClient = {
   updateSiteIdentity: vi.fn(),
   getAdvancedSettings: vi.fn(),
   saveAdvancedSettings: vi.fn(),
+  patchCustomCSS: vi.fn(),
+  getHeaderFooter: vi.fn(),
+  saveHeaderFooter: vi.fn(),
 };
 
 vi.mock('../session.js', () => ({
   getClient: vi.fn(() => mockClient),
+  listSites: vi.fn(() => []),
 }));
 
 import { registerSiteTools } from '../tools/site.js';
@@ -53,7 +57,8 @@ describe('Site Tools', () => {
     registerSiteTools(server as any);
   });
 
-  it('should register all 14 site tools', () => {
+  it('should register all 18 site tools', () => {
+    expect(server.tools.has('sq_list_sites')).toBe(true);
     expect(server.tools.has('sq_get_settings')).toBe(true);
     expect(server.tools.has('sq_update_settings')).toBe(true);
     expect(server.tools.has('sq_get_design')).toBe(true);
@@ -61,6 +66,7 @@ describe('Site Tools', () => {
     expect(server.tools.has('sq_get_code_injection')).toBe(true);
     expect(server.tools.has('sq_update_code_injection')).toBe(true);
     expect(server.tools.has('sq_update_css')).toBe(true);
+    expect(server.tools.has('sq_patch_css')).toBe(true);
     expect(server.tools.has('sq_list_social_links')).toBe(true);
     expect(server.tools.has('sq_add_social_link')).toBe(true);
     expect(server.tools.has('sq_remove_social_link')).toBe(true);
@@ -68,6 +74,8 @@ describe('Site Tools', () => {
     expect(server.tools.has('sq_update_site_identity')).toBe(true);
     expect(server.tools.has('sq_get_advanced_settings')).toBe(true);
     expect(server.tools.has('sq_save_advanced_settings')).toBe(true);
+    expect(server.tools.has('sq_get_header_footer_config')).toBe(true);
+    expect(server.tools.has('sq_update_header_footer_config')).toBe(true);
   });
 
   // ── sq_get_settings ─────────────────────────────────────────────────────────

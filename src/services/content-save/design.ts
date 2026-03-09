@@ -15,6 +15,8 @@ import type {
   PaletteColorUpdateResult,
   FontValue,
   HSLValues,
+  ListColorThemesResult,
+  UpdateColorThemeResult,
 } from './types.js';
 import { logger } from '../../utils/logger.js';
 import { errMsg } from '../../utils/errors.js';
@@ -31,6 +33,8 @@ declare module './index.js' {
     saveAdvancedSettings(data: Record<string, string>): Promise<AdvancedSettingsSaveResult>;
     getTemplateTweakSettings(): Promise<TemplateTweakSettingsResult>;
     setTemplateTweakSettings(updates: Record<string, string>): Promise<TemplateTweakSettingsUpdateResult>;
+    listColorThemes(): Promise<ListColorThemesResult>;
+    updateColorTheme(themeName: string, mappings: { variableName: string; colorName: string; alphaModifier?: number }[]): Promise<UpdateColorThemeResult>;
   }
 }
 
@@ -340,6 +344,76 @@ ContentSaveClient.prototype.setTemplateTweakSettings = async function (
       'Template tweak settings updated',
     );
     return { success: true };
+  } catch (err) {
+    return { success: false, error: errMsg(err) };
+  }
+};
+
+ContentSaveClient.prototype.listColorThemes = async function (
+  this: ContentSaveClient,
+): Promise<ListColorThemesResult> {
+  try {
+    const getResult = await this.getWebsiteColors();
+    if (!getResult.success || !getResult.data) {
+      return { success: false, error: getResult.error ?? 'Failed to fetch website colors' };
+    }
+
+    const data = getResult.data;
+    const themes = (data.colorThemes ?? []).map(t => ({
+      themeName: t.themeName,
+      mappingCount: t.mappings?.length ?? 0,
+    }));
+
+    logger.info({ themeCount: themes.length, defaultTheme: data.defaultTheme }, 'Color themes listed');
+    return { success: true, themes, defaultTheme: data.defaultTheme };
+  } catch (err) {
+    return { success: false, error: errMsg(err) };
+  }
+};
+
+ContentSaveClient.prototype.updateColorTheme = async function (
+  this: ContentSaveClient,
+  themeName: string,
+  mappings: { variableName: string; colorName: string; alphaModifier?: number }[],
+): Promise<UpdateColorThemeResult> {
+  try {
+    const getResult = await this.getWebsiteColors();
+    if (!getResult.success || !getResult.data) {
+      return { success: false, error: getResult.error ?? 'Failed to fetch website colors' };
+    }
+
+    const data = getResult.data;
+    const theme = data.colorThemes.find(t => t.themeName === themeName);
+    if (!theme) {
+      const available = data.colorThemes.map(t => t.themeName).join(', ');
+      return { success: false, error: `Theme "${themeName}" not found. Available: ${available}` };
+    }
+
+    let updatedCount = 0;
+    for (const m of mappings) {
+      const existing = theme.mappings.find(tm => tm.variableName === m.variableName);
+      if (existing) {
+        existing.paletteColorMapping.colorName = m.colorName;
+        existing.paletteColorMapping.alphaModifier = m.alphaModifier ?? existing.paletteColorMapping.alphaModifier;
+      } else {
+        theme.mappings.push({
+          variableName: m.variableName,
+          paletteColorMapping: {
+            colorName: m.colorName,
+            alphaModifier: m.alphaModifier ?? 1,
+          },
+        });
+      }
+      updatedCount++;
+    }
+
+    const putResult = await this.updateWebsiteColors(data);
+    if (!putResult.success) {
+      return { success: false, error: putResult.error };
+    }
+
+    logger.info({ themeName, updatedMappings: updatedCount }, 'Color theme updated');
+    return { success: true, themeName, updatedMappings: updatedCount };
   } catch (err) {
     return { success: false, error: errMsg(err) };
   }

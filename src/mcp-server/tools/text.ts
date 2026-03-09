@@ -75,6 +75,61 @@ export function registerTextTools(server: McpServer) {
               result.altText = value.altText ?? null;
             }
 
+            // Extract audio info (type 41)
+            if (blockType === 41) {
+              result.title = value?.title ?? null;
+              result.author = value?.iTunesAuthor ?? null;
+              result.audioAssetId = value?.audioAssetId ?? null;
+              result.designStyle = value?.designStyle ?? null;
+              result.colorTheme = value?.colorTheme ?? null;
+            }
+
+            // Extract page link info (type 12)
+            if (blockType === 12) {
+              result.linkTitle = value?.linkTitle ?? null;
+              result.linkTarget = value?.linkTarget ?? null;
+              result.newWindow = value?.newWindow ?? false;
+            }
+
+            // Extract horizontal rule / search info (type 33 — shared type number)
+            if (blockType === 33) {
+              if (value?.collectionFilter) {
+                result.blockType = 'search';
+                result.targetCollectionId = value?.collectionId ?? null;
+                result.searchPreview = value?.searchPreview ?? null;
+                result.theme = value?.theme ?? null;
+              } else {
+                result.blockType = 'horizontal-rule';
+              }
+            }
+
+            // Extract markdown info (type 44)
+            if (blockType === 44) {
+              result.markdownSource = value?.wysiwyg?.source ?? null;
+              result.html = value?.html ?? null;
+            }
+
+            // Extract summary info (type 55)
+            if (blockType === 55) {
+              result.targetCollectionId = value?.collectionId ?? null;
+              result.design = value?.design ?? null;
+              result.headerText = value?.headerText ?? null;
+              result.pageSize = value?.pageSize ?? null;
+              result.showTitle = value?.showTitle ?? null;
+              result.showThumbnail = value?.showThumbnail ?? null;
+              result.showExcerpt = value?.showExcerpt ?? null;
+            }
+
+            // Extract product info (type 1337 with product definitionName)
+            if (blockType === 1337 && block.content?.value?.definitionName === 'website.components.product') {
+              result.productId = value?.productId ?? null;
+              result.showTitle = value?.showTitle ?? null;
+              result.showPrice = value?.showPrice ?? null;
+              result.showBuyButton = value?.showBuyButton ?? null;
+              result.showImage = value?.showImage ?? null;
+              result.alignment = value?.alignment ?? null;
+            }
+
             // Extract menu info (type 18)
             if (blockType === 18) {
               result.menuTabCount = value?.menus?.length ?? 0;

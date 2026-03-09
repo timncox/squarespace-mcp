@@ -110,6 +110,79 @@ describe('Announcement Bar Tools', () => {
       expect(data.text).toBe('Still here');
     });
 
+    it('should return rawSettings with extra API fields', async () => {
+      mockClient.getSettings.mockResolvedValue({
+        success: true,
+        data: {
+          announcementBarSettings: {
+            style: 2,
+            text: { html: '<p>Sale!</p>', raw: false },
+            clickthroughUrl: { url: 'https://example.com', newWindow: false },
+            backgroundColor: '#ff0000',
+            textColor: '#ffffff',
+            fontSize: 14,
+            showCloseButton: true,
+            displayPosition: 'top',
+          },
+        },
+      });
+
+      const result = await server.callTool('sq_get_announcement_bar', { siteId: 'test-site' });
+      const data = JSON.parse(result.content[0].text);
+
+      expect(data.enabled).toBe(true);
+      expect(data.text).toBe('Sale!');
+      expect(data.url).toBe('https://example.com');
+      expect(data.rawSettings).toEqual({
+        backgroundColor: '#ff0000',
+        textColor: '#ffffff',
+        fontSize: 14,
+        showCloseButton: true,
+        displayPosition: 'top',
+      });
+    });
+
+    it('should exclude already-parsed fields from rawSettings', async () => {
+      mockClient.getSettings.mockResolvedValue({
+        success: true,
+        data: {
+          announcementBarSettings: {
+            style: 2,
+            text: { html: '<p>Hello</p>', raw: false },
+            clickthroughUrl: { url: 'https://example.com', newWindow: false },
+            backgroundColor: '#000',
+          },
+        },
+      });
+
+      const result = await server.callTool('sq_get_announcement_bar', { siteId: 'test-site' });
+      const data = JSON.parse(result.content[0].text);
+
+      // rawSettings should NOT include style, text, or clickthroughUrl
+      expect(data.rawSettings).not.toHaveProperty('style');
+      expect(data.rawSettings).not.toHaveProperty('text');
+      expect(data.rawSettings).not.toHaveProperty('clickthroughUrl');
+      // But should include other fields
+      expect(data.rawSettings.backgroundColor).toBe('#000');
+    });
+
+    it('should return empty rawSettings when no extra fields', async () => {
+      mockClient.getSettings.mockResolvedValue({
+        success: true,
+        data: {
+          announcementBarSettings: {
+            style: 1,
+            text: { html: '<p>Basic</p>', raw: false },
+          },
+        },
+      });
+
+      const result = await server.callTool('sq_get_announcement_bar', { siteId: 'test-site' });
+      const data = JSON.parse(result.content[0].text);
+
+      expect(data.rawSettings).toEqual({});
+    });
+
     it('should return error when getSettings fails', async () => {
       mockClient.getSettings.mockResolvedValue({
         success: false,
@@ -249,6 +322,82 @@ describe('Announcement Bar Tools', () => {
       const call = mockClient.updateSettings.mock.calls[0][0];
       expect(call.announcementBarSettings.style).toBe(2);
       expect(call.announcementBarSettings.text.html).toBe('<p>Grand opening!</p>');
+    });
+
+    it('should merge style properties into settings', async () => {
+      mockClient.getSettings.mockResolvedValue({
+        success: true,
+        data: {
+          announcementBarSettings: {
+            style: 2,
+            text: { html: '<p>Existing</p>', raw: false },
+          },
+        },
+      });
+      mockClient.updateSettings.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_update_announcement_bar', {
+        siteId: 'test-site',
+        style: { backgroundColor: '#ff0000', textColor: '#ffffff' },
+      });
+
+      const call = mockClient.updateSettings.mock.calls[0][0];
+      expect(call.announcementBarSettings.backgroundColor).toBe('#ff0000');
+      expect(call.announcementBarSettings.textColor).toBe('#ffffff');
+      // Existing fields preserved
+      expect(call.announcementBarSettings.style).toBe(2);
+      expect(call.announcementBarSettings.text.html).toBe('<p>Existing</p>');
+    });
+
+    it('should merge style properties alongside text and enabled changes', async () => {
+      mockClient.getSettings.mockResolvedValue({
+        success: true,
+        data: {
+          announcementBarSettings: {
+            style: 1,
+            text: { html: '<p>Old</p>', raw: false },
+            backgroundColor: '#000000',
+          },
+        },
+      });
+      mockClient.updateSettings.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_update_announcement_bar', {
+        siteId: 'test-site',
+        enabled: true,
+        text: 'New banner!',
+        style: { backgroundColor: '#336699', fontSize: 16 },
+      });
+
+      const call = mockClient.updateSettings.mock.calls[0][0];
+      expect(call.announcementBarSettings.style).toBe(2);
+      expect(call.announcementBarSettings.text.html).toBe('<p>New banner!</p>');
+      expect(call.announcementBarSettings.backgroundColor).toBe('#336699');
+      expect(call.announcementBarSettings.fontSize).toBe(16);
+    });
+
+    it('should not modify settings when style is not provided', async () => {
+      mockClient.getSettings.mockResolvedValue({
+        success: true,
+        data: {
+          announcementBarSettings: {
+            style: 2,
+            text: { html: '<p>Hello</p>', raw: false },
+            backgroundColor: '#123456',
+          },
+        },
+      });
+      mockClient.updateSettings.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_update_announcement_bar', {
+        siteId: 'test-site',
+        text: 'Updated text',
+      });
+
+      const call = mockClient.updateSettings.mock.calls[0][0];
+      // Existing backgroundColor preserved from current settings spread
+      expect(call.announcementBarSettings.backgroundColor).toBe('#123456');
+      expect(call.announcementBarSettings.text.html).toBe('<p>Updated text</p>');
     });
 
     it('should return error when read fails', async () => {

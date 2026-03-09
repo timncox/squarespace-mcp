@@ -13,6 +13,12 @@ import {
   BLOCK_TYPE_SOCIAL_LINKS,
   BLOCK_TYPE_EMBED,
   BLOCK_TYPE_MENU,
+  BLOCK_TYPE_AUDIO,
+  BLOCK_TYPE_PAGE_LINK,
+  BLOCK_TYPE_HORIZONTAL_RULE,
+  BLOCK_TYPE_MARKDOWN,
+  BLOCK_TYPE_SUMMARY,
+  PRODUCT_DEFINITION_NAME,
   BUTTON_DEFINITION_NAME,
   FORM_BLOCK_DISCRIMINATOR,
   FETCH_TIMEOUT_MS,
@@ -52,6 +58,19 @@ import type {
   MenuBlockUpdateResult,
   MapBlockAddResult,
   MapBlockUpdateResult,
+  AudioBlockAddResult,
+  AudioBlockUpdateResult,
+  PageLinkBlockAddResult,
+  PageLinkBlockUpdateResult,
+  HorizontalRuleBlockAddResult,
+  SearchBlockAddResult,
+  SearchBlockUpdateResult,
+  MarkdownBlockAddResult,
+  MarkdownBlockUpdateResult,
+  SummaryBlockAddResult,
+  SummaryBlockUpdateResult,
+  ProductBlockAddResult,
+  ProductBlockUpdateResult,
 } from './types.js';
 import { logger } from '../../utils/logger.js';
 import { errMsg } from '../../utils/errors.js';
@@ -197,6 +216,84 @@ declare module './index.js' {
       pageSectionsId: string, collectionId: string, searchText: string,
       updates: { lat?: number; lng?: number; zoom?: number; style?: number; labels?: boolean; terrain?: boolean },
     ): Promise<MapBlockUpdateResult>;
+    addAudioBlock(
+      pageSectionsId: string, collectionId: string, sectionIndex: number, audioAssetId: string,
+      options?: {
+        title?: string; author?: string; designStyle?: string; colorTheme?: string; showDownload?: boolean;
+        layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number };
+      },
+    ): Promise<AudioBlockAddResult>;
+    updateAudioBlock(
+      pageSectionsId: string, collectionId: string, searchText: string,
+      updates: { title?: string; author?: string; designStyle?: string; colorTheme?: string; showDownload?: boolean },
+    ): Promise<AudioBlockUpdateResult>;
+    addPageLinkBlock(
+      pageSectionsId: string, collectionId: string, sectionIndex: number,
+      linkTitle: string, linkTarget: string,
+      options?: { newWindow?: boolean; layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number } },
+    ): Promise<PageLinkBlockAddResult>;
+    updatePageLinkBlock(
+      pageSectionsId: string, collectionId: string, searchText: string,
+      updates: { linkTitle?: string; linkTarget?: string; newWindow?: boolean },
+    ): Promise<PageLinkBlockUpdateResult>;
+    addHorizontalRuleBlock(
+      pageSectionsId: string, collectionId: string, sectionIndex: number,
+      layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number },
+    ): Promise<HorizontalRuleBlockAddResult>;
+    addSearchBlock(
+      pageSectionsId: string, collectionId: string, sectionIndex: number,
+      options?: {
+        targetCollectionId?: string; searchPreview?: boolean; theme?: string;
+        layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number };
+      },
+    ): Promise<SearchBlockAddResult>;
+    updateSearchBlock(
+      pageSectionsId: string, collectionId: string, searchText: string,
+      updates: { targetCollectionId?: string; searchPreview?: boolean; theme?: string },
+    ): Promise<SearchBlockUpdateResult>;
+    addMarkdownBlock(
+      pageSectionsId: string, collectionId: string, sectionIndex: number,
+      source: string,
+      layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number },
+    ): Promise<MarkdownBlockAddResult>;
+    updateMarkdownBlock(
+      pageSectionsId: string, collectionId: string, searchText: string,
+      updates: { source?: string },
+    ): Promise<MarkdownBlockUpdateResult>;
+    addSummaryBlock(
+      pageSectionsId: string, collectionId: string, sectionIndex: number,
+      targetCollectionId: string,
+      options?: {
+        design?: string; headerText?: string; pageSize?: number; showTitle?: boolean; showThumbnail?: boolean;
+        showExcerpt?: boolean; showReadMoreLink?: boolean; showPrice?: boolean; textAlignment?: string;
+        imageAspectRatio?: number;
+        layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number };
+      },
+    ): Promise<SummaryBlockAddResult>;
+    updateSummaryBlock(
+      pageSectionsId: string, collectionId: string, searchText: string,
+      updates: {
+        targetCollectionId?: string; design?: string; headerText?: string; pageSize?: number;
+        showTitle?: boolean; showThumbnail?: boolean; showExcerpt?: boolean; showReadMoreLink?: boolean;
+        showPrice?: boolean; textAlignment?: string; imageAspectRatio?: number;
+      },
+    ): Promise<SummaryBlockUpdateResult>;
+    addProductBlock(
+      pageSectionsId: string, collectionId: string, sectionIndex: number,
+      productId: string,
+      options?: {
+        showTitle?: boolean; showPrice?: boolean; showBuyButton?: boolean; showQuantity?: boolean;
+        showExcerpt?: boolean; showImage?: boolean; alignment?: string;
+        layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number };
+      },
+    ): Promise<ProductBlockAddResult>;
+    updateProductBlock(
+      pageSectionsId: string, collectionId: string, searchText: string,
+      updates: {
+        productId?: string; showTitle?: boolean; showPrice?: boolean; showBuyButton?: boolean;
+        showQuantity?: boolean; showExcerpt?: boolean; showImage?: boolean; alignment?: string;
+      },
+    ): Promise<ProductBlockUpdateResult>;
   }
 }
 
@@ -3565,4 +3662,922 @@ ContentSaveClient.prototype.updateMapBlock = async function (
   } catch (err) {
     return { success: false, error: errMsg(err) };
   }
+};
+
+// ── Audio Block Add ──────────────────────────────────────────────────
+
+ContentSaveClient.prototype.addAudioBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  sectionIndex: number,
+  audioAssetId: string,
+  options?: {
+    title?: string;
+    author?: string;
+    designStyle?: string;
+    colorTheme?: string;
+    showDownload?: boolean;
+    layout?: {
+      columns?: number;
+      rowHeight?: number;
+      gapRows?: number;
+      startX?: number;
+      endX?: number;
+      startY?: number;
+      endY?: number;
+    };
+  },
+): Promise<AudioBlockAddResult> {
+  try {
+    // Step 1: GET current sections
+    const data = await this.getPageSections(pageSectionsId);
+    const sections = data.sections;
+
+    // Step 2: Validate section index
+    if (sectionIndex < 0 || sectionIndex >= sections.length) {
+      return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+    }
+
+    const section = sections[sectionIndex];
+    if (!section.fluidEngineContext) {
+      return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext (not a Fluid Engine section)` };
+    }
+
+    const gridContents = section.fluidEngineContext.gridContents;
+    const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+    // Step 2b: Backfill verticalAlignment and zIndex on existing blocks
+    for (let i = 0; i < gridContents.length; i++) {
+      const gc = gridContents[i];
+      if (gc.layout?.desktop) {
+        if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top';
+        if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i;
+      }
+      if (gc.layout?.mobile) {
+        if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top';
+        if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i;
+      }
+    }
+
+    // Step 3: Calculate position
+    let maxY = 0;
+    let maxMobileY = 0;
+    for (const gc of gridContents) {
+      const endYVal = gc.layout?.desktop?.end?.y ?? 0;
+      const mobileEndY = gc.layout?.mobile?.end?.y ?? 0;
+      if (endYVal > maxY) maxY = endYVal;
+      if (mobileEndY > maxMobileY) maxMobileY = mobileEndY;
+    }
+
+    const layout = options?.layout;
+
+    // Default audio block: full width (24 cols), 2 rows tall (compact player)
+    const rowHeight = layout?.rowHeight ?? 2;
+    const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+
+    let startX: number;
+    let endX: number;
+    let startY: number;
+    let endY: number;
+
+    if (layout?.startX != null && layout?.endX != null) {
+      startX = Math.max(1, layout.startX);
+      endX = Math.min(maxColumns + 1, layout.endX);
+    } else {
+      const cols = layout?.columns ?? maxColumns;
+      startX = 1;
+      endX = Math.min(startX + cols, maxColumns + 1);
+    }
+
+    if (layout?.startY != null && layout?.endY != null) {
+      startY = Math.max(0, layout.startY);
+      endY = layout.endY;
+    } else {
+      startY = maxY + gapRows;
+      endY = startY + rowHeight;
+    }
+
+    // Step 4: Generate block ID and create GridContent
+    const blockId = ContentSaveClient.generateBlockId();
+
+    const maxZ = gridContents.reduce((max, gc) => {
+      const dz = gc.layout?.desktop?.zIndex ?? 0;
+      const mz = gc.layout?.mobile?.zIndex ?? 0;
+      return Math.max(max, dz, mz);
+    }, 0);
+    const zIndex = maxZ + 1;
+
+    const newBlock: GridContent = {
+      layout: {
+        mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+        desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+      },
+      content: {
+        value: {
+          id: blockId,
+          type: BLOCK_TYPE_AUDIO,
+          value: {
+            audioAssetId,
+            audioAssetExternalUrl: null,
+            title: options?.title ?? '',
+            iTunesAuthor: options?.author ?? '',
+            designStyle: options?.designStyle ?? 'minimal',
+            colorTheme: options?.colorTheme ?? 'dark',
+            showDownload: options?.showDownload ?? false,
+          },
+        },
+      },
+    };
+
+    // Step 5: Push to gridContents and update section rows
+    gridContents.push(newBlock);
+    this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
+
+    logger.info(
+      { blockId, sectionIndex, sectionId: section.id, audioAssetId, position: { startX, startY, endX, endY } },
+      'Adding audio block via Content Save API',
+    );
+
+    // Step 6: PUT the modified sections
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) {
+      return { success: false, error: saveResult.error };
+    }
+
+    return { success: true, blockId, sectionId: section.id, sectionIndex };
+  } catch (err) {
+    return { success: false, error: errMsg(err) };
+  }
+};
+
+// ── Audio Block Update ───────────────────────────────────────────────
+
+ContentSaveClient.prototype.updateAudioBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  searchText: string,
+  updates: { title?: string; author?: string; designStyle?: string; colorTheme?: string; showDownload?: boolean },
+): Promise<AudioBlockUpdateResult> {
+  if (!updates.title && !updates.author && !updates.designStyle && !updates.colorTheme && updates.showDownload === undefined) {
+    return { success: false, error: 'Must provide at least one field to update (title, author, designStyle, colorTheme, or showDownload)' };
+  }
+
+  try {
+    // Step 1: GET current sections
+    const data = await this.getPageSections(pageSectionsId);
+
+    // Step 2: Find the audio block
+    const match = this.findBlock(data.sections, searchText);
+    if (!match) {
+      return { success: false, error: `No block found matching "${searchText}"` };
+    }
+
+    const { gridContent } = match;
+    const blockValue = gridContent.content.value;
+
+    // Step 3: Verify block type is audio (41)
+    if (blockValue.type !== BLOCK_TYPE_AUDIO) {
+      return {
+        success: false,
+        error: `Block "${searchText}" is type ${blockValue.type}, not an audio block (expected ${BLOCK_TYPE_AUDIO})`,
+      };
+    }
+
+    const blockId = blockValue.id;
+    const updatedFields: string[] = [];
+
+    // Ensure value sub-object exists
+    if (!blockValue.value) {
+      blockValue.value = {};
+    }
+
+    // Step 4: Update provided fields
+    if (updates.title !== undefined) {
+      blockValue.value.title = updates.title;
+      updatedFields.push('title');
+    }
+    if (updates.author !== undefined) {
+      blockValue.value.iTunesAuthor = updates.author;
+      updatedFields.push('author');
+    }
+    if (updates.designStyle !== undefined) {
+      blockValue.value.designStyle = updates.designStyle;
+      updatedFields.push('designStyle');
+    }
+    if (updates.colorTheme !== undefined) {
+      blockValue.value.colorTheme = updates.colorTheme;
+      updatedFields.push('colorTheme');
+    }
+    if (updates.showDownload !== undefined) {
+      blockValue.value.showDownload = updates.showDownload;
+      updatedFields.push('showDownload');
+    }
+
+    logger.info(
+      { blockId, updatedFields, searchText },
+      'Updating audio block via Content Save API',
+    );
+
+    // Step 5: PUT the modified sections
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) {
+      return { success: false, error: saveResult.error };
+    }
+
+    return { success: true, blockId, updatedFields };
+  } catch (err) {
+    return { success: false, error: errMsg(err) };
+  }
+};
+
+// ── Page Link Block Add ───────────────────────────────────────────────
+
+ContentSaveClient.prototype.addPageLinkBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  sectionIndex: number,
+  linkTitle: string,
+  linkTarget: string,
+  options?: {
+    newWindow?: boolean;
+    layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number };
+  },
+): Promise<PageLinkBlockAddResult> {
+  try {
+    const data = await this.getPageSections(pageSectionsId);
+    const sections = data.sections;
+    if (sectionIndex < 0 || sectionIndex >= sections.length) {
+      return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+    }
+    const section = sections[sectionIndex];
+    if (!section.fluidEngineContext) {
+      return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext` };
+    }
+    const gridContents = section.fluidEngineContext.gridContents;
+    const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+    for (let i = 0; i < gridContents.length; i++) {
+      const gc = gridContents[i];
+      if (gc.layout?.desktop) { if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top'; if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i; }
+      if (gc.layout?.mobile) { if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top'; if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i; }
+    }
+
+    let maxY = 0, maxMobileY = 0;
+    for (const gc of gridContents) { const ey = gc.layout?.desktop?.end?.y ?? 0; const my = gc.layout?.mobile?.end?.y ?? 0; if (ey > maxY) maxY = ey; if (my > maxMobileY) maxMobileY = my; }
+
+    const layout = options?.layout;
+    const rowHeight = layout?.rowHeight ?? 2;
+    const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+    let startX: number, endX: number, startY: number, endY: number;
+    if (layout?.startX != null && layout?.endX != null) { startX = Math.max(1, layout.startX); endX = Math.min(maxColumns + 1, layout.endX); }
+    else { const cols = layout?.columns ?? maxColumns; startX = 1; endX = Math.min(startX + cols, maxColumns + 1); }
+    if (layout?.startY != null && layout?.endY != null) { startY = Math.max(0, layout.startY); endY = layout.endY; }
+    else { startY = maxY + gapRows; endY = startY + rowHeight; }
+
+    const blockId = ContentSaveClient.generateBlockId();
+    const maxZ = gridContents.reduce((max, gc) => Math.max(max, gc.layout?.desktop?.zIndex ?? 0, gc.layout?.mobile?.zIndex ?? 0), 0);
+    const zIndex = maxZ + 1;
+
+    const newBlock: GridContent = {
+      layout: {
+        mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+        desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+      },
+      content: {
+        value: {
+          id: blockId,
+          type: BLOCK_TYPE_PAGE_LINK,
+          value: { linkTitle, linkTarget, newWindow: options?.newWindow ?? false },
+          containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+        },
+      },
+    };
+
+    gridContents.push(newBlock);
+    this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
+    logger.info({ blockId, sectionIndex, sectionId: section.id, linkTitle, linkTarget }, 'Adding page link block via Content Save API');
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) return { success: false, error: saveResult.error };
+    return { success: true, blockId, sectionId: section.id, sectionIndex };
+  } catch (err) { return { success: false, error: errMsg(err) }; }
+};
+
+// ── Page Link Block Update ────────────────────────────────────────────
+
+ContentSaveClient.prototype.updatePageLinkBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  searchText: string,
+  updates: { linkTitle?: string; linkTarget?: string; newWindow?: boolean },
+): Promise<PageLinkBlockUpdateResult> {
+  if (updates.linkTitle === undefined && updates.linkTarget === undefined && updates.newWindow === undefined) {
+    return { success: false, error: 'Must provide at least one field to update (linkTitle, linkTarget, or newWindow)' };
+  }
+  try {
+    const data = await this.getPageSections(pageSectionsId);
+    const match = this.findBlock(data.sections, searchText);
+    if (!match) return { success: false, error: `No block found matching "${searchText}"` };
+
+    const blockValue = match.gridContent.content.value;
+    if (blockValue.type !== BLOCK_TYPE_PAGE_LINK) {
+      return { success: false, error: `Block "${searchText}" is type ${blockValue.type}, not a page link block (expected ${BLOCK_TYPE_PAGE_LINK})` };
+    }
+
+    const blockId = blockValue.id;
+    const updatedFields: string[] = [];
+    if (!blockValue.value) blockValue.value = {};
+    if (updates.linkTitle !== undefined) { blockValue.value.linkTitle = updates.linkTitle; updatedFields.push('linkTitle'); }
+    if (updates.linkTarget !== undefined) { blockValue.value.linkTarget = updates.linkTarget; updatedFields.push('linkTarget'); }
+    if (updates.newWindow !== undefined) { blockValue.value.newWindow = updates.newWindow; updatedFields.push('newWindow'); }
+
+    logger.info({ blockId, updatedFields, searchText }, 'Updating page link block via Content Save API');
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) return { success: false, error: saveResult.error };
+    return { success: true, blockId, updatedFields };
+  } catch (err) { return { success: false, error: errMsg(err) }; }
+};
+
+// ── Horizontal Rule Block Add ─────────────────────────────────────────
+
+ContentSaveClient.prototype.addHorizontalRuleBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  sectionIndex: number,
+  layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number },
+): Promise<HorizontalRuleBlockAddResult> {
+  try {
+    const data = await this.getPageSections(pageSectionsId);
+    const sections = data.sections;
+    if (sectionIndex < 0 || sectionIndex >= sections.length) {
+      return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+    }
+    const section = sections[sectionIndex];
+    if (!section.fluidEngineContext) {
+      return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext` };
+    }
+    const gridContents = section.fluidEngineContext.gridContents;
+    const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+    for (let i = 0; i < gridContents.length; i++) {
+      const gc = gridContents[i];
+      if (gc.layout?.desktop) { if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top'; if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i; }
+      if (gc.layout?.mobile) { if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top'; if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i; }
+    }
+
+    let maxY = 0, maxMobileY = 0;
+    for (const gc of gridContents) { const ey = gc.layout?.desktop?.end?.y ?? 0; const my = gc.layout?.mobile?.end?.y ?? 0; if (ey > maxY) maxY = ey; if (my > maxMobileY) maxMobileY = my; }
+
+    const rowHeight = layout?.rowHeight ?? 1;
+    const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+    let startX: number, endX: number, startY: number, endY: number;
+    if (layout?.startX != null && layout?.endX != null) { startX = Math.max(1, layout.startX); endX = Math.min(maxColumns + 1, layout.endX); }
+    else { const cols = layout?.columns ?? maxColumns; startX = 1; endX = Math.min(startX + cols, maxColumns + 1); }
+    if (layout?.startY != null && layout?.endY != null) { startY = Math.max(0, layout.startY); endY = layout.endY; }
+    else { startY = maxY + gapRows; endY = startY + rowHeight; }
+
+    const blockId = ContentSaveClient.generateBlockId();
+    const maxZ = gridContents.reduce((max, gc) => Math.max(max, gc.layout?.desktop?.zIndex ?? 0, gc.layout?.mobile?.zIndex ?? 0), 0);
+    const zIndex = maxZ + 1;
+
+    const newBlock: GridContent = {
+      layout: {
+        mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+        desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+      },
+      content: {
+        value: {
+          id: blockId,
+          type: BLOCK_TYPE_HORIZONTAL_RULE,
+          value: {},
+          containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+        },
+      },
+    };
+
+    gridContents.push(newBlock);
+    this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
+    logger.info({ blockId, sectionIndex, sectionId: section.id }, 'Adding horizontal rule block via Content Save API');
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) return { success: false, error: saveResult.error };
+    return { success: true, blockId, sectionId: section.id, sectionIndex };
+  } catch (err) { return { success: false, error: errMsg(err) }; }
+};
+
+// ── Search Block Add ──────────────────────────────────────────────────
+
+ContentSaveClient.prototype.addSearchBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  sectionIndex: number,
+  options?: {
+    targetCollectionId?: string;
+    searchPreview?: boolean;
+    theme?: string;
+    layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number };
+  },
+): Promise<SearchBlockAddResult> {
+  try {
+    const data = await this.getPageSections(pageSectionsId);
+    const sections = data.sections;
+    if (sectionIndex < 0 || sectionIndex >= sections.length) {
+      return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+    }
+    const section = sections[sectionIndex];
+    if (!section.fluidEngineContext) {
+      return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext` };
+    }
+    const gridContents = section.fluidEngineContext.gridContents;
+    const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+    for (let i = 0; i < gridContents.length; i++) {
+      const gc = gridContents[i];
+      if (gc.layout?.desktop) { if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top'; if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i; }
+      if (gc.layout?.mobile) { if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top'; if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i; }
+    }
+
+    let maxY = 0, maxMobileY = 0;
+    for (const gc of gridContents) { const ey = gc.layout?.desktop?.end?.y ?? 0; const my = gc.layout?.mobile?.end?.y ?? 0; if (ey > maxY) maxY = ey; if (my > maxMobileY) maxMobileY = my; }
+
+    const layout = options?.layout;
+    const rowHeight = layout?.rowHeight ?? 3;
+    const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+    let startX: number, endX: number, startY: number, endY: number;
+    if (layout?.startX != null && layout?.endX != null) { startX = Math.max(1, layout.startX); endX = Math.min(maxColumns + 1, layout.endX); }
+    else { const cols = layout?.columns ?? maxColumns; startX = 1; endX = Math.min(startX + cols, maxColumns + 1); }
+    if (layout?.startY != null && layout?.endY != null) { startY = Math.max(0, layout.startY); endY = layout.endY; }
+    else { startY = maxY + gapRows; endY = startY + rowHeight; }
+
+    const blockId = ContentSaveClient.generateBlockId();
+    const maxZ = gridContents.reduce((max, gc) => Math.max(max, gc.layout?.desktop?.zIndex ?? 0, gc.layout?.mobile?.zIndex ?? 0), 0);
+    const zIndex = maxZ + 1;
+
+    const newBlock: GridContent = {
+      layout: {
+        mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+        desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+      },
+      content: {
+        value: {
+          id: blockId,
+          type: BLOCK_TYPE_HORIZONTAL_RULE, // Search blocks share type 33 with horizontal rules
+          value: {
+            collectionFilter: true,
+            collectionId: options?.targetCollectionId ?? '',
+            searchPreview: options?.searchPreview ?? true,
+            theme: options?.theme ?? 'dark',
+          },
+          containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+        },
+      },
+    };
+
+    gridContents.push(newBlock);
+    this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
+    logger.info({ blockId, sectionIndex, sectionId: section.id }, 'Adding search block via Content Save API');
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) return { success: false, error: saveResult.error };
+    return { success: true, blockId, sectionId: section.id, sectionIndex };
+  } catch (err) { return { success: false, error: errMsg(err) }; }
+};
+
+// ── Search Block Update ───────────────────────────────────────────────
+
+ContentSaveClient.prototype.updateSearchBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  searchText: string,
+  updates: { targetCollectionId?: string; searchPreview?: boolean; theme?: string },
+): Promise<SearchBlockUpdateResult> {
+  if (updates.targetCollectionId === undefined && updates.searchPreview === undefined && updates.theme === undefined) {
+    return { success: false, error: 'Must provide at least one field to update (targetCollectionId, searchPreview, or theme)' };
+  }
+  try {
+    const data = await this.getPageSections(pageSectionsId);
+    // Search blocks are type 33 with collectionFilter in value — find manually
+    let found: { section: any; gridContent: any; sectionIndex: number; blockIndex: number } | null = null;
+    const needle = searchText.toLowerCase();
+    for (const [si, section] of (data.sections || []).entries()) {
+      for (const [bi, gc] of (section.fluidEngineContext?.gridContents || []).entries()) {
+        const bv = gc.content?.value;
+        if (bv?.type === BLOCK_TYPE_HORIZONTAL_RULE && bv.value?.collectionFilter) {
+          // Match by collectionId, theme, or block ID
+          const fields = [bv.value?.collectionId, bv.value?.theme, bv.id].filter(Boolean);
+          for (const f of fields) {
+            if (String(f).toLowerCase().includes(needle)) {
+              found = { section, gridContent: gc, sectionIndex: si, blockIndex: bi };
+              break;
+            }
+          }
+          if (found) break;
+        }
+      }
+      if (found) break;
+    }
+    if (!found) return { success: false, error: `No search block found matching "${searchText}"` };
+
+    const blockValue = found.gridContent.content.value;
+    const blockId = blockValue.id;
+    const updatedFields: string[] = [];
+    if (!blockValue.value) blockValue.value = {};
+    if (updates.targetCollectionId !== undefined) { blockValue.value.collectionId = updates.targetCollectionId; updatedFields.push('collectionId'); }
+    if (updates.searchPreview !== undefined) { blockValue.value.searchPreview = updates.searchPreview; updatedFields.push('searchPreview'); }
+    if (updates.theme !== undefined) { blockValue.value.theme = updates.theme; updatedFields.push('theme'); }
+
+    logger.info({ blockId, updatedFields, searchText }, 'Updating search block via Content Save API');
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) return { success: false, error: saveResult.error };
+    return { success: true, blockId, updatedFields };
+  } catch (err) { return { success: false, error: errMsg(err) }; }
+};
+
+// ── Markdown Block Add ────────────────────────────────────────────────
+
+ContentSaveClient.prototype.addMarkdownBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  sectionIndex: number,
+  source: string,
+  layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number },
+): Promise<MarkdownBlockAddResult> {
+  try {
+    const data = await this.getPageSections(pageSectionsId);
+    const sections = data.sections;
+    if (sectionIndex < 0 || sectionIndex >= sections.length) {
+      return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+    }
+    const section = sections[sectionIndex];
+    if (!section.fluidEngineContext) {
+      return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext` };
+    }
+    const gridContents = section.fluidEngineContext.gridContents;
+    const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+    for (let i = 0; i < gridContents.length; i++) {
+      const gc = gridContents[i];
+      if (gc.layout?.desktop) { if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top'; if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i; }
+      if (gc.layout?.mobile) { if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top'; if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i; }
+    }
+
+    let maxY = 0, maxMobileY = 0;
+    for (const gc of gridContents) { const ey = gc.layout?.desktop?.end?.y ?? 0; const my = gc.layout?.mobile?.end?.y ?? 0; if (ey > maxY) maxY = ey; if (my > maxMobileY) maxMobileY = my; }
+
+    const rowHeight = layout?.rowHeight ?? 4;
+    const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+    let startX: number, endX: number, startY: number, endY: number;
+    if (layout?.startX != null && layout?.endX != null) { startX = Math.max(1, layout.startX); endX = Math.min(maxColumns + 1, layout.endX); }
+    else { const cols = layout?.columns ?? maxColumns; startX = 1; endX = Math.min(startX + cols, maxColumns + 1); }
+    if (layout?.startY != null && layout?.endY != null) { startY = Math.max(0, layout.startY); endY = layout.endY; }
+    else { startY = maxY + gapRows; endY = startY + rowHeight; }
+
+    const blockId = ContentSaveClient.generateBlockId();
+    const maxZ = gridContents.reduce((max, gc) => Math.max(max, gc.layout?.desktop?.zIndex ?? 0, gc.layout?.mobile?.zIndex ?? 0), 0);
+    const zIndex = maxZ + 1;
+
+    const newBlock: GridContent = {
+      layout: {
+        mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+        desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+      },
+      content: {
+        value: {
+          id: blockId,
+          type: BLOCK_TYPE_MARKDOWN,
+          value: {
+            wysiwyg: { engine: 'code', mode: 'markdown', isSource: false, source },
+            html: '',
+          },
+          containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+        },
+      },
+    };
+
+    gridContents.push(newBlock);
+    this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
+    logger.info({ blockId, sectionIndex, sectionId: section.id }, 'Adding markdown block via Content Save API');
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) return { success: false, error: saveResult.error };
+    return { success: true, blockId, sectionId: section.id, sectionIndex };
+  } catch (err) { return { success: false, error: errMsg(err) }; }
+};
+
+// ── Markdown Block Update ─────────────────────────────────────────────
+
+ContentSaveClient.prototype.updateMarkdownBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  searchText: string,
+  updates: { source?: string },
+): Promise<MarkdownBlockUpdateResult> {
+  if (updates.source === undefined) {
+    return { success: false, error: 'Must provide source (markdown text) to update' };
+  }
+  try {
+    const data = await this.getPageSections(pageSectionsId);
+    const match = this.findBlock(data.sections, searchText);
+    if (!match) return { success: false, error: `No block found matching "${searchText}"` };
+
+    const blockValue = match.gridContent.content.value;
+    if (blockValue.type !== BLOCK_TYPE_MARKDOWN) {
+      return { success: false, error: `Block "${searchText}" is type ${blockValue.type}, not a markdown block (expected ${BLOCK_TYPE_MARKDOWN})` };
+    }
+
+    const blockId = blockValue.id;
+    const updatedFields: string[] = [];
+    if (!blockValue.value) blockValue.value = {};
+    if (!blockValue.value.wysiwyg) blockValue.value.wysiwyg = { engine: 'code', mode: 'markdown', isSource: false, source: '' };
+    blockValue.value.wysiwyg.source = updates.source;
+    updatedFields.push('source');
+
+    logger.info({ blockId, updatedFields, searchText }, 'Updating markdown block via Content Save API');
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) return { success: false, error: saveResult.error };
+    return { success: true, blockId, updatedFields };
+  } catch (err) { return { success: false, error: errMsg(err) }; }
+};
+
+// ── Summary Block Add ─────────────────────────────────────────────────
+
+ContentSaveClient.prototype.addSummaryBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  sectionIndex: number,
+  targetCollectionId: string,
+  options?: {
+    design?: string;
+    headerText?: string;
+    pageSize?: number;
+    showTitle?: boolean;
+    showThumbnail?: boolean;
+    showExcerpt?: boolean;
+    showReadMoreLink?: boolean;
+    showPrice?: boolean;
+    textAlignment?: string;
+    imageAspectRatio?: number;
+    layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number };
+  },
+): Promise<SummaryBlockAddResult> {
+  try {
+    const data = await this.getPageSections(pageSectionsId);
+    const sections = data.sections;
+    if (sectionIndex < 0 || sectionIndex >= sections.length) {
+      return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+    }
+    const section = sections[sectionIndex];
+    if (!section.fluidEngineContext) {
+      return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext` };
+    }
+    const gridContents = section.fluidEngineContext.gridContents;
+    const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+    for (let i = 0; i < gridContents.length; i++) {
+      const gc = gridContents[i];
+      if (gc.layout?.desktop) { if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top'; if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i; }
+      if (gc.layout?.mobile) { if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top'; if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i; }
+    }
+
+    let maxY = 0, maxMobileY = 0;
+    for (const gc of gridContents) { const ey = gc.layout?.desktop?.end?.y ?? 0; const my = gc.layout?.mobile?.end?.y ?? 0; if (ey > maxY) maxY = ey; if (my > maxMobileY) maxMobileY = my; }
+
+    const layout = options?.layout;
+    const rowHeight = layout?.rowHeight ?? 8;
+    const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+    let startX: number, endX: number, startY: number, endY: number;
+    if (layout?.startX != null && layout?.endX != null) { startX = Math.max(1, layout.startX); endX = Math.min(maxColumns + 1, layout.endX); }
+    else { const cols = layout?.columns ?? maxColumns; startX = 1; endX = Math.min(startX + cols, maxColumns + 1); }
+    if (layout?.startY != null && layout?.endY != null) { startY = Math.max(0, layout.startY); endY = layout.endY; }
+    else { startY = maxY + gapRows; endY = startY + rowHeight; }
+
+    const blockId = ContentSaveClient.generateBlockId();
+    const maxZ = gridContents.reduce((max, gc) => Math.max(max, gc.layout?.desktop?.zIndex ?? 0, gc.layout?.mobile?.zIndex ?? 0), 0);
+    const zIndex = maxZ + 1;
+
+    const newBlock: GridContent = {
+      layout: {
+        mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+        desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+      },
+      content: {
+        value: {
+          id: blockId,
+          type: BLOCK_TYPE_SUMMARY,
+          value: {
+            collectionId: targetCollectionId,
+            design: options?.design ?? 'autocolumns',
+            headerText: options?.headerText ?? 'Featured',
+            textSize: 'medium',
+            pageSize: options?.pageSize ?? 3,
+            imageAspectRatio: options?.imageAspectRatio ?? 1.5,
+            columnWidth: 270,
+            gutter: 60,
+            textAlignment: options?.textAlignment ?? 'left',
+            showTitle: options?.showTitle ?? true,
+            showThumbnail: options?.showThumbnail ?? true,
+            showExcerpt: options?.showExcerpt ?? true,
+            showReadMoreLink: options?.showReadMoreLink ?? false,
+            showPrice: options?.showPrice ?? true,
+            metadataPosition: 'below-content',
+            primaryMetadata: 'none',
+            secondaryMetadata: 'none',
+            filter: {},
+            autoCrop: true,
+            mixedContent: true,
+          },
+          containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+        },
+      },
+    };
+
+    gridContents.push(newBlock);
+    this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
+    logger.info({ blockId, sectionIndex, sectionId: section.id, targetCollectionId }, 'Adding summary block via Content Save API');
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) return { success: false, error: saveResult.error };
+    return { success: true, blockId, sectionId: section.id, sectionIndex };
+  } catch (err) { return { success: false, error: errMsg(err) }; }
+};
+
+// ── Summary Block Update ──────────────────────────────────────────────
+
+ContentSaveClient.prototype.updateSummaryBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  searchText: string,
+  updates: {
+    targetCollectionId?: string; design?: string; headerText?: string; pageSize?: number;
+    showTitle?: boolean; showThumbnail?: boolean; showExcerpt?: boolean; showReadMoreLink?: boolean;
+    showPrice?: boolean; textAlignment?: string; imageAspectRatio?: number;
+  },
+): Promise<SummaryBlockUpdateResult> {
+  try {
+    const data = await this.getPageSections(pageSectionsId);
+    const match = this.findBlock(data.sections, searchText);
+    if (!match) return { success: false, error: `No block found matching "${searchText}"` };
+
+    const blockValue = match.gridContent.content.value;
+    if (blockValue.type !== BLOCK_TYPE_SUMMARY) {
+      return { success: false, error: `Block "${searchText}" is type ${blockValue.type}, not a summary block (expected ${BLOCK_TYPE_SUMMARY})` };
+    }
+
+    const blockId = blockValue.id;
+    const updatedFields: string[] = [];
+    if (!blockValue.value) blockValue.value = {};
+    if (updates.targetCollectionId !== undefined) { blockValue.value.collectionId = updates.targetCollectionId; updatedFields.push('collectionId'); }
+    if (updates.design !== undefined) { blockValue.value.design = updates.design; updatedFields.push('design'); }
+    if (updates.headerText !== undefined) { blockValue.value.headerText = updates.headerText; updatedFields.push('headerText'); }
+    if (updates.pageSize !== undefined) { blockValue.value.pageSize = updates.pageSize; updatedFields.push('pageSize'); }
+    if (updates.showTitle !== undefined) { blockValue.value.showTitle = updates.showTitle; updatedFields.push('showTitle'); }
+    if (updates.showThumbnail !== undefined) { blockValue.value.showThumbnail = updates.showThumbnail; updatedFields.push('showThumbnail'); }
+    if (updates.showExcerpt !== undefined) { blockValue.value.showExcerpt = updates.showExcerpt; updatedFields.push('showExcerpt'); }
+    if (updates.showReadMoreLink !== undefined) { blockValue.value.showReadMoreLink = updates.showReadMoreLink; updatedFields.push('showReadMoreLink'); }
+    if (updates.showPrice !== undefined) { blockValue.value.showPrice = updates.showPrice; updatedFields.push('showPrice'); }
+    if (updates.textAlignment !== undefined) { blockValue.value.textAlignment = updates.textAlignment; updatedFields.push('textAlignment'); }
+    if (updates.imageAspectRatio !== undefined) { blockValue.value.imageAspectRatio = updates.imageAspectRatio; updatedFields.push('imageAspectRatio'); }
+
+    logger.info({ blockId, updatedFields, searchText }, 'Updating summary block via Content Save API');
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) return { success: false, error: saveResult.error };
+    return { success: true, blockId, updatedFields };
+  } catch (err) { return { success: false, error: errMsg(err) }; }
+};
+
+// ── Product Block Add ─────────────────────────────────────────────────
+
+ContentSaveClient.prototype.addProductBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  sectionIndex: number,
+  productId: string,
+  options?: {
+    showTitle?: boolean;
+    showPrice?: boolean;
+    showBuyButton?: boolean;
+    showQuantity?: boolean;
+    showExcerpt?: boolean;
+    showImage?: boolean;
+    alignment?: string;
+    layout?: { columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number };
+  },
+): Promise<ProductBlockAddResult> {
+  try {
+    const data = await this.getPageSections(pageSectionsId);
+    const sections = data.sections;
+    if (sectionIndex < 0 || sectionIndex >= sections.length) {
+      return { success: false, error: `Section index ${sectionIndex} out of range (0-${sections.length - 1})` };
+    }
+    const section = sections[sectionIndex];
+    if (!section.fluidEngineContext) {
+      return { success: false, error: `Section ${sectionIndex} has no fluidEngineContext` };
+    }
+    const gridContents = section.fluidEngineContext.gridContents;
+    const maxColumns = section.fluidEngineContext.gridSettings?.breakpointSettings?.desktop?.columns ?? 24;
+
+    for (let i = 0; i < gridContents.length; i++) {
+      const gc = gridContents[i];
+      if (gc.layout?.desktop) { if (gc.layout.desktop.verticalAlignment == null) gc.layout.desktop.verticalAlignment = 'top'; if (gc.layout.desktop.zIndex == null) gc.layout.desktop.zIndex = i; }
+      if (gc.layout?.mobile) { if (gc.layout.mobile.verticalAlignment == null) gc.layout.mobile.verticalAlignment = 'top'; if (gc.layout.mobile.zIndex == null) gc.layout.mobile.zIndex = i; }
+    }
+
+    let maxY = 0, maxMobileY = 0;
+    for (const gc of gridContents) { const ey = gc.layout?.desktop?.end?.y ?? 0; const my = gc.layout?.mobile?.end?.y ?? 0; if (ey > maxY) maxY = ey; if (my > maxMobileY) maxMobileY = my; }
+
+    const layout = options?.layout;
+    const rowHeight = layout?.rowHeight ?? 6;
+    const gapRows = layout?.gapRows ?? (gridContents.length > 0 ? 2 : 0);
+    let startX: number, endX: number, startY: number, endY: number;
+    if (layout?.startX != null && layout?.endX != null) { startX = Math.max(1, layout.startX); endX = Math.min(maxColumns + 1, layout.endX); }
+    else { const cols = layout?.columns ?? maxColumns; startX = 1; endX = Math.min(startX + cols, maxColumns + 1); }
+    if (layout?.startY != null && layout?.endY != null) { startY = Math.max(0, layout.startY); endY = layout.endY; }
+    else { startY = maxY + gapRows; endY = startY + rowHeight; }
+
+    const blockId = ContentSaveClient.generateBlockId();
+    const maxZ = gridContents.reduce((max, gc) => Math.max(max, gc.layout?.desktop?.zIndex ?? 0, gc.layout?.mobile?.zIndex ?? 0), 0);
+    const zIndex = maxZ + 1;
+
+    const newBlock: GridContent = {
+      layout: {
+        mobile: { start: { x: 1, y: maxMobileY + gapRows }, end: { x: 9, y: maxMobileY + gapRows + rowHeight }, visible: true, verticalAlignment: 'top', zIndex },
+        desktop: { start: { x: startX, y: startY }, end: { x: endX, y: endY }, visible: true, verticalAlignment: 'top', zIndex },
+      },
+      content: {
+        value: {
+          id: blockId,
+          type: 1337,
+          value: {
+            alignment: options?.alignment ?? 'left',
+            showTitle: options?.showTitle ?? true,
+            showBuyButton: options?.showBuyButton ?? false,
+            showQuantity: options?.showQuantity ?? false,
+            showPrice: options?.showPrice ?? true,
+            showExcerpt: options?.showExcerpt ?? false,
+            showImage: options?.showImage ?? true,
+            productId,
+            productQuickViewEnabled: false,
+            addToCartButtonVariant: 'primary',
+          },
+          containerStyles: { backgroundEnabled: false, stretchedToFill: false },
+          definitionName: PRODUCT_DEFINITION_NAME,
+        },
+      },
+    };
+
+    gridContents.push(newBlock);
+    this.updateSectionRows(section, endY, maxMobileY + gapRows + rowHeight);
+    logger.info({ blockId, sectionIndex, sectionId: section.id, productId }, 'Adding product block via Content Save API');
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) return { success: false, error: saveResult.error };
+    return { success: true, blockId, sectionId: section.id, sectionIndex };
+  } catch (err) { return { success: false, error: errMsg(err) }; }
+};
+
+// ── Product Block Update ──────────────────────────────────────────────
+
+ContentSaveClient.prototype.updateProductBlock = async function (
+  this: ContentSaveClient,
+  pageSectionsId: string,
+  collectionId: string,
+  searchText: string,
+  updates: {
+    productId?: string; showTitle?: boolean; showPrice?: boolean; showBuyButton?: boolean;
+    showQuantity?: boolean; showExcerpt?: boolean; showImage?: boolean; alignment?: string;
+  },
+): Promise<ProductBlockUpdateResult> {
+  try {
+    const data = await this.getPageSections(pageSectionsId);
+    const match = this.findBlock(data.sections, searchText);
+    if (!match) return { success: false, error: `No block found matching "${searchText}"` };
+
+    const blockValue = match.gridContent.content.value;
+    if (blockValue.type !== 1337 || blockValue.definitionName !== PRODUCT_DEFINITION_NAME) {
+      return { success: false, error: `Block "${searchText}" is not a product block` };
+    }
+
+    const blockId = blockValue.id;
+    const updatedFields: string[] = [];
+    if (!blockValue.value) blockValue.value = {};
+    if (updates.productId !== undefined) { blockValue.value.productId = updates.productId; updatedFields.push('productId'); }
+    if (updates.showTitle !== undefined) { blockValue.value.showTitle = updates.showTitle; updatedFields.push('showTitle'); }
+    if (updates.showPrice !== undefined) { blockValue.value.showPrice = updates.showPrice; updatedFields.push('showPrice'); }
+    if (updates.showBuyButton !== undefined) { blockValue.value.showBuyButton = updates.showBuyButton; updatedFields.push('showBuyButton'); }
+    if (updates.showQuantity !== undefined) { blockValue.value.showQuantity = updates.showQuantity; updatedFields.push('showQuantity'); }
+    if (updates.showExcerpt !== undefined) { blockValue.value.showExcerpt = updates.showExcerpt; updatedFields.push('showExcerpt'); }
+    if (updates.showImage !== undefined) { blockValue.value.showImage = updates.showImage; updatedFields.push('showImage'); }
+    if (updates.alignment !== undefined) { blockValue.value.alignment = updates.alignment; updatedFields.push('alignment'); }
+
+    logger.info({ blockId, updatedFields, searchText }, 'Updating product block via Content Save API');
+    const saveResult = await this.savePageSections(pageSectionsId, collectionId, data.sections);
+    if (!saveResult.success) return { success: false, error: saveResult.error };
+    return { success: true, blockId, updatedFields };
+  } catch (err) { return { success: false, error: errMsg(err) }; }
 };

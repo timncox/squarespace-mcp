@@ -307,9 +307,21 @@ export const FORM_BLOCK_DISCRIMINATOR = 'buttonVariant';
 export const BLOCK_TYPE_SOCIAL_LINKS = 54;
 // Embed block type — confirmed via live site discovery (Feb 28 2026, grey-yellow-hbxc test-page)
 export const BLOCK_TYPE_EMBED = 22;
+// Audio block type — confirmed via live site discovery (Mar 9 2026, our-staff page grey-yellow-hbxc)
+export const BLOCK_TYPE_AUDIO = 41;
+// Page Link block type — confirmed via live site discovery (Mar 9 2026, home page grey-yellow-hbxc)
+export const BLOCK_TYPE_PAGE_LINK = 12;
+// Horizontal Rule block type — confirmed via live site discovery (Mar 9 2026, home page grey-yellow-hbxc)
+export const BLOCK_TYPE_HORIZONTAL_RULE = 33;
+// Markdown block type — confirmed via live site discovery (Mar 9 2026, home page grey-yellow-hbxc)
+export const BLOCK_TYPE_MARKDOWN = 44;
+// Summary block type — confirmed via live site discovery (Mar 9 2026, home page grey-yellow-hbxc)
+export const BLOCK_TYPE_SUMMARY = 55;
 
 // Button block definitionName for type 1337 (new format)
 export const BUTTON_DEFINITION_NAME = 'website.components.button';
+// Product block definitionName for type 1337 — confirmed via live site discovery (Mar 9 2026, home page grey-yellow-hbxc)
+export const PRODUCT_DEFINITION_NAME = 'website.components.product';
 
 export interface SessionCookie {
   name: string;
@@ -1012,6 +1024,16 @@ export class ContentSaveClient {
           }
         }
 
+        // Audio blocks (type 41): match title, author, audioAssetId
+        if (bv.type === BLOCK_TYPE_AUDIO) {
+          const fields = [bv.value?.title, bv.value?.iTunesAuthor, bv.value?.audioAssetId].filter(Boolean);
+          for (const field of fields) {
+            if (String(field).toLowerCase().includes(needle)) {
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+            }
+          }
+        }
+
         // Newsletter blocks (type 51): match description.html, title, submitButtonText
         if (bv.type === BLOCK_TYPE_NEWSLETTER) {
           const descHtml = (bv.value?.description as any)?.html ?? '';
@@ -1064,6 +1086,34 @@ export class ContentSaveClient {
               }
             }
           }
+        }
+
+        // Page Link blocks (type 12): match linkTitle, linkTarget
+        if (bv.type === BLOCK_TYPE_PAGE_LINK) {
+          const fields = [bv.value?.linkTitle, bv.value?.linkTarget].filter(Boolean);
+          for (const field of fields) {
+            if (String(field).toLowerCase().includes(needle))
+              return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+          }
+        }
+
+        // Markdown blocks (type 44): match source markdown text
+        if (bv.type === BLOCK_TYPE_MARKDOWN) {
+          const source = bv.value?.wysiwyg?.source ?? bv.value?.html ?? '';
+          if (String(source).toLowerCase().includes(needle))
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+        }
+
+        // Summary blocks (type 55): match headerText
+        if (bv.type === BLOCK_TYPE_SUMMARY) {
+          if (bv.value?.headerText && String(bv.value.headerText).toLowerCase().includes(needle))
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
+        }
+
+        // Product blocks (type 1337 + definitionName): match productId
+        if (bv.type === BLOCK_TYPE_IMAGE && bv.definitionName === PRODUCT_DEFINITION_NAME) {
+          if (bv.value?.productId && String(bv.value.productId).toLowerCase().includes(needle))
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi, gridSettings: ctx.gridSettings };
         }
 
         // Any block with value.text or value.label

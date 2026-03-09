@@ -13,6 +13,8 @@ import type {
   UpdateNavigationItem,
   UpdateNavigationResult,
   SocialAccount,
+  CssPatchOperation,
+  CssPatchResult,
 } from './types.js';
 import { logger } from '../../utils/logger.js';
 import { errMsg } from '../../utils/errors.js';
@@ -32,6 +34,7 @@ declare module './index.js' {
     getSocialAccounts(): Promise<{ success: boolean; data?: SocialAccount[]; error?: string }>;
     addSocialAccount(serviceId: number, username: string, profileUrl: string): Promise<{ success: boolean; data?: SocialAccount; error?: string }>;
     removeSocialAccount(accountId: string): Promise<{ success: boolean; error?: string }>;
+    patchCustomCSS(operations: CssPatchOperation[]): Promise<CssPatchResult>;
   }
 }
 
@@ -123,6 +126,139 @@ ContentSaveClient.prototype.saveCustomCSS = async function (
 
     logger.info({ cssLength: css.length }, 'Custom CSS saved successfully');
     return { success: true };
+  } catch (err) {
+    return { success: false, error: errMsg(err) };
+  }
+};
+
+// ── CSS Patch ────────────────────────────────────────────────────────────────
+
+/**
+ * Find the full CSS rule block for a given selector.
+ *
+ * Returns the start and end indices (inclusive of the closing `}`) of the
+ * outermost rule that begins with `selector {`, or `null` if not found.
+ * Handles nested braces (e.g., media queries with rules inside).
+ */
+function findRuleBlock(css: string, selector: string): { start: number; end: number } | null {
+  // Escape special regex characters in the selector
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Match the selector followed by optional whitespace and `{`
+  const pattern = new RegExp(`(^|[\\n;{}])\\s*${escaped}\\s*\\{`, 'm');
+  const match = pattern.exec(css);
+  if (!match) return null;
+
+  // Find the actual start of the selector (skip the leading delimiter)
+  const leadingDelim = match[0].length - match[0].trimStart().length;
+  // If the match starts with a delimiter char (newline, ;, {, }), skip it
+  let start = match.index;
+  const firstChar = css[start];
+  if (firstChar === '\n' || firstChar === ';' || firstChar === '{' || firstChar === '}') {
+    start += 1;
+  }
+  // Skip any whitespace before the selector
+  while (start < css.length && (css[start] === ' ' || css[start] === '\t' || css[start] === '\n' || css[start] === '\r')) {
+    start++;
+  }
+
+  // Find the opening brace
+  const braceStart = css.indexOf('{', match.index + 1);
+  if (braceStart === -1) return null;
+
+  // Count brace depth to find the matching closing brace
+  let depth = 1;
+  let i = braceStart + 1;
+  while (i < css.length && depth > 0) {
+    if (css[i] === '{') depth++;
+    else if (css[i] === '}') depth--;
+    i++;
+  }
+
+  if (depth !== 0) return null;
+
+  return { start, end: i };  // end is exclusive (one past the closing `}`)
+}
+
+ContentSaveClient.prototype.patchCustomCSS = async function (
+  this: ContentSaveClient,
+  operations: CssPatchOperation[],
+): Promise<CssPatchResult> {
+  if (!operations || operations.length === 0) {
+    return { success: false, error: 'No operations provided' };
+  }
+
+  try {
+    // Read current CSS
+    const getResult = await this.getCustomCSS();
+    if (!getResult.success) {
+      return { success: false, error: `Failed to read current CSS: ${getResult.error}` };
+    }
+
+    let css = getResult.css;
+    let appliedOps = 0;
+
+    for (const op of operations) {
+      switch (op.action) {
+        case 'add': {
+          if (!op.css) {
+            return { success: false, appliedOps, error: `Add operation requires "css" field` };
+          }
+          // Append with a newline separator if CSS is non-empty
+          if (css.length > 0 && !css.endsWith('\n')) {
+            css += '\n';
+          }
+          css += op.css;
+          appliedOps++;
+          break;
+        }
+
+        case 'remove': {
+          if (!op.selector) {
+            return { success: false, appliedOps, error: `Remove operation requires "selector" field` };
+          }
+          const block = findRuleBlock(css, op.selector);
+          if (!block) {
+            return { success: false, appliedOps, error: `Selector not found: ${op.selector}` };
+          }
+          // Remove the block and any trailing newline
+          let end = block.end;
+          while (end < css.length && (css[end] === '\n' || css[end] === '\r')) {
+            end++;
+          }
+          css = css.slice(0, block.start) + css.slice(end);
+          appliedOps++;
+          break;
+        }
+
+        case 'replace': {
+          if (!op.selector) {
+            return { success: false, appliedOps, error: `Replace operation requires "selector" field` };
+          }
+          if (!op.css) {
+            return { success: false, appliedOps, error: `Replace operation requires "css" field` };
+          }
+          const replaceBlock = findRuleBlock(css, op.selector);
+          if (!replaceBlock) {
+            return { success: false, appliedOps, error: `Selector not found: ${op.selector}` };
+          }
+          css = css.slice(0, replaceBlock.start) + op.css + css.slice(replaceBlock.end);
+          appliedOps++;
+          break;
+        }
+
+        default:
+          return { success: false, appliedOps, error: `Unknown action: ${(op as any).action}` };
+      }
+    }
+
+    // Write back
+    const saveResult = await this.saveCustomCSS(css);
+    if (!saveResult.success) {
+      return { success: false, appliedOps, error: `Failed to save CSS: ${saveResult.error}` };
+    }
+
+    logger.info({ appliedOps }, 'CSS patched successfully');
+    return { success: true, appliedOps };
   } catch (err) {
     return { success: false, error: errMsg(err) };
   }

@@ -28,6 +28,19 @@ const mockClient = {
   updateCodeBlock: vi.fn(),
   addSocialLinksBlock: vi.fn(),
   updateSocialLinksBlock: vi.fn(),
+  addAudioBlock: vi.fn(),
+  updateAudioBlock: vi.fn(),
+  addPageLinkBlock: vi.fn(),
+  updatePageLinkBlock: vi.fn(),
+  addHorizontalRuleBlock: vi.fn(),
+  addSearchBlock: vi.fn(),
+  updateSearchBlock: vi.fn(),
+  addMarkdownBlock: vi.fn(),
+  updateMarkdownBlock: vi.fn(),
+  addSummaryBlock: vi.fn(),
+  updateSummaryBlock: vi.fn(),
+  addProductBlock: vi.fn(),
+  updateProductBlock: vi.fn(),
 };
 
 const mockMediaClient = {
@@ -71,7 +84,7 @@ describe('Block Tools', () => {
     registerBlockTools(server as any);
   });
 
-  it('should register all 25 block tools', () => {
+  it('should register all block tools', () => {
     expect(server.tools.has('sq_add_button')).toBe(true);
     expect(server.tools.has('sq_update_button')).toBe(true);
     expect(server.tools.has('sq_add_image')).toBe(true);
@@ -99,6 +112,19 @@ describe('Block Tools', () => {
     expect(server.tools.has('sq_update_code')).toBe(true);
     expect(server.tools.has('sq_add_social_links_block')).toBe(true);
     expect(server.tools.has('sq_update_social_links_block')).toBe(true);
+    expect(server.tools.has('sq_add_audio')).toBe(true);
+    expect(server.tools.has('sq_update_audio')).toBe(true);
+    expect(server.tools.has('sq_add_page_link')).toBe(true);
+    expect(server.tools.has('sq_update_page_link')).toBe(true);
+    expect(server.tools.has('sq_add_horizontal_rule')).toBe(true);
+    expect(server.tools.has('sq_add_search')).toBe(true);
+    expect(server.tools.has('sq_update_search')).toBe(true);
+    expect(server.tools.has('sq_add_markdown')).toBe(true);
+    expect(server.tools.has('sq_update_markdown')).toBe(true);
+    expect(server.tools.has('sq_add_summary')).toBe(true);
+    expect(server.tools.has('sq_update_summary')).toBe(true);
+    expect(server.tools.has('sq_add_product_block')).toBe(true);
+    expect(server.tools.has('sq_update_product_block')).toBe(true);
   });
 
   // ── sq_add_button ─────────────────────────────────────────────────────────
@@ -1462,6 +1488,334 @@ describe('Block Tools', () => {
       });
 
       expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── sq_add_audio ──────────────────────────────────────────────────────
+  describe('sq_add_audio', () => {
+    it('should add an audio block with asset ID', async () => {
+      mockClient.addAudioBlock.mockResolvedValue({ success: true, blockId: 'aud-1' });
+
+      const result = await server.callTool('sq_add_audio', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        audioAssetId: '69aef9fcffda2f168895b06e',
+      });
+
+      expect(mockClient.addAudioBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 0, '69aef9fcffda2f168895b06e', undefined,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+      expect(data.blockId).toBe('aud-1');
+    });
+
+    it('should pass title, author, and layout', async () => {
+      mockClient.addAudioBlock.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_add_audio', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 1,
+        audioAssetId: 'abc123def456789012345678',
+        title: 'My Song',
+        author: 'Artist Name',
+        layout: { columns: 12, rowHeight: 3 },
+      });
+
+      expect(mockClient.addAudioBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 1, 'abc123def456789012345678',
+        { title: 'My Song', author: 'Artist Name', layout: { columns: 12, rowHeight: 3 } },
+      );
+    });
+
+    it('should pass design options', async () => {
+      mockClient.addAudioBlock.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_add_audio', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        audioAssetId: 'abc123def456789012345678',
+        designStyle: 'minimal',
+        colorTheme: 'light',
+        showDownload: true,
+      });
+
+      const callArgs = mockClient.addAudioBlock.mock.calls[0];
+      const options = callArgs[4];
+      expect(options.designStyle).toBe('minimal');
+      expect(options.colorTheme).toBe('light');
+      expect(options.showDownload).toBe(true);
+    });
+
+    it('should resolve offsetColumns to startX/endX', async () => {
+      mockClient.addAudioBlock.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_add_audio', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        audioAssetId: 'abc123def456789012345678',
+        layout: { columns: 12, offsetColumns: 12 },
+      });
+
+      const callArgs = mockClient.addAudioBlock.mock.calls[0];
+      const options = callArgs[4];
+      expect(options.layout.startX).toBe(13);
+      expect(options.layout.endX).toBe(25);
+    });
+
+    it('should return error on page resolve failure', async () => {
+      vi.mocked(resolvePageIds).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_add_audio', {
+        siteId: 'bad-site',
+        pageSlug: 'home',
+        sectionIndex: 0,
+        audioAssetId: 'abc123def456789012345678',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Could not resolve page');
+    });
+  });
+
+  // ── sq_update_audio ───────────────────────────────────────────────────
+  describe('sq_update_audio', () => {
+    it('should update audio title', async () => {
+      mockClient.updateAudioBlock.mockResolvedValue({ success: true });
+
+      const result = await server.callTool('sq_update_audio', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        searchText: 'Broken',
+        title: 'New Title',
+      });
+
+      expect(mockClient.updateAudioBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 'Broken', { title: 'New Title' },
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+
+    it('should update author and design options', async () => {
+      mockClient.updateAudioBlock.mockResolvedValue({ success: true });
+
+      await server.callTool('sq_update_audio', {
+        siteId: 'smyth-tavern',
+        pageSlug: 'home',
+        searchText: 'Broken',
+        author: 'New Author',
+        colorTheme: 'light',
+        showDownload: true,
+      });
+
+      expect(mockClient.updateAudioBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 'Broken', { author: 'New Author', colorTheme: 'light', showDownload: true },
+      );
+    });
+
+    it('should return error on page resolve failure', async () => {
+      vi.mocked(resolvePageIds).mockResolvedValueOnce(null);
+
+      const result = await server.callTool('sq_update_audio', {
+        siteId: 'bad-site',
+        pageSlug: 'home',
+        searchText: 'X',
+      });
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── sq_add_page_link ──────────────────────────────────────────────────
+  describe('sq_add_page_link', () => {
+    it('should add a page link block', async () => {
+      mockClient.addPageLinkBlock.mockResolvedValue({ success: true, blockId: 'pl-1' });
+
+      const result = await server.callTool('sq_add_page_link', {
+        siteId: 'smyth-tavern', pageSlug: 'home', sectionIndex: 0,
+        linkTitle: 'About Us', linkTarget: '/about',
+      });
+
+      expect(mockClient.addPageLinkBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 0, 'About Us', '/about', { newWindow: undefined, layout: undefined },
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+
+    it('should return error on page resolve failure', async () => {
+      vi.mocked(resolvePageIds).mockResolvedValueOnce(null);
+      const result = await server.callTool('sq_add_page_link', {
+        siteId: 'bad', pageSlug: 'home', sectionIndex: 0, linkTitle: 'X', linkTarget: '/x',
+      });
+      expect(result.isError).toBe(true);
+    });
+  });
+
+  // ── sq_update_page_link ───────────────────────────────────────────────
+  describe('sq_update_page_link', () => {
+    it('should update page link title', async () => {
+      mockClient.updatePageLinkBlock.mockResolvedValue({ success: true });
+      const result = await server.callTool('sq_update_page_link', {
+        siteId: 'smyth-tavern', pageSlug: 'home', searchText: 'About', linkTitle: 'About Page',
+      });
+      expect(mockClient.updatePageLinkBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 'About', { linkTitle: 'About Page' },
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+  });
+
+  // ── sq_add_horizontal_rule ────────────────────────────────────────────
+  describe('sq_add_horizontal_rule', () => {
+    it('should add a horizontal rule block', async () => {
+      mockClient.addHorizontalRuleBlock.mockResolvedValue({ success: true, blockId: 'hr-1' });
+      const result = await server.callTool('sq_add_horizontal_rule', {
+        siteId: 'smyth-tavern', pageSlug: 'home', sectionIndex: 0,
+      });
+      expect(mockClient.addHorizontalRuleBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 0, undefined,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+  });
+
+  // ── sq_add_search ──────────────────────────────────────────────────────
+  describe('sq_add_search', () => {
+    it('should add a search block', async () => {
+      mockClient.addSearchBlock.mockResolvedValue({ success: true, blockId: 'search-1' });
+      const result = await server.callTool('sq_add_search', {
+        siteId: 'smyth-tavern', pageSlug: 'home', sectionIndex: 0,
+      });
+      expect(mockClient.addSearchBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 0, undefined,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+
+    it('should pass options', async () => {
+      mockClient.addSearchBlock.mockResolvedValue({ success: true, blockId: 'search-2' });
+      await server.callTool('sq_add_search', {
+        siteId: 'smyth-tavern', pageSlug: 'home', sectionIndex: 0,
+        targetCollectionId: 'blog-123', theme: 'light',
+      });
+      expect(mockClient.addSearchBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 0, { targetCollectionId: 'blog-123', theme: 'light' },
+      );
+    });
+  });
+
+  // ── sq_update_search ─────────────────────────────────────────────────
+  describe('sq_update_search', () => {
+    it('should update search block', async () => {
+      mockClient.updateSearchBlock.mockResolvedValue({ success: true });
+      const result = await server.callTool('sq_update_search', {
+        siteId: 'smyth-tavern', pageSlug: 'home', searchText: 'dark',
+        theme: 'light', searchPreview: false,
+      });
+      expect(mockClient.updateSearchBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 'dark', { theme: 'light', searchPreview: false },
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+  });
+
+  // ── sq_add_markdown ───────────────────────────────────────────────────
+  describe('sq_add_markdown', () => {
+    it('should add a markdown block', async () => {
+      mockClient.addMarkdownBlock.mockResolvedValue({ success: true, blockId: 'md-1' });
+      const result = await server.callTool('sq_add_markdown', {
+        siteId: 'smyth-tavern', pageSlug: 'home', sectionIndex: 0, source: '# Hello',
+      });
+      expect(mockClient.addMarkdownBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 0, '# Hello', undefined,
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+  });
+
+  // ── sq_update_markdown ────────────────────────────────────────────────
+  describe('sq_update_markdown', () => {
+    it('should update markdown source', async () => {
+      mockClient.updateMarkdownBlock.mockResolvedValue({ success: true });
+      const result = await server.callTool('sq_update_markdown', {
+        siteId: 'smyth-tavern', pageSlug: 'home', searchText: 'Hello', source: '# Updated',
+      });
+      expect(mockClient.updateMarkdownBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 'Hello', { source: '# Updated' },
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+  });
+
+  // ── sq_add_summary ────────────────────────────────────────────────────
+  describe('sq_add_summary', () => {
+    it('should add a summary block', async () => {
+      mockClient.addSummaryBlock.mockResolvedValue({ success: true, blockId: 'sum-1' });
+      const result = await server.callTool('sq_add_summary', {
+        siteId: 'smyth-tavern', pageSlug: 'home', sectionIndex: 0,
+        targetCollectionId: 'blog-123', headerText: 'Latest Posts',
+      });
+      expect(mockClient.addSummaryBlock).toHaveBeenCalled();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+  });
+
+  // ── sq_update_summary ─────────────────────────────────────────────────
+  describe('sq_update_summary', () => {
+    it('should update summary block', async () => {
+      mockClient.updateSummaryBlock.mockResolvedValue({ success: true });
+      const result = await server.callTool('sq_update_summary', {
+        siteId: 'smyth-tavern', pageSlug: 'home', searchText: 'Featured',
+        headerText: 'Recent Posts', pageSize: 6,
+      });
+      expect(mockClient.updateSummaryBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 'Featured', { headerText: 'Recent Posts', pageSize: 6 },
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+  });
+
+  // ── sq_add_product_block ──────────────────────────────────────────────
+  describe('sq_add_product_block', () => {
+    it('should add a product block', async () => {
+      mockClient.addProductBlock.mockResolvedValue({ success: true, blockId: 'prod-1' });
+      const result = await server.callTool('sq_add_product_block', {
+        siteId: 'smyth-tavern', pageSlug: 'home', sectionIndex: 0,
+        productId: 'product-abc', showBuyButton: true,
+      });
+      expect(mockClient.addProductBlock).toHaveBeenCalled();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
+    });
+  });
+
+  // ── sq_update_product_block ───────────────────────────────────────────
+  describe('sq_update_product_block', () => {
+    it('should update product block', async () => {
+      mockClient.updateProductBlock.mockResolvedValue({ success: true });
+      const result = await server.callTool('sq_update_product_block', {
+        siteId: 'smyth-tavern', pageSlug: 'home', searchText: 'product-abc',
+        showBuyButton: true, showPrice: false,
+      });
+      expect(mockClient.updateProductBlock).toHaveBeenCalledWith(
+        'psi-home', 'col-home', 'product-abc', { showBuyButton: true, showPrice: false },
+      );
+      const data = JSON.parse(result.content[0].text);
+      expect(data.success).toBe(true);
     });
   });
 });
