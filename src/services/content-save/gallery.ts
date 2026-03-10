@@ -194,6 +194,7 @@ ContentSaveClient.prototype.findGalleryBlock = function (
   sections: PageSection[],
   searchText?: string,
 ): { gridContent: GridContent; sectionIndex: number; blockIndex: number; galleryCollectionId: string } | null {
+  // Pass 1: Search FLUID_ENGINE sections for type 8 gallery blocks (existing behavior)
   for (let si = 0; si < sections.length; si++) {
     const section = sections[si];
     const gridContents = section.fluidEngineContext?.gridContents;
@@ -220,6 +221,30 @@ ContentSaveClient.prototype.findGalleryBlock = function (
       }
     }
   }
+
+  // Pass 2: Search JSON_SCHEMA sections (e.g. GalleryMasonry, GalleryGrid)
+  for (let si = 0; si < sections.length; si++) {
+    const section = sections[si] as Record<string, unknown>;
+    if (section.sectionName !== 'JSON_SCHEMA') continue;
+
+    const jsonData = section.jsonData as Record<string, unknown> | undefined;
+    const galleryOptions = jsonData?.galleryOptions as Record<string, unknown> | undefined;
+    const galleryCollectionId = (galleryOptions?.transientGalleryId ?? '') as string;
+    if (!galleryCollectionId) continue;
+
+    if (!searchText) {
+      return { gridContent: {} as GridContent, sectionIndex: si, blockIndex: -1, galleryCollectionId };
+    }
+
+    const needle = searchText.toLowerCase();
+    if (
+      galleryCollectionId === searchText ||
+      (section.id as string).toLowerCase().startsWith(needle)
+    ) {
+      return { gridContent: {} as GridContent, sectionIndex: si, blockIndex: -1, galleryCollectionId };
+    }
+  }
+
   return null;
 };
 

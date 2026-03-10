@@ -85,6 +85,19 @@ function makeSectionsWithGallery(galleryBlock: GridContent, ...extraBlocks: Grid
   ];
 }
 
+function makeJsonSchemaGallerySection(sectionId: string, galleryCollectionId: string): PageSection {
+  return {
+    id: sectionId,
+    sectionName: 'JSON_SCHEMA',
+    typeName: 'GalleryMasonry',
+    jsonData: {
+      galleryOptions: {
+        transientGalleryId: galleryCollectionId,
+      },
+    },
+  };
+}
+
 function makePageSectionsData(sections: PageSection[]): PageSectionsData {
   return { sections, updatedOn: Date.now() };
 }
@@ -159,6 +172,75 @@ describe('ContentSaveClient — Gallery', () => {
       const sections = makeSectionsWithGallery(gallery);
       const result = client.findGalleryBlock(sections, 'nonexistent');
       expect(result).toBeNull();
+    });
+
+    // ── JSON_SCHEMA gallery detection ──────────────────────────────────────
+
+    it('finds a JSON_SCHEMA GalleryMasonry section by transientGalleryId', () => {
+      const section = makeJsonSchemaGallerySection('sec-json-1', GALLERY_COLL_ID);
+      const result = client.findGalleryBlock([section], GALLERY_COLL_ID);
+      expect(result).not.toBeNull();
+      expect(result!.galleryCollectionId).toBe(GALLERY_COLL_ID);
+      expect(result!.sectionIndex).toBe(0);
+      expect(result!.blockIndex).toBe(-1);
+    });
+
+    it('finds first JSON_SCHEMA gallery when no searchText', () => {
+      const textSection: PageSection = {
+        id: 'sec-text',
+        sectionName: 'FLUID_ENGINE',
+        fluidEngineContext: {
+          id: 'ctx-1',
+          gridContents: [makeTextBlock('blk-1', '<p>Hi</p>')],
+          gridSettings: { breakpointSettings: { desktop: { columns: 24 } } },
+        },
+      };
+      const gallerySection = makeJsonSchemaGallerySection('sec-json-1', GALLERY_COLL_ID);
+      const result = client.findGalleryBlock([textSection, gallerySection]);
+      expect(result).not.toBeNull();
+      expect(result!.galleryCollectionId).toBe(GALLERY_COLL_ID);
+      expect(result!.sectionIndex).toBe(1);
+    });
+
+    it('finds JSON_SCHEMA gallery by section ID prefix', () => {
+      const section = makeJsonSchemaGallerySection('abc123def456789012345678', GALLERY_COLL_ID);
+      const result = client.findGalleryBlock([section], 'abc123');
+      expect(result).not.toBeNull();
+      expect(result!.galleryCollectionId).toBe(GALLERY_COLL_ID);
+    });
+
+    it('prefers FLUID_ENGINE gallery over JSON_SCHEMA when both exist', () => {
+      const fluidGallery = makeGalleryBlock('blk-fluid', 'fluid-gallery-coll');
+      const fluidSection: PageSection = {
+        id: 'sec-fluid',
+        sectionName: 'FLUID_ENGINE',
+        fluidEngineContext: {
+          id: 'ctx-1',
+          gridContents: [fluidGallery],
+          gridSettings: { breakpointSettings: { desktop: { columns: 24 } } },
+        },
+      };
+      const jsonSection = makeJsonSchemaGallerySection('sec-json', GALLERY_COLL_ID);
+      const result = client.findGalleryBlock([fluidSection, jsonSection]);
+      expect(result).not.toBeNull();
+      expect(result!.galleryCollectionId).toBe('fluid-gallery-coll');
+    });
+
+    it('falls back to JSON_SCHEMA gallery when no FLUID_ENGINE gallery matches searchText', () => {
+      const textBlock = makeTextBlock('blk-1', '<p>Hi</p>');
+      const fluidSection: PageSection = {
+        id: 'sec-fluid',
+        sectionName: 'FLUID_ENGINE',
+        fluidEngineContext: {
+          id: 'ctx-1',
+          gridContents: [textBlock],
+          gridSettings: { breakpointSettings: { desktop: { columns: 24 } } },
+        },
+      };
+      const jsonSection = makeJsonSchemaGallerySection('sec-json', GALLERY_COLL_ID);
+      const result = client.findGalleryBlock([fluidSection, jsonSection], GALLERY_COLL_ID);
+      expect(result).not.toBeNull();
+      expect(result!.galleryCollectionId).toBe(GALLERY_COLL_ID);
     });
   });
 
