@@ -820,7 +820,7 @@ export function registerContentTools(server: McpServer) {
         return { content: [{ type: 'text' as const, text: 'Error: No gallery block found on this page' }], isError: true };
       }
 
-      // Upload the image
+      // Upload the image to media library
       let uploadResult;
       if (imageUrl) {
         const isUrl = imageUrl.startsWith('http://') || imageUrl.startsWith('https://');
@@ -835,8 +835,42 @@ export function registerContentTools(server: McpServer) {
         return { content: [{ type: 'text' as const, text: `Error: Image upload failed: ${uploadResult?.error ?? 'no assetId returned'}` }], isError: true };
       }
 
-      // Add to gallery
-      const result = await client.addGalleryImage(found.galleryCollectionId, uploadResult.assetId, { title, description });
+      // Prepare fallback data for SaveMedia (in case galleries API returns 500)
+      let fallbackData: { imageBuffer: Buffer; filename: string; contentType?: string } | undefined;
+      const resolvedPath = imagePath || imageUrl;
+      if (resolvedPath && !resolvedPath.startsWith('http://') && !resolvedPath.startsWith('https://')) {
+        try {
+          const { readFile } = await import('node:fs/promises');
+          const { basename } = await import('node:path');
+          const buf = await readFile(resolvedPath);
+          const fname = basename(resolvedPath);
+          const ext = fname.split('.').pop()?.toLowerCase();
+          const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
+          fallbackData = { imageBuffer: buf, filename: fname, contentType: mime };
+        } catch {
+          // If we can't read the file for fallback, proceed without it
+        }
+      } else if (resolvedPath && uploadResult.assetUrl) {
+        // For URL uploads, download from CDN as fallback source
+        try {
+          const cdnResp = await fetch(uploadResult.assetUrl, {
+            headers: { Accept: 'image/jpeg,image/png,image/*' },
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (cdnResp.ok) {
+            const buf = Buffer.from(await cdnResp.arrayBuffer());
+            const urlPath = new URL(uploadResult.assetUrl).pathname;
+            const fname = urlPath.split('/').pop() || 'image.jpeg';
+            const ct = cdnResp.headers.get('content-type') || 'image/jpeg';
+            fallbackData = { imageBuffer: buf, filename: fname, contentType: ct };
+          }
+        } catch {
+          // Proceed without fallback
+        }
+      }
+
+      // Add to gallery (with auto-fallback to SaveMedia if galleries API returns 500)
+      const result = await client.addGalleryImage(found.galleryCollectionId, uploadResult.assetId, { title, description }, fallbackData);
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ ...result, assetUrl: uploadResult.assetUrl }, null, 2) }],

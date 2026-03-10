@@ -715,7 +715,10 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
       });
 
       expect(mockMediaClient.uploadImage).toHaveBeenCalledWith('/tmp/photo.jpg');
-      expect(mockClient.addGalleryImage).toHaveBeenCalledWith('gal-123', 'asset-1', { title: 'Beach sunset', description: undefined });
+      const addCall = mockClient.addGalleryImage.mock.calls[0];
+      expect(addCall[0]).toBe('gal-123');
+      expect(addCall[1]).toBe('asset-1');
+      expect(addCall[2]).toEqual({ title: 'Beach sunset', description: undefined });
       const data = JSON.parse(result.content[0].text);
       expect(data.success).toBe(true);
       expect(data.itemId).toBe('item-1');
