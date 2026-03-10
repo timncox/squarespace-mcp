@@ -131,3 +131,4 @@ The `content-save/` directory uses **TypeScript prototype augmentation** to spli
 - **MCP server stdio**: NEVER `console.log()` — corrupts JSON-RPC. Use `console.error()`.
 - **Zod version**: Must use Zod 3. Zod 4 breaks `zod-to-json-schema`.
 - **`member-session` cookie is HTTP-only**: `document.cookie` can't capture it. Need Playwright `context.cookies()`.
+- **Gallery types**: FLUID_ENGINE pages use type 8 gallery blocks; JSON_SCHEMA pages use `GalleryMasonry`/`GalleryGrid` sections with `jsonData.galleryOptions.transientGalleryId`. `findGalleryBlock()` searches both. The `/api/galleries/{id}/images` endpoint returns 500 for JSON_SCHEMA galleries — `addGalleryImage()` auto-falls back to `SaveMedia`.
