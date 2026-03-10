@@ -2,14 +2,14 @@
 
 ## What This Project Is
 
-MCP server that edits Squarespace websites via the Content Save API. Exposes 131 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop.
+MCP server that edits Squarespace websites via the Content Save API. Exposes 134 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop.
 
 ## Commands
 
 ```bash
 npm run mcp     # Start MCP server (tsx src/mcp-server/index.ts)
 npm run build   # TypeScript compile
-npm test        # vitest run (~1442 tests, 63 files)
+npm test        # vitest run (~1468 tests, 65 files)
 ```
 
 ## Architecture
@@ -22,7 +22,7 @@ Entry point: `src/mcp-server/index.ts` — registers all tools, starts stdio tra
 
 ```
 src/
-  mcp-server/       # MCP server — 131 tools across 16 modules
+  mcp-server/       # MCP server — 134 tools across 16 modules
     tools/          # Tool modules (registerXxxTools pattern)
     session.ts      # Client cache + resolvePageIds + dynamic site discovery
     index.ts        # Tool registration entry point
@@ -63,7 +63,7 @@ storage/            # Session cookies, uploads, screenshots
 
 | File | Purpose |
 |------|---------|
-| `src/mcp-server/index.ts` | MCP server entry — 131 tools across 16 modules |
+| `src/mcp-server/index.ts` | MCP server entry — 134 tools across 16 modules |
 | `src/mcp-server/session.ts` | Client cache + `resolvePageIds` + dynamic site discovery |
 | `src/services/content-save/` | Content Save API client (100+ methods across 14 modules) |
 | `src/services/content-save/client.ts` | Base class, infrastructure, static helpers |
@@ -115,7 +115,7 @@ The `content-save/` directory uses **TypeScript prototype augmentation** to spli
 ## Testing
 
 - `npm test` runs vitest with dist excluded
-- 63 test files, ~1442 tests
+- 65 test files, ~1468 tests
 - Service tests in `src/services/__tests__/`
 - MCP tool tests in `src/mcp-server/__tests__/`
 

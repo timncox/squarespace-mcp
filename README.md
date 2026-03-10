@@ -1,6 +1,6 @@
 # Squarespace MCP
 
-MCP server that edits Squarespace websites via the Content Save API. Exposes 131 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop or Claude Code.
+MCP server that edits Squarespace websites via the Content Save API. Exposes 134 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop or Claude Code.
 
 ## Setup
 
@@ -124,7 +124,7 @@ Optionally, set `GMAIL_REFRESH_TOKEN` in `.env` to bootstrap without running the
 ```bash
 npm run mcp     # Start MCP server (tsx src/mcp-server/index.ts)
 npm run build   # TypeScript compile
-npm test        # Run test suite (~1442 tests, 63 files)
+npm test        # Run test suite (~1468 tests, 65 files)
 ```
 
 ## MCP Tool Categories
@@ -136,7 +136,7 @@ npm test        # Run test suite (~1442 tests, 63 files)
 | Section Dividers | 2 | update/remove section dividers |
 | Blocks | 43 | button, image, video, embed, accordion, quote, marquee, newsletter, divider, code, social links, map, audio, page link, horizontal rule, search, markdown, summary, product — add/update + move/resize/swap/remove/duplicate |
 | Pages | 6 | create, delete, list, update metadata, get/update navigation |
-| Blog | 4 | create/update/list/find blog posts |
+| Blog | 7 | create/update/delete/list/find blog posts, set featured image (single + batch) |
 | Gallery | 5 | list/add/remove/reorder gallery images, update gallery settings |
 | Site-wide | 20 | list sites, settings, CSS, CSS patching, code injection, design, fonts/colors, color themes, social links, site identity, advanced settings, header/footer config |
 | Forms | 6 | list/create/get/update forms, add/update form block |
@@ -157,7 +157,7 @@ Pure MCP server — no web server, no orchestrator, no dashboard. Claude Desktop
 
 ```
 src/
-  mcp-server/           # MCP server — 131 tools across 16 modules
+  mcp-server/           # MCP server — 134 tools across 16 modules
     tools/              # Tool modules (registerXxxTools pattern)
     session.ts          # Client cache + resolvePageIds + dynamic site discovery
     index.ts            # Tool registration entry point
@@ -210,7 +210,7 @@ The API client (`ContentSaveClient`) uses a read-modify-write pattern: GET page 
 ## Testing
 
 ```bash
-npm test    # ~1442 tests across 63 files
+npm test    # ~1468 tests across 65 files
 ```
 
 Tests use vitest with mocked API responses. No live Squarespace session required.
