@@ -642,6 +642,80 @@ describe('ContentSaveClient — Gallery', () => {
       expect(result.success).toBe(false);
       expect(result.error).toContain('Failed to add gallery image');
     });
+
+    it('falls back to SaveMedia when galleries API returns 500 and imageBuffer provided', async () => {
+      // First call: /api/galleries/{id}/images → 500
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Something went wrong' });
+      // Second call: SaveMedia → success
+      const saveMediaResponse = {
+        job: { id: 'job-456' },
+        media: [{ id: 'fallback-item-id', systemDataSourceType: 'JPEG' }],
+      };
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => saveMediaResponse });
+
+      const imageBuffer = Buffer.from('fake-jpeg-data');
+      const result = await client.addGalleryImage(GALLERY_COLL_ID, 'asset-123', { title: 'Test' }, {
+        imageBuffer,
+        filename: 'test.jpeg',
+        contentType: 'image/jpeg',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.itemId).toBe('fallback-item-id');
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not fall back to SaveMedia when galleries API returns 500 but no imageBuffer', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Something went wrong' });
+
+      const result = await client.addGalleryImage(GALLERY_COLL_ID, 'asset-123');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('500');
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── addGalleryImageViaSaveMedia ──────────────────────────────────────────
+
+  describe('addGalleryImageViaSaveMedia()', () => {
+    it('uploads image buffer to gallery collection via SaveMedia', async () => {
+      const saveMediaResponse = {
+        job: { id: 'job-123' },
+        media: [{ id: 'new-item-id', systemDataSourceType: 'JPEG', mediaProcessingState: 2 }],
+      };
+      mockFetch.mockResolvedValueOnce({ ok: true, json: async () => saveMediaResponse });
+
+      const imageBuffer = Buffer.from('fake-jpeg-data');
+      const result = await client.addGalleryImageViaSaveMedia(
+        GALLERY_COLL_ID,
+        imageBuffer,
+        'photo.jpeg',
+        'image/jpeg',
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.itemId).toBe('new-item-id');
+
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/commondata/SaveMedia');
+      expect(opts.method).toBe('POST');
+      expect(opts.body).toBeInstanceOf(FormData);
+    });
+
+    it('returns error when SaveMedia fails', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'Server error' });
+
+      const result = await client.addGalleryImageViaSaveMedia(
+        GALLERY_COLL_ID,
+        Buffer.from('data'),
+        'photo.jpeg',
+        'image/jpeg',
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('500');
+    });
   });
 
   // ── uploadImageToSite ──────────────────────────────────────────────────

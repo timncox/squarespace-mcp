@@ -36,6 +36,13 @@ declare module './index.js' {
       galleryCollectionId: string,
       assetId: string,
       metadata?: { title?: string; description?: string },
+      fallbackData?: { imageBuffer: Buffer; filename: string; contentType?: string },
+    ): Promise<AddGalleryImageResult>;
+    addGalleryImageViaSaveMedia(
+      galleryCollectionId: string,
+      imageBuffer: Buffer,
+      filename: string,
+      contentType?: string,
     ): Promise<AddGalleryImageResult>;
     removeGalleryImage(
       galleryCollectionId: string,
@@ -327,6 +334,7 @@ ContentSaveClient.prototype.addGalleryImage = async function (
   galleryCollectionId: string,
   assetId: string,
   metadata?: { title?: string; description?: string },
+  fallbackData?: { imageBuffer: Buffer; filename: string; contentType?: string },
 ): Promise<AddGalleryImageResult> {
   try {
     this.ensureCookies();
@@ -355,6 +363,21 @@ ContentSaveClient.prototype.addGalleryImage = async function (
 
     if (!response.ok) {
       const respBody = await response.text().catch(() => '');
+
+      // Auto-fallback: if galleries API returns 500 and we have image data, try SaveMedia
+      if (response.status === 500 && fallbackData?.imageBuffer) {
+        logger.info(
+          { galleryCollectionId },
+          'Galleries API returned 500, falling back to SaveMedia',
+        );
+        return this.addGalleryImageViaSaveMedia(
+          galleryCollectionId,
+          fallbackData.imageBuffer,
+          fallbackData.filename,
+          fallbackData.contentType,
+        );
+      }
+
       return { success: false, error: `Failed to add gallery image: ${response.status}. ${respBody}` };
     }
 
@@ -362,6 +385,54 @@ ContentSaveClient.prototype.addGalleryImage = async function (
     const itemId = (data as Record<string, unknown>).id as string | undefined;
 
     logger.info({ galleryCollectionId, itemId }, 'Gallery image added');
+    return { success: true, itemId };
+  } catch (err) {
+    return { success: false, error: errMsg(err) };
+  }
+};
+
+ContentSaveClient.prototype.addGalleryImageViaSaveMedia = async function (
+  this: ContentSaveClient,
+  galleryCollectionId: string,
+  imageBuffer: Buffer,
+  filename: string,
+  contentType = 'image/jpeg',
+): Promise<AddGalleryImageResult> {
+  try {
+    this.ensureCookies();
+
+    const url = this.buildApiUrl('/api/commondata/SaveMedia');
+    const fd = new FormData();
+    fd.append('collectionId', galleryCollectionId);
+    fd.append('recordType', '2');
+    fd.append('process', 'true');
+    fd.append('Filedata', new Blob([new Uint8Array(imageBuffer)], { type: contentType }), filename);
+
+    logger.info(
+      { galleryCollectionId, filename, size: imageBuffer.length },
+      'Adding gallery image via SaveMedia',
+    );
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        ...this.buildHeaders(),
+        ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+      },
+      body: fd,
+      signal: AbortSignal.timeout(60_000),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      return { success: false, error: `SaveMedia failed: ${response.status}. ${body.slice(0, 200)}` };
+    }
+
+    const data = await response.json() as Record<string, unknown>;
+    const media = Array.isArray(data.media) ? data.media : [];
+    const itemId = media[0]?.id as string | undefined;
+
+    logger.info({ galleryCollectionId, itemId }, 'Gallery image added via SaveMedia');
     return { success: true, itemId };
   } catch (err) {
     return { success: false, error: errMsg(err) };
