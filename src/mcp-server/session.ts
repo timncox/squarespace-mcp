@@ -320,7 +320,10 @@ export function getClient(siteId: string): ContentSaveClient {
   const cacheKey = site?.id ?? siteId;
 
   const cached = clientCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    cached.ensureFreshSession();
+    return cached;
+  }
 
   const subdomain = getSubdomain(siteId);
   const client = createContentSaveClient(subdomain);

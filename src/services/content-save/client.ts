@@ -345,6 +345,8 @@ export class ContentSaveClient {
   _sectionsHashCache: Map<string, string> = new Map();
   _snapshotSiteId: string | null = null;
   _lastCrumbRefreshMs: number = 0;
+  _sessionPath: string | null = null;
+  _sessionMtime: number = 0;
 
   constructor(siteSubdomain: string) {
     this.siteSubdomain = siteSubdomain;
@@ -356,6 +358,8 @@ export class ContentSaveClient {
    */
   loadSessionCookies(sessionPath?: string): void {
     const path = sessionPath ?? SESSION_PATH;
+    this._sessionPath = path;
+    try { this._sessionMtime = statSync(path).mtimeMs; } catch { /* ignore */ }
     if (!existsSync(path)) {
       throw new Error(`Session file not found: ${path}. Run a browser session first to save login cookies.`);
     }
@@ -475,6 +479,24 @@ export class ContentSaveClient {
     this.websiteIdCache = null;
     this.memberAccountIdCache = null;
     this.loadSessionCookies(sessionPath);
+  }
+
+  /**
+   * Check if the session file has been modified since last load.
+   * If so, reload cookies automatically. Call this before API requests.
+   */
+  ensureFreshSession(sessionPath?: string): void {
+    const path = sessionPath ?? this._sessionPath ?? SESSION_PATH;
+    try {
+      const currentMtime = statSync(path).mtimeMs;
+      if (currentMtime !== this._sessionMtime) {
+        logger.info({ path }, 'Session file changed — reloading cookies');
+        this.reloadSessionCookies(path);
+        this._sessionMtime = currentMtime;
+      }
+    } catch {
+      // File disappeared or unreadable — keep existing cookies
+    }
   }
 
   /**
