@@ -255,4 +255,4 @@ Tests use vitest with mocked API responses. No live Squarespace session required
 
 ## License
 
-Private — not for distribution.
+MIT — see [LICENSE](LICENSE).
