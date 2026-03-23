@@ -39,7 +39,7 @@ export function registerAuthTools(server: McpServer) {
         // Active probe: try an actual API call to verify cookies work
         try {
           const { getClient, listSites } = await import('../session.js');
-          const sites = listSites();
+          const sites = await listSites();
           if (sites.length > 0) {
             const client = getClient(sites[0].id);
             const collections = await client.listCollections();
@@ -147,7 +147,7 @@ export function registerAuthTools(server: McpServer) {
           // (member-session + crumb scoped to the site subdomain)
           const visitedSites: string[] = [];
           try {
-            const sites = listSites();
+            const sites = await listSites();
             for (const site of sites) {
               if (site.subdomain === 'account') continue;
               const siteUrl = `https://${site.subdomain}.squarespace.com/config`;
@@ -299,7 +299,7 @@ export function registerAuthTools(server: McpServer) {
       const { listSites } = await import('../session.js');
       let configuredSubdomains: string[] = [];
       try {
-        configuredSubdomains = listSites().map(s => s.subdomain);
+        configuredSubdomains = (await listSites()).map(s => s.subdomain);
       } catch { /* no sites config */ }
 
       if (configuredSubdomains.length > 0) {
@@ -373,7 +373,7 @@ export function registerAuthTools(server: McpServer) {
       // ── Detect sites missing member-session cookies ─────────────────────────
       const missingSites: Array<{ subdomain: string; name: string; adminUrl: string }> = [];
       try {
-        const allSites = listSites();
+        const allSites = await listSites();
         for (const site of allSites) {
           const hasMemberSession = parsed.cookies.some((c: { name: string; domain: string }) =>
             c.name === 'member-session' &&

@@ -104,8 +104,8 @@ describe('MCP session management', () => {
   });
 
   describe('listSites', () => {
-    it('should return all configured sites', () => {
-      const sites = listSites();
+    it('should return all configured sites', async () => {
+      const sites = await listSites();
       expect(sites).toHaveLength(2);
       expect(sites[0]).toEqual({
         id: 'smyth-tavern',

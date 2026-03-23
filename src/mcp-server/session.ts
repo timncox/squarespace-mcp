@@ -16,6 +16,7 @@ import { existsSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/database.js';
 import { logger } from '../utils/logger.js';
+import { errMsg } from '../utils/errors.js';
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -40,6 +41,7 @@ const mediaClientCache = new Map<string, MediaUploadClient>();
 let sitesConfig: SitesConfig | null = null;
 let sitesConfigMtime: number = 0;
 let accountSitesFetched = false;
+let discoveryPromise: Promise<void> | null = null;
 
 // ── Config Loading ──────────────────────────────────────────────────────────
 
@@ -110,33 +112,35 @@ export function saveSite(subdomain: string, siteTitle?: string, customDomain?: s
  * Uses GET /api/account/1/website-briefs with account-level session cookies.
  * Called once per session — results are cached via the accountSitesFetched flag.
  */
-export function fetchAccountSites(): void {
+export async function fetchAccountSites(): Promise<void> {
   if (accountSitesFetched) return;
-  accountSitesFetched = true;
+  if (discoveryPromise) return discoveryPromise;
 
-  try {
-    if (!existsSync(SESSION_PATH)) return;
+  discoveryPromise = (async () => {
+    accountSitesFetched = true;
 
-    const session = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
-    const cookies: Array<{ name: string; value: string; domain: string }> = session.cookies ?? [];
+    try {
+      if (!existsSync(SESSION_PATH)) return;
 
-    // Build cookie header for account.squarespace.com
-    const accountCookies = cookies.filter(c => {
-      const d = c.domain.replace(/^\./, '');
-      return d === 'squarespace.com' || d === 'account.squarespace.com';
-    });
-    if (accountCookies.length === 0) return;
+      const session = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
+      const cookies: Array<{ name: string; value: string; domain: string }> = session.cookies ?? [];
 
-    const cookieHeader = accountCookies.map(c => `${c.name}=${c.value}`).join('; ');
-    const crumb = accountCookies.find(c => c.name === 'crumb')?.value;
+      const accountCookies = cookies.filter(c => {
+        const d = c.domain.replace(/^\./, '');
+        return d === 'squarespace.com' || d === 'account.squarespace.com';
+      });
+      if (accountCookies.length === 0) return;
 
-    // Fire-and-forget async fetch — don't block listSites()
-    fetch('https://account.squarespace.com/api/account/1/website-briefs', {
-      headers: {
-        Cookie: cookieHeader,
-        ...(crumb ? { 'X-CSRF-Token': crumb } : {}),
-      },
-    }).then(async res => {
+      const cookieHeader = accountCookies.map(c => `${c.name}=${c.value}`).join('; ');
+      const crumb = accountCookies.find(c => c.name === 'crumb')?.value;
+
+      const res = await fetch('https://account.squarespace.com/api/account/1/website-briefs', {
+        headers: {
+          Cookie: cookieHeader,
+          ...(crumb ? { 'X-CSRF-Token': crumb } : {}),
+        },
+      });
+
       if (!res.ok) return;
       const ct = res.headers.get('content-type') ?? '';
       if (!ct.includes('json')) return;
@@ -164,12 +168,14 @@ export function fetchAccountSites(): void {
       if (count > 0) {
         logger.info({ count, total: briefs.length }, 'Discovered sites from account API');
       }
-    }).catch(() => {
-      // Silently fail — fall back to DB-only discovery
-    });
-  } catch {
-    // Session file parse error etc — silently ignore
-  }
+    } catch (err) {
+      logger.warn({ error: errMsg(err) }, 'Account sites discovery failed — falling back to DB-only');
+    } finally {
+      discoveryPromise = null;
+    }
+  })();
+
+  return discoveryPromise;
 }
 
 /**
@@ -286,16 +292,15 @@ export function getSubdomain(siteId: string): string {
  * List all configured and discovered sites with their identifiers.
  * Used by sq_list_sites tool.
  */
-export function listSites(): Array<{
+export async function listSites(): Promise<Array<{
   id: string;
   name: string;
   subdomain: string;
   aliases: string[];
   adminUrl: string;
   customDomain?: string;
-}> {
-  // Trigger account API discovery on first call (async, non-blocking)
-  fetchAccountSites();
+}>> {
+  await fetchAccountSites();
   const allSites = getAllSites();
   return allSites.map((c) => {
     const subdomain = new URL(c.site.adminUrl).hostname.split('.')[0];

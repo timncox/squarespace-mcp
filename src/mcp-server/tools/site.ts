@@ -34,7 +34,7 @@ export function registerSiteTools(server: McpServer) {
     inputSchema: {},
   }, async () => {
     try {
-      const sites = listSites();
+      const sites = await listSites();
       return {
         content: [{
           type: 'text' as const,
