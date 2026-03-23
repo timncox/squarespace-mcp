@@ -136,19 +136,23 @@ describe('Optimistic locking (conflict detection)', () => {
         // GET for getPageSections (original)
         .mockResolvedValueOnce(new Response(JSON.stringify(originalData), { status: 200 }))
         // GET for conflict check (modified — different hash!)
+        .mockResolvedValueOnce(new Response(JSON.stringify(modifiedData), { status: 200 }))
+        // GET for refreshCrumb (/config) — triggered by first mismatch retry
+        .mockResolvedValueOnce(new Response('', { status: 200 }))
+        // GET for conflict check retry (still modified — real conflict)
         .mockResolvedValueOnce(new Response(JSON.stringify(modifiedData), { status: 200 }));
 
       // Read the original page
       await client.getPageSections('psid-1');
 
-      // Try to save — should detect conflict
+      // Try to save — should detect conflict after retry
       const result = await client.savePageSections('psid-1', 'cid-1', originalSections);
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('CONFLICT');
       expect(result.error).toContain('modified by another session');
-      // Should NOT have made a PUT request
-      expect(fetchSpy.mock.calls).toHaveLength(2);
+      // Should NOT have made a PUT request (4 GETs: initial + conflict check + crumb refresh + retry)
+      expect(fetchSpy.mock.calls).toHaveLength(4);
     });
 
     it('proceeds when conflict check fetch fails (does not block save)', async () => {
@@ -197,6 +201,10 @@ describe('Optimistic locking (conflict detection)', () => {
 
       vi.spyOn(globalThis, 'fetch')
         .mockResolvedValueOnce(new Response(JSON.stringify(originalData), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify(modifiedData), { status: 200 }))
+        // GET for refreshCrumb (/config) — triggered by first mismatch retry
+        .mockResolvedValueOnce(new Response('', { status: 200 }))
+        // GET for conflict check retry (still modified — real conflict)
         .mockResolvedValueOnce(new Response(JSON.stringify(modifiedData), { status: 200 }));
 
       await client.getPageSections('psid-1');

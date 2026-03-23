@@ -537,6 +537,7 @@ export class ContentSaveClient {
     pageSectionsId: string,
     collectionId: string,
     sectionsCount: number,
+    _retried = false,
   ): Promise<ContentSaveResult | null> {
     const originalHash = this._sectionsHashCache.get(pageSectionsId);
     if (!originalHash) return null;
@@ -545,6 +546,14 @@ export class ContentSaveClient {
       const currentData = await this._fetchPageSectionsRaw(pageSectionsId);
       const currentHash = ContentSaveClient.computeSectionsHash(currentData.sections);
       if (currentHash !== originalHash) {
+        // On first conflict, try refreshing crumb/session and re-checking
+        if (!_retried) {
+          logger.info({ pageSectionsId }, 'Hash mismatch — refreshing crumb and retrying conflict check');
+          this.ensureFreshSession();
+          await this.refreshCrumb();
+          return this._checkForConflict(pageSectionsId, collectionId, sectionsCount, true);
+        }
+
         logger.warn(
           { pageSectionsId, originalHash, currentHash },
           'Concurrent modification detected — page was changed by another session since last read',
