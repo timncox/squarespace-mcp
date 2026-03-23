@@ -230,6 +230,49 @@ function registerSiteInConfig(
 }
 
 /**
+ * Check all known sites for missing crumb cookies and capture them.
+ * Reads the session file, finds sites that have a member-session but no crumb
+ * (or no site cookies at all), and runs captureSiteCookies() for each.
+ * This handles sites added to the account after the original login flow.
+ */
+async function captureMissingCrumbs(activeSubdomains: string[]): Promise<void> {
+  try {
+    if (!existsSync(SESSION_PATH)) return;
+
+    const session = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
+    const cookies: Array<{ name: string; domain: string }> = session.cookies ?? [];
+
+    const needsCapture: string[] = [];
+    for (const subdomain of activeSubdomains) {
+      const hasCrumb = cookies.some(
+        c => c.name === 'crumb' && c.domain.replace(/^\./, '').includes(subdomain),
+      );
+      if (!hasCrumb) {
+        needsCapture.push(subdomain);
+      }
+    }
+
+    if (needsCapture.length === 0) return;
+
+    logger.info(
+      { sites: needsCapture },
+      'Sites missing crumb cookies — capturing automatically',
+    );
+
+    const results = await Promise.allSettled(
+      needsCapture.map(sub => captureSiteCookies(sub)),
+    );
+
+    const captured = needsCapture.filter((_, i) => results[i].status === 'fulfilled');
+    if (captured.length > 0) {
+      logger.info({ captured }, 'Auto-captured missing crumb cookies');
+    }
+  } catch (err) {
+    logger.debug({ error: errMsg(err) }, 'captureMissingCrumbs failed — skipping');
+  }
+}
+
+/**
  * Fetch all sites from the Squarespace account API and upsert into discovered_sites.
  * Uses GET /api/account/1/website-briefs with account-level session cookies.
  * Called once per session — results are cached via the accountSitesFetched flag.
@@ -319,6 +362,11 @@ export async function fetchAccountSites(): Promise<void> {
       if (count > 0) {
         logger.info({ count, total: briefs.length }, 'Discovered sites from account API');
       }
+
+      // Check ALL known sites for missing crumbs and capture them.
+      // This handles sites that were added to the account after the original login
+      // (they exist in the DB but never had their crumbs captured).
+      await captureMissingCrumbs(briefs.filter(b => b.active).map(b => b.identifier));
     } catch (err) {
       logger.warn({ error: errMsg(err) }, 'Account sites discovery failed — falling back to DB-only');
     } finally {

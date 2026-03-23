@@ -1058,14 +1058,38 @@ export class ContentSaveClient {
       for (let bi = 0; bi < gridContents.length; bi++) {
         const gc = gridContents[bi];
         const blockValue = gc.content?.value;
-        if (!blockValue || blockValue.type !== BLOCK_TYPE_TEXT) continue;
+        if (!blockValue) continue;
 
-        const html = blockValue.value?.html;
-        if (!html) continue;
+        // Classic text blocks (type 2)
+        if (blockValue.type === BLOCK_TYPE_TEXT) {
+          const html = blockValue.value?.html;
+          if (!html) continue;
+          const plainText = this.stripHtml(html).toLowerCase();
+          if (plainText.includes(needle)) {
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi };
+          }
+        }
 
-        const plainText = this.stripHtml(html).toLowerCase();
-        if (plainText.includes(needle)) {
-          return { section, gridContent: gc, sectionIndex: si, blockIndex: bi };
+        // Type 1337 text blocks (fluid engine format) — newer Squarespace pages
+        // use type 1337 for ALL block types, including text. Text blocks have
+        // html/source content but are NOT buttons, images, code, forms, or products.
+        if (blockValue.type === BLOCK_TYPE_IMAGE) {
+          // Skip known non-text type 1337 variants
+          if (blockValue.definitionName === BUTTON_DEFINITION_NAME) continue;
+          if (blockValue.definitionName === PRODUCT_DEFINITION_NAME) continue;
+          if (blockValue.definitionName === 'website.components.imageFluid') continue;
+          if (blockValue.value?.wysiwyg?.engine === CODE_BLOCK_ENGINE) continue;
+          if (blockValue.value?.[FORM_BLOCK_DISCRIMINATOR] !== undefined) continue;
+          // Check for assetUrl (image blocks without definitionName)
+          if (blockValue.value?.assetUrl !== undefined) continue;
+
+          // Check for text content in html or source fields
+          const html = blockValue.value?.html ?? blockValue.value?.source ?? '';
+          if (!html) continue;
+          const plainText = this.stripHtml(html).toLowerCase();
+          if (plainText.includes(needle)) {
+            return { section, gridContent: gc, sectionIndex: si, blockIndex: bi };
+          }
         }
       }
     }

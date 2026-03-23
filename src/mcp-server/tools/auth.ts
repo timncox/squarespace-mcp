@@ -170,29 +170,10 @@ export function registerAuthTools(server: McpServer) {
         );
 
         if (hasMemberSession) {
-          // Navigate to each configured site to pick up site-specific cookies
-          // (member-session + crumb scoped to the site subdomain)
-          const visitedSites: string[] = [];
-          try {
-            const sites = await listSites();
-            for (const site of sites) {
-              if (site.subdomain === 'account') continue;
-              const siteUrl = `https://${site.subdomain}.squarespace.com/config`;
-              try {
-                await page.goto(siteUrl, { waitUntil: 'networkidle', timeout: 15_000 });
-                visitedSites.push(site.subdomain);
-              } catch {
-                // Site navigation failed — skip but continue with others
-              }
-            }
-          } catch {
-            // listSites may fail if no DB — continue with account-level cookies
-          }
-
           // Capture full storage state (cookies + localStorage with statsig data)
           const fullState = await context.storageState() as { cookies: any[]; origins: any[] };
 
-          // Save session
+          // Save session with account-level cookies immediately
           mkdirSync(SESSION_DIR, { recursive: true });
 
           if (existsSync(SESSION_PATH)) {
@@ -205,7 +186,35 @@ export function registerAuthTools(server: McpServer) {
             'utf-8',
           );
 
-          const allCookies = fullState.cookies;
+          reloadAllSessions();
+
+          // Now capture site-specific cookies (member-session + crumb) via HTTP
+          // instead of navigating the browser to each site's /config page.
+          // This is faster, more reliable, and works for any number of sites.
+          const capturedSites: string[] = [];
+          try {
+            const { fetchAccountSites } = await import('../session.js');
+            // fetchAccountSites discovers all sites and calls captureMissingCrumbs
+            // which uses HTTP to fetch site-specific cookies for any site missing a crumb
+            await fetchAccountSites();
+
+            // Re-read session to check what was captured
+            const updatedSession = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
+            const updatedCookies: Array<{ name: string; domain: string }> = updatedSession.cookies ?? [];
+            const sites = await listSites();
+            for (const site of sites) {
+              const hasSiteCrumb = updatedCookies.some(
+                (c) => c.name === 'crumb' && c.domain.replace(/^\./, '').includes(site.subdomain),
+              );
+              if (hasSiteCrumb) capturedSites.push(site.subdomain);
+            }
+          } catch {
+            // Cookie capture is best-effort — account-level login still succeeded
+          }
+
+          // Re-read final cookie state
+          const finalSession = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
+          const allCookies = finalSession.cookies ?? [];
 
           reloadAllSessions();
 
@@ -221,9 +230,9 @@ export function registerAuthTools(server: McpServer) {
                 cookieCount: allCookies.length,
                 hasCrumb,
                 hasMemberSession: true,
-                visitedSites,
+                capturedSites,
                 sessionPath: SESSION_PATH,
-                message: `Session saved with ${allCookies.length} cookies. Visited ${visitedSites.length} site(s): ${visitedSites.join(', ') || 'none'}. Squarespace API is ready.`,
+                message: `Session saved with ${allCookies.length} cookies. Captured site-specific cookies for ${capturedSites.length} site(s): ${capturedSites.join(', ') || 'none'}. Squarespace API is ready.`,
               }, null, 2),
             }],
           };

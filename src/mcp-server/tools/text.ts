@@ -57,6 +57,19 @@ export function registerTextTools(server: McpServer) {
               result.text = value.html;
             }
 
+            // Extract text content from type 1337 text blocks (fluid engine format)
+            // These have html/source content but aren't buttons, images, code, forms, or products
+            if (blockType === 1337 && !value?.buttonText && !value?.assetUrl &&
+                !value?.wysiwyg?.engine && !value?.[('buttonVariant' as string)] &&
+                !value?.productId && block.content?.value?.definitionName !== 'website.components.button' &&
+                block.content?.value?.definitionName !== 'website.components.product' &&
+                block.content?.value?.definitionName !== 'website.components.imageFluid') {
+              const textHtml = value?.html ?? value?.source ?? '';
+              if (textHtml && typeof textHtml === 'string' && textHtml.includes('<')) {
+                result.text = textHtml;
+              }
+            }
+
             // Extract button info (type 46 legacy)
             if (blockType === 46) {
               result.label = value?.label ?? null;

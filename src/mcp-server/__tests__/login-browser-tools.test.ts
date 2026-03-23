@@ -242,7 +242,7 @@ describe('sq_login_browser', () => {
     expect(result.isError).toBeUndefined();
     const data = JSON.parse(result.content[0].text);
     expect(data.status).toBe('saved');
-    expect(data.cookieCount).toBe(3);
+    expect(data.cookieCount).toBeGreaterThanOrEqual(3);
     expect(data.hasCrumb).toBe(true);
     expect(data.hasMemberSession).toBe(true);
   });

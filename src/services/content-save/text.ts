@@ -1,4 +1,4 @@
-import { ContentSaveClient, BLOCK_TYPE_TEXT } from './client.js';
+import { ContentSaveClient, BLOCK_TYPE_TEXT, BLOCK_TYPE_IMAGE, BUTTON_DEFINITION_NAME, PRODUCT_DEFINITION_NAME, CODE_BLOCK_ENGINE, FORM_BLOCK_DISCRIMINATOR } from './client.js';
 import type {
   TextUpdateResult,
   TextPatchResult,
@@ -180,6 +180,22 @@ function replaceTextInHtml(
   }
 
   return tokens.map(t => t.value).join('');
+}
+
+/**
+ * Check if a type 1337 block carries text content (as opposed to being
+ * a button, image, code block, form, or product).
+ */
+function isType1337TextBlock(blockValue: any): boolean {
+  if (blockValue.type !== BLOCK_TYPE_IMAGE) return false;
+  if (blockValue.definitionName === BUTTON_DEFINITION_NAME) return false;
+  if (blockValue.definitionName === PRODUCT_DEFINITION_NAME) return false;
+  if (blockValue.definitionName === 'website.components.imageFluid') return false;
+  if (blockValue.value?.wysiwyg?.engine === CODE_BLOCK_ENGINE) return false;
+  if (blockValue.value?.[FORM_BLOCK_DISCRIMINATOR] !== undefined) return false;
+  if (blockValue.value?.assetUrl !== undefined) return false;
+  const html = blockValue.value?.html ?? blockValue.value?.source ?? '';
+  return typeof html === 'string' && html.length > 0;
 }
 
 // ── Prototype methods ───────────────────────────────────────────────────────
@@ -581,7 +597,9 @@ ContentSaveClient.prototype.fillLastTextBlockInSection = async function (
     let textBlockCount = 0;
     for (let i = gridContents.length - 1; i >= 0; i--) {
       const gc = gridContents[i];
-      if (gc.content?.value?.type !== BLOCK_TYPE_TEXT) continue;
+      const bv = gc.content?.value;
+      if (!bv) continue;
+      if (bv.type !== BLOCK_TYPE_TEXT && !isType1337TextBlock(bv)) continue;
 
       textBlockCount++;
       const rawHtml = gc.content.value.value?.html ?? gc.content.value.value?.source ?? '';

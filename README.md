@@ -176,10 +176,15 @@ npm test        # Run test suite (~1475 tests, 67 files)
 
 **Session Management:**
 - **Auto-cookie capture** — When new sites are discovered, cookies are automatically fetched and saved. No more manual Playwright → cookie merging workflows.
+- **Auto-crumb repair** — Sites added to your Squarespace account after the original login automatically get their CSRF crumb tokens captured via HTTP on the next `sq_list_sites` call. No re-login needed.
+- **HTTP-based cookie capture** — `sq_login_browser` now uses fast HTTP calls to capture site-specific cookies instead of navigating Playwright to each site's `/config` page. Faster, more reliable, works for any number of sites.
 - **Auto-site registration** — Discovered sites are auto-added to `sites.json` with friendly names from the Squarespace API.
 - **File-change detection** — Session cookies and site config reload automatically when files change on disk. No more MCP server restarts.
 - **Per-site health** — `sq_login` now shows per-site cookie status so you know exactly which sites need re-auth.
 - **CONFLICT auto-retry** — On write conflicts, the server refreshes the crumb token and retries once before failing. Eliminates false conflicts from stale crumb tokens.
+
+**Fluid Engine Text Support:**
+- **Type 1337 text blocks** — `sq_read_page`, `sq_update_text`, `sq_patch_text`, `sq_update_html`, and `fillLastTextBlockInSection` now recognize text content inside type 1337 (fluid engine) blocks. Previously, only classic type 2 text blocks were searchable — newer Squarespace pages that use type 1337 for all blocks would return "No text block found" even when text was visible on the page.
 
 ## Architecture
 
