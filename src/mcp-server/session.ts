@@ -12,7 +12,7 @@ import { createContentSaveClient } from '../services/content-save.js';
 import { ContentSaveClient, SESSION_PATH } from '../services/content-save.js';
 import { MediaUploadClient } from '../services/media-upload.js';
 import { resolvePageIds as resolvePageIdsImpl } from '../services/page-id-resolver.js';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, statSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/database.js';
 import { logger } from '../utils/logger.js';
@@ -38,22 +38,33 @@ interface SitesConfig {
 const clientCache = new Map<string, ContentSaveClient>();
 const mediaClientCache = new Map<string, MediaUploadClient>();
 let sitesConfig: SitesConfig | null = null;
+let sitesConfigMtime: number = 0;
 let accountSitesFetched = false;
 
 // ── Config Loading ──────────────────────────────────────────────────────────
 
-function loadSitesConfig(): SitesConfig {
-  if (sitesConfig) return sitesConfig;
-
-  const configPath = process.env.SITES_CONFIG || join(process.cwd(), 'config', 'sites.json');
+/**
+ * Load sites config from a specific path with mtime-based caching.
+ * Exported for testing — production code uses loadSitesConfig().
+ */
+export function _loadSitesConfigFromPath(configPath: string): SitesConfig {
   try {
+    const mtime = statSync(configPath).mtimeMs;
+    if (sitesConfig && mtime === sitesConfigMtime) return sitesConfig;
+
     const raw = readFileSync(configPath, 'utf-8');
     sitesConfig = JSON.parse(raw) as SitesConfig;
+    sitesConfigMtime = mtime;
+    logger.info({ configPath, clients: sitesConfig.clients.length }, 'Sites config loaded');
   } catch {
-    // No static config — will rely on discovered sites
-    sitesConfig = { clients: [] };
+    if (!sitesConfig) sitesConfig = { clients: [] };
   }
   return sitesConfig;
+}
+
+function loadSitesConfig(): SitesConfig {
+  const configPath = process.env.SITES_CONFIG || join(process.cwd(), 'config', 'sites.json');
+  return _loadSitesConfigFromPath(configPath);
 }
 
 /**
