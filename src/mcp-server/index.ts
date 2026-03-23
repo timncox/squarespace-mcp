@@ -37,9 +37,11 @@ import { registerAuthTools } from './tools/auth.js';
 import { registerCommerceTools } from './tools/commerce.js';
 import { registerAnnouncementBarTools } from './tools/announcement-bar.js';
 import { registerPdfMenuTools } from './tools/pdf-menu.js';
+import { registerMenuParserTools } from './tools/menu.js';
 import { registerGmailTools } from './tools/gmail.js';
 import { registerSnapshotTools } from './tools/snapshot.js';
 import { registerWaybackTools } from './tools/wayback.js';
+import { registerOrchestrationTools } from './tools/orchestration.js';
 
 // ── Server instructions — sent to Claude Desktop during MCP handshake ───────
 const INSTRUCTIONS = `
@@ -156,9 +158,11 @@ registerAuthTools(server);
 registerCommerceTools(server);
 registerAnnouncementBarTools(server);
 registerPdfMenuTools(server);
+registerMenuParserTools(server);
 registerGmailTools(server);
 registerSnapshotTools(server);
 registerWaybackTools(server);
+registerOrchestrationTools(server);
 
 // ── MCP Prompts — on-demand guidance Claude Desktop can invoke ───────────────
 server.registerPrompt('squarespace-guide', {

@@ -28,7 +28,17 @@ vi.mock('fs', async () => {
   };
 });
 
-import { registerPdfMenuTools } from '../tools/pdf-menu.js';
+vi.mock('child_process', () => ({
+  execSync: vi.fn(() => '{}'),
+}));
+
+// Mock session.js to avoid database/config dependencies
+vi.mock('../session.js', () => ({
+  getClient: vi.fn(),
+  resolvePageIds: vi.fn(),
+}));
+
+import { registerMenuParserTools } from '../tools/menu.js';
 
 function createMockServer() {
   const tools = new Map<string, { config: any; handler: Function }>();
@@ -51,11 +61,19 @@ describe('PDF Menu Tools', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     server = createMockServer();
-    registerPdfMenuTools(server as any);
+    registerMenuParserTools(server as any);
   });
 
   it('should register sq_parse_pdf_menu tool', () => {
     expect(server.tools.has('sq_parse_pdf_menu')).toBe(true);
+  });
+
+  it('should register sq_parse_menu_image tool', () => {
+    expect(server.tools.has('sq_parse_menu_image')).toBe(true);
+  });
+
+  it('should register sq_diff_menu tool', () => {
+    expect(server.tools.has('sq_diff_menu')).toBe(true);
   });
 
   describe('sq_parse_pdf_menu', () => {
@@ -75,13 +93,14 @@ describe('PDF Menu Tools', () => {
       const data = JSON.parse(result.content[0].text);
 
       expect(data.parsed).toBe(true);
+      expect(data.method).toBe('rule-based');
       expect(data.menus).toHaveLength(1);
       expect(data.menus[0].title).toBe('Lunch');
       expect(data.menus[0].sections[0].items[0].title).toBe('Salad');
       expect(data.numPages).toBe(1);
     });
 
-    it('should return raw text when menu parsing fails', async () => {
+    it('should return raw text when menu parsing and AI both fail', async () => {
       mockExtractPdfText.mockResolvedValue({ text: 'Some unstructured text from a PDF', numPages: 2 });
       mockParseMenuText.mockReturnValue([]);
 
@@ -107,6 +126,13 @@ describe('PDF Menu Tools', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('No text could be extracted');
+    });
+
+    it('should return error when neither pdfUrl nor filePath provided', async () => {
+      const result = await server.callTool('sq_parse_pdf_menu', {});
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Provide either pdfUrl or filePath');
     });
   });
 });

@@ -464,7 +464,9 @@ ContentSaveClient.prototype.createPageViaApi = async function (
       isDraft: false,
       isPending: false,
       pagePermissionType: 1,
+      ordering: typeof data.ordering === 'number' ? data.ordering : 0,
       updatedOn: typeof data.updatedOn === 'number' ? data.updatedOn : Date.now(),
+      id: pageId!,
     });
 
     if (!navResult.success) {

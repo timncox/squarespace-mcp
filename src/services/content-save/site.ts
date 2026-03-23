@@ -31,6 +31,7 @@ declare module './index.js' {
     saveCodeInjection(header?: string, footer?: string, _isRetry?: boolean): Promise<{ success: boolean; error?: string }>;
     getNavigation(): Promise<NavigationResult>;
     updateNavigation(fieldName: string, items: UpdateNavigationItem[]): Promise<UpdateNavigationResult>;
+    resolveTemplateId(): Promise<string | null>;
     getSocialAccounts(): Promise<{ success: boolean; data?: SocialAccount[]; error?: string }>;
     addSocialAccount(serviceId: number, username: string, profileUrl: string): Promise<{ success: boolean; data?: SocialAccount; error?: string }>;
     removeSocialAccount(accountId: string): Promise<{ success: boolean; error?: string }>;
@@ -655,34 +656,11 @@ ContentSaveClient.prototype.updateNavigation = async function (
 ): Promise<UpdateNavigationResult> {
   this.ensureCookies();
 
-  // We need the templateId — fetch it from GetTemplate or site layout
   try {
-    const layoutUrl = this.buildApiUrl('/api/commondata/GetSiteLayout');
-    const layoutRes = await fetch(layoutUrl, {
-      headers: this.buildHeaders(),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-
-    if (!layoutRes.ok) {
-      const body = await layoutRes.text().catch(() => '');
-      return { success: false, error: `GetSiteLayout failed: ${layoutRes.status} ${body}` };
-    }
-
-    // Get templateId from GetTemplate endpoint
-    const templateUrl = this.buildApiUrl('/api/template/GetTemplate');
-    const templateRes = await fetch(templateUrl, {
-      headers: this.buildHeaders(),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
-
-    let templateId = '';
-    if (templateRes.ok) {
-      const templateData = await templateRes.json() as Record<string, unknown>;
-      templateId = String(templateData.id ?? templateData.templateId ?? '');
-    }
-
+    // Resolve templateId (cached per-site — it doesn't change)
+    const templateId = await this.resolveTemplateId();
     if (!templateId) {
-      return { success: false, error: 'Could not determine templateId for navigation update' };
+      return { success: false, error: 'Could not determine templateId for navigation update. Tried /api/rest/websites/mine and /api/navigation.' };
     }
 
     const requestBody: UpdateNavigationRequest = {
@@ -691,12 +669,15 @@ ContentSaveClient.prototype.updateNavigation = async function (
       navigation: { items },
     };
 
-    let url = this.buildApiUrl('/api/widget/UpdateNavigation');
-    if (this.crumbToken) url += `?crumb=${encodeURIComponent(this.crumbToken)}`;
+    const url = this.buildApiUrl('/api/widget/UpdateNavigation', true);
 
     const response = await fetch(url, {
       method: 'POST',
-      headers: { ...this.buildHeaders(), 'Content-Type': 'application/json' },
+      headers: {
+        ...this.buildHeaders(),
+        'Content-Type': 'application/json',
+        ...(this.crumbToken ? { 'X-CSRF-Token': this.crumbToken } : {}),
+      },
       body: JSON.stringify(requestBody),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
@@ -711,6 +692,102 @@ ContentSaveClient.prototype.updateNavigation = async function (
   } catch (err) {
     return { success: false, error: errMsg(err) };
   }
+};
+
+/**
+ * Resolve the site's templateId, caching the result.
+ * Tries /api/rest/websites/mine first (most reliable), then falls back
+ * to parsing it from the /api/navigation response.
+ */
+ContentSaveClient.prototype.resolveTemplateId = async function (
+  this: ContentSaveClient,
+): Promise<string | null> {
+  if (this.templateIdCache) return this.templateIdCache;
+
+  // Strategy 1: GET /api/rest/websites/mine — returns { templateId: "..." }
+  try {
+    const websiteUrl = this.buildApiUrl('/api/rest/websites/mine');
+    const websiteRes = await fetch(websiteUrl, {
+      headers: this.buildHeaders(),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (websiteRes.ok) {
+      const data = await websiteRes.json() as Record<string, unknown>;
+      const tmplObj = typeof data.template === 'object' && data.template !== null
+        ? data.template as Record<string, unknown>
+        : undefined;
+      const tid = data.templateId ?? tmplObj?.id ?? tmplObj?.templateId;
+      if (typeof tid === 'string' && tid) {
+        this.templateIdCache = tid;
+        logger.info({ templateId: tid }, 'Resolved templateId from /api/rest/websites/mine');
+        return tid;
+      }
+    }
+  } catch {
+    // Fall through to next strategy
+  }
+
+  // Strategy 2: GET /api/navigation — the response JSON has a "website" or "templateId" field
+  try {
+    const navUrl = this.buildApiUrl('/api/navigation');
+    const navRes = await fetch(navUrl, {
+      headers: this.buildHeaders(),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (navRes.ok) {
+      const navData = await navRes.json() as Record<string, unknown>;
+      // Check top-level templateId
+      if (typeof navData.templateId === 'string' && navData.templateId) {
+        this.templateIdCache = navData.templateId;
+        logger.info({ templateId: navData.templateId }, 'Resolved templateId from /api/navigation');
+        return navData.templateId;
+      }
+      // Check nested website object
+      const website = navData.website as Record<string, unknown> | undefined;
+      if (website) {
+        const tid = website.templateId ?? website.id;
+        if (typeof tid === 'string' && tid) {
+          this.templateIdCache = tid;
+          logger.info({ templateId: tid }, 'Resolved templateId from navigation.website');
+          return tid;
+        }
+      }
+    }
+  } catch {
+    // Fall through
+  }
+
+  // Strategy 3: GET /api/commondata/GetCollections — collections have websiteId and sometimes templateId
+  try {
+    const collectionsUrl = this.buildApiUrl('/api/commondata/GetCollections/');
+    const collectionsRes = await fetch(collectionsUrl, {
+      headers: this.buildHeaders(),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (collectionsRes.ok) {
+      const data = await collectionsRes.json() as Record<string, unknown>;
+      // The response may have a top-level website object or templateId
+      if (typeof data.templateId === 'string' && data.templateId) {
+        this.templateIdCache = data.templateId;
+        logger.info({ templateId: data.templateId }, 'Resolved templateId from GetCollections');
+        return data.templateId;
+      }
+      const website = data.website as Record<string, unknown> | undefined;
+      if (website) {
+        const tid = website.templateId ?? website.id;
+        if (typeof tid === 'string' && tid) {
+          this.templateIdCache = tid;
+          logger.info({ templateId: tid }, 'Resolved templateId from GetCollections.website');
+          return tid;
+        }
+      }
+    }
+  } catch {
+    // Fall through
+  }
+
+  logger.warn({ siteSubdomain: this.siteSubdomain }, 'Could not resolve templateId from any endpoint');
+  return null;
 };
 
 // ── Social Accounts ──────────────────────────────────────────────────────────

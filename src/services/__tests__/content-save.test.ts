@@ -1890,8 +1890,12 @@ describe('ContentSaveClient', () => {
 
     it('getSessionAge returns stale for old sessions', async () => {
       const fs = await import('fs');
-      // 48 hours old
-      const statSpy = vi.spyOn(fs, 'statSync').mockReturnValueOnce({ mtimeMs: Date.now() - 48 * 3600_000 } as ReturnType<typeof fs.statSync>);
+      // 48 hours old — mock both statSync calls in loadSessionCookies
+      // (line ~363 for _sessionMtime and line ~461 for sessionAgeHours)
+      const oldMtime = { mtimeMs: Date.now() - 48 * 3600_000 } as ReturnType<typeof fs.statSync>;
+      const statSpy = vi.spyOn(fs, 'statSync')
+        .mockReturnValueOnce(oldMtime)
+        .mockReturnValueOnce(oldMtime);
 
       const oldClient = new ContentSaveClient('test-site');
       oldClient.loadSessionCookies('/fake/session.json');

@@ -10,6 +10,7 @@ const mockClient = {
   copyTemplateSection: vi.fn(),
   removeBlock: vi.fn(),
   loadSessionCookies: vi.fn(),
+  ensureFreshSession: vi.fn(),
 };
 
 const mockMediaClient = {
@@ -36,6 +37,15 @@ vi.mock('../../services/page-id-resolver.js', () => ({
   })),
 }));
 
+vi.mock('../../db/database.js', () => ({
+  getDb: vi.fn(() => ({
+    prepare: vi.fn(() => ({
+      all: vi.fn(() => []),
+      run: vi.fn(),
+    })),
+  })),
+}));
+
 vi.mock('fs', () => ({
   readFileSync: vi.fn(() => JSON.stringify({
     clients: [
@@ -58,6 +68,8 @@ vi.mock('fs', () => ({
       },
     ],
   })),
+  statSync: vi.fn(() => ({ mtimeMs: Date.now() })),
+  existsSync: vi.fn(() => true),
 }));
 
 import { getSubdomain, getClient, getMediaClient, resolvePageIds, reloadAllSessions, listSites } from '../session.js';

@@ -68,9 +68,8 @@ describe('ContentSaveClient.updateNavigation()', () => {
     ];
 
     const fetchMock = mockFetch([
-      { ok: true, body: { layout: [] } },                    // GetSiteLayout
-      { ok: true, body: { id: 'template-id-123' } },         // GetTemplate
-      { ok: true, body: {} },                                 // UpdateNavigation
+      { ok: true, body: { templateId: 'template-id-123' } }, // GET /api/rest/websites/mine → resolveTemplateId
+      { ok: true, body: {} },                                 // POST /api/widget/UpdateNavigation
     ]);
     vi.stubGlobal('fetch', fetchMock);
 
@@ -80,7 +79,7 @@ describe('ContentSaveClient.updateNavigation()', () => {
     expect(result.success).toBe(true);
 
     // Verify the POST body
-    const postCall = fetchMock.mock.calls[2];
+    const postCall = fetchMock.mock.calls[1];
     const postBody = JSON.parse(postCall[1].body);
     expect(postBody.fieldName).toBe('mainNavigation');
     expect(postBody.templateId).toBe('template-id-123');
@@ -88,11 +87,10 @@ describe('ContentSaveClient.updateNavigation()', () => {
     expect(postBody.navigation.items[0].title).toBe('Home');
   });
 
-  it('fetches templateId from GetTemplate first', async () => {
+  it('fetches templateId via resolveTemplateId (GET /api/rest/websites/mine)', async () => {
     const fetchMock = mockFetch([
-      { ok: true, body: { layout: [] } },                    // GetSiteLayout
-      { ok: true, body: { templateId: 'tmpl-from-field' } }, // GetTemplate (uses templateId field)
-      { ok: true, body: {} },                                 // UpdateNavigation
+      { ok: true, body: { templateId: 'tmpl-from-field' } }, // GET /api/rest/websites/mine → resolveTemplateId
+      { ok: true, body: {} },                                 // POST /api/widget/UpdateNavigation
     ]);
     vi.stubGlobal('fetch', fetchMock);
 
@@ -101,29 +99,28 @@ describe('ContentSaveClient.updateNavigation()', () => {
 
     expect(result.success).toBe(true);
 
-    // Verify GetTemplate was called
-    const templateCall = fetchMock.mock.calls[1];
-    expect(templateCall[0]).toContain('/api/template/GetTemplate');
+    // Verify /api/rest/websites/mine was called for templateId
+    const templateCall = fetchMock.mock.calls[0];
+    expect(templateCall[0]).toContain('/api/rest/websites/mine');
 
     // Verify templateId was used in the POST body
-    const postBody = JSON.parse(fetchMock.mock.calls[2][1].body);
+    const postBody = JSON.parse(fetchMock.mock.calls[1][1].body);
     expect(postBody.templateId).toBe('tmpl-from-field');
   });
 
-  it('returns error when GetSiteLayout fails', async () => {
-    vi.stubGlobal('fetch', mockFetch([{
-      ok: false,
-      status: 500,
-      statusText: 'Internal Server Error',
-      body: 'Server error',
-    }]));
+  it('returns error when all templateId resolution strategies fail', async () => {
+    const fetchMock = mockFetch([
+      { ok: false, status: 500, statusText: 'Internal Server Error', body: 'Server error' }, // /api/rest/websites/mine fails
+      { ok: false, status: 500, statusText: 'Internal Server Error', body: 'Server error' }, // /api/navigation fails
+      { ok: false, status: 500, statusText: 'Internal Server Error', body: 'Server error' }, // /api/commondata/GetCollections fails
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
 
     const client = makeClient();
     const result = await client.updateNavigation('mainNavigation', []);
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('GetSiteLayout failed');
-    expect(result.error).toContain('500');
+    expect(result.error).toContain('Could not determine templateId');
   });
 
   it('returns error when templateId cannot be determined', async () => {
@@ -142,9 +139,8 @@ describe('ContentSaveClient.updateNavigation()', () => {
 
   it('returns error when UpdateNavigation returns non-200', async () => {
     const fetchMock = mockFetch([
-      { ok: true, body: { layout: [] } },                    // GetSiteLayout
-      { ok: true, body: { id: 'template-id-123' } },         // GetTemplate
-      { ok: false, status: 400, statusText: 'Bad Request', body: 'Invalid navigation' }, // UpdateNavigation
+      { ok: true, body: { templateId: 'template-id-123' } }, // GET /api/rest/websites/mine → resolveTemplateId
+      { ok: false, status: 400, statusText: 'Bad Request', body: 'Invalid navigation' }, // POST /api/widget/UpdateNavigation
     ]);
     vi.stubGlobal('fetch', fetchMock);
 
@@ -158,9 +154,8 @@ describe('ContentSaveClient.updateNavigation()', () => {
 
   it('includes crumb token in URL', async () => {
     const fetchMock = mockFetch([
-      { ok: true, body: { layout: [] } },                    // GetSiteLayout
-      { ok: true, body: { id: 'template-id-123' } },         // GetTemplate
-      { ok: true, body: {} },                                 // UpdateNavigation
+      { ok: true, body: { templateId: 'template-id-123' } }, // GET /api/rest/websites/mine → resolveTemplateId
+      { ok: true, body: {} },                                 // POST /api/widget/UpdateNavigation
     ]);
     vi.stubGlobal('fetch', fetchMock);
 
@@ -168,7 +163,7 @@ describe('ContentSaveClient.updateNavigation()', () => {
     await client.updateNavigation('mainNavigation', []);
 
     // The UpdateNavigation POST URL should include the crumb
-    const postCall = fetchMock.mock.calls[2];
+    const postCall = fetchMock.mock.calls[1];
     expect(postCall[0]).toContain('crumb=');
   });
 });

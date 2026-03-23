@@ -22,6 +22,8 @@ vi.mock('fs', () => ({
       },
     ],
   })),
+  statSync: vi.fn(() => ({ mtimeMs: Date.now() })),
+  existsSync: vi.fn(() => true),
 }));
 
 import { getSiteBaseUrl } from '../session.js';

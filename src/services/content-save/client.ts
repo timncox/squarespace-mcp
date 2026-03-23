@@ -341,6 +341,7 @@ export class ContentSaveClient {
   sessionLoadedAt: Date | null = null;
   websiteIdCache: string | null = null;
   memberAccountIdCache: string | null = null;
+  templateIdCache: string | null = null;
   _preWriteCache: Map<string, PageSection[]> = new Map();
   _sectionsHashCache: Map<string, string> = new Map();
   _snapshotSiteId: string | null = null;
@@ -478,6 +479,7 @@ export class ContentSaveClient {
     this.crumbToken = null;
     this.websiteIdCache = null;
     this.memberAccountIdCache = null;
+    this.templateIdCache = null;
     this.loadSessionCookies(sessionPath);
   }
 

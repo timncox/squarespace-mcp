@@ -7,6 +7,7 @@
  * sq_get_navigation: Get site navigation structure
  * sq_update_navigation: Reorder/update navigation items
  * sq_update_page_metadata: Update page SEO and metadata
+ * sq_add_page_to_nav: Add an existing page to site navigation
  */
 
 import { z } from 'zod';
@@ -236,6 +237,233 @@ export function registerPageTools(server: McpServer) {
           text: JSON.stringify({ success: true, fieldName }, null, 2),
         }],
       };
+    } catch (err) {
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_add_page_to_nav ───────────────────────────────────────────────────────
+  server.registerTool('sq_add_page_to_nav', {
+    description:
+      'Add an existing page to the site navigation. Finds the page by its URL slug, builds a navigation item, and inserts it at the specified position. ' +
+      'Use sq_list_pages to find page slugs and sq_get_navigation to see the current nav structure.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug to add (e.g. "about-us")'),
+      position: z.number().optional().describe('0-based position in the nav list. Omit to append at the end.'),
+      navSection: z.string().optional().describe('Navigation section: "mainNav" (default) or "_hidden"'),
+    },
+  }, async ({ siteId, pageSlug, position, navSection }) => {
+    try {
+      const client = getClient(siteId);
+      const fieldName = navSection ?? 'mainNav';
+
+      // Step 1: Find the page by slug from collections
+      const collections = await client.listCollections();
+      const page = collections.find((c: any) => c.urlId === pageSlug && !c.deleted);
+      if (!page) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: No page found with slug "${pageSlug}". Use sq_list_pages to see available pages.` }],
+          isError: true,
+        };
+      }
+
+      // Step 2: Get current raw navigation
+      const navResult = await client.getNavigation();
+      if (!navResult.success || !navResult.data) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${navResult.error ?? 'Failed to get navigation'}` }],
+          isError: true,
+        };
+      }
+
+      // Check if the page is already in the target nav section
+      const targetNav = fieldName === 'mainNav'
+        ? navResult.data.mainNavigation
+        : navResult.data.notLinked;
+      const alreadyInNav = targetNav.some((item: any) =>
+        item.collectionId === page.id || item.id === page.id,
+      );
+      if (alreadyInNav) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: Page "${pageSlug}" is already in ${fieldName}. Use sq_update_navigation to reorder.` }],
+          isError: true,
+        };
+      }
+
+      // Step 3: Fetch raw nav to get the unprocessed items for the update call
+      // (addPageToNavigation uses raw items to preserve all API fields)
+      const newNavItem: Record<string, unknown> = {
+        collectionId: page.id,
+        collectionType: page.type,
+        enabled: page.enabled ?? true,
+        isFolder: false,
+        items: [],
+        linkId: page.id,
+        linkType: 'collection',
+        passwordProtected: false,
+        title: page.navigationTitle ?? page.title,
+        typeName: page.typeName,
+        urlId: page.urlId,
+        isDraft: false,
+        isPending: false,
+        pagePermissionType: 1,
+        ordering: page.ordering ?? 0,
+        updatedOn: Date.now(),
+        id: page.id,
+      };
+
+      // Step 4: Use addPageToNavigation for simple append/prepend,
+      // or build custom items array for positional insert
+      if (position != null && position > 0) {
+        // For positional insert, we need to build the full items array ourselves
+        // Re-fetch raw nav to get unprocessed items
+        const rawNavResult = await client.getNavigation();
+        if (!rawNavResult.success || !rawNavResult.data) {
+          return {
+            content: [{ type: 'text' as const, text: `Error: Failed to re-fetch navigation for positional insert` }],
+            isError: true,
+          };
+        }
+
+        // Also need to remove the page from the other nav section if it's there
+        const otherSection = fieldName === 'mainNav' ? '_hidden' : 'mainNav';
+        const otherNav = otherSection === 'mainNav'
+          ? rawNavResult.data.mainNavigation
+          : rawNavResult.data.notLinked;
+        const inOtherSection = otherNav.some((item: any) =>
+          item.collectionId === page.id || item.id === page.id,
+        );
+
+        // Get raw items from the API for the target section
+        // We use addPageToNavigation's approach: fetch raw /api/navigation
+        const result = await client.addPageToNavigation(fieldName, {
+          ...newNavItem,
+          // addPageToNavigation prepends — we'll handle position via a different path
+        });
+
+        if (!result.success) {
+          return {
+            content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Failed to add page to navigation'}` }],
+            isError: true,
+          };
+        }
+
+        // Now reorder: get nav again, find our item, move it to the right position
+        const afterNav = await client.getNavigation();
+        if (afterNav.success && afterNav.data) {
+          const currentItems = fieldName === 'mainNav'
+            ? afterNav.data.mainNavigation
+            : afterNav.data.notLinked;
+
+          // Find our newly added item (it was prepended, so it's at index 0)
+          const ourIdx = currentItems.findIndex((item: any) =>
+            item.collectionId === page.id || item.id === page.id,
+          );
+          if (ourIdx >= 0 && ourIdx !== position && position < currentItems.length) {
+            // Remove from current position
+            const [ourItem] = currentItems.splice(ourIdx, 1);
+            // Insert at desired position
+            const insertAt = Math.min(position, currentItems.length);
+            currentItems.splice(insertAt, 0, ourItem);
+            // Update navigation with reordered items
+            await client.updateNavigation(fieldName, currentItems as any);
+          }
+        }
+
+        // If page was in the other section, remove it from there
+        if (inOtherSection) {
+          const otherItems = otherSection === 'mainNav'
+            ? rawNavResult.data.mainNavigation
+            : rawNavResult.data.notLinked;
+          const filtered = otherItems.filter((item: any) =>
+            item.collectionId !== page.id && item.id !== page.id,
+          );
+          if (filtered.length !== otherItems.length) {
+            const otherFieldName = otherSection === 'mainNav' ? 'mainNav' : '_hidden';
+            await client.updateNavigation(otherFieldName, filtered as any);
+          }
+        }
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              success: true,
+              pageSlug: page.urlId,
+              collectionId: page.id,
+              navSection: fieldName,
+              position,
+            }, null, 2),
+          }],
+        };
+      } else {
+        // Simple case: prepend (default addPageToNavigation behavior) or append
+
+        // First, remove from other nav section if present
+        const otherSection = fieldName === 'mainNav' ? '_hidden' : 'mainNav';
+        const otherNav = otherSection === 'mainNav'
+          ? navResult.data.mainNavigation
+          : navResult.data.notLinked;
+        const inOtherSection = otherNav.some((item: any) =>
+          item.collectionId === page.id || item.id === page.id,
+        );
+        if (inOtherSection) {
+          const filtered = otherNav.filter((item: any) =>
+            item.collectionId !== page.id && item.id !== page.id,
+          );
+          const otherFieldName = otherSection === 'mainNav' ? 'mainNav' : '_hidden';
+          await client.updateNavigation(otherFieldName, filtered as any);
+        }
+
+        // Add to target section — use addPageToNavigation which prepends,
+        // then if we want to append, reorder after
+        const result = await client.addPageToNavigation(fieldName, newNavItem);
+        if (!result.success) {
+          return {
+            content: [{ type: 'text' as const, text: `Error: ${result.error ?? 'Failed to add page to navigation'}` }],
+            isError: true,
+          };
+        }
+
+        // If position is undefined (append), move the newly prepended item to the end
+        if (position == null) {
+          const afterNav = await client.getNavigation();
+          if (afterNav.success && afterNav.data) {
+            const currentItems = fieldName === 'mainNav'
+              ? afterNav.data.mainNavigation
+              : afterNav.data.notLinked;
+
+            if (currentItems.length > 1) {
+              // Our item was prepended (index 0) — move it to the end
+              const ourIdx = currentItems.findIndex((item: any) =>
+                item.collectionId === page.id || item.id === page.id,
+              );
+              if (ourIdx >= 0 && ourIdx !== currentItems.length - 1) {
+                const [ourItem] = currentItems.splice(ourIdx, 1);
+                currentItems.push(ourItem);
+                await client.updateNavigation(fieldName, currentItems as any);
+              }
+            }
+          }
+        }
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: JSON.stringify({
+              success: true,
+              pageSlug: page.urlId,
+              collectionId: page.id,
+              navSection: fieldName,
+              position: position ?? 'end',
+            }, null, 2),
+          }],
+        };
+      }
     } catch (err) {
       return {
         content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],

@@ -87,6 +87,22 @@
         ]
       }
     }
+    {
+      "id": "seahorse",
+      "name": "Seahorse",
+      "aliases": [
+        "Seahorse NYC",
+        "seahorsenyc",
+        "seahorse nyc"
+      ],
+      "contactEmails": [],
+      "group": "msh",
+      "site": {
+        "adminUrl": "https://seahorsenyc.squarespace.com/config/website",
+        "customDomain": "https://www.seahorsenyc.com",
+        "pages": []
+      }
+    }
   ],
   "groups": [
     {
@@ -102,7 +118,8 @@
         "jay@mercerstreethospitality.com"
       ],
       "sites": [
-        "smyth-tavern"
+        "smyth-tavern",
+        "seahorse"
       ]
     }
   ]

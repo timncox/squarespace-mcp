@@ -126,25 +126,28 @@ describe('ContentSaveClient — Page Management APIs', () => {
     });
 
     it('places page in mainNav when specified', async () => {
+      // 1. POST /api/commondata/SaveCollectionSettings → page created
       mockFetch.mockResolvedValueOnce(jsonResponse({
         id: 'page-id',
         urlId: 'about',
         updatedOn: 1700000000000,
       }));
+      // 2. GET /api/navigation → current nav (from addPageToNavigation)
       mockFetch.mockResolvedValueOnce(jsonResponse({
         mainNavigation: [{ collectionId: 'home', title: 'Home' }],
         notLinked: [],
       }));
-      mockFetch.mockResolvedValueOnce(jsonResponse({}));
-      mockFetch.mockResolvedValueOnce(jsonResponse({ id: 'tmpl-123' }));
+      // 3. GET /api/rest/websites/mine → resolveTemplateId (from updateNavigation)
+      mockFetch.mockResolvedValueOnce(jsonResponse({ templateId: 'tmpl-123' }));
+      // 4. POST /api/widget/UpdateNavigation → success
       mockFetch.mockResolvedValueOnce(jsonResponse({ id: 'nav-123' }));
 
       const result = await client.createPageViaApi('About', undefined, { navigation: 'mainNav' });
 
       expect(result.success).toBe(true);
 
-      // Verify UpdateNavigation was called with mainNav
-      const navCall = mockFetch.mock.calls[4];
+      // Verify UpdateNavigation was called with mainNav (call index 3)
+      const navCall = mockFetch.mock.calls[3];
       const navBody = JSON.parse(navCall[1].body);
       expect(navBody.fieldName).toBe('mainNav');
       // New page should be first, existing should follow

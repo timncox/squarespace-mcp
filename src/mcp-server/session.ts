@@ -12,7 +12,7 @@ import { createContentSaveClient } from '../services/content-save.js';
 import { ContentSaveClient, SESSION_PATH } from '../services/content-save.js';
 import { MediaUploadClient } from '../services/media-upload.js';
 import { resolvePageIds as resolvePageIdsImpl } from '../services/page-id-resolver.js';
-import { existsSync, readFileSync, statSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, statSync } from 'fs';
 import { join } from 'path';
 import { getDb } from '../db/database.js';
 import { logger } from '../utils/logger.js';
@@ -108,6 +108,128 @@ export function saveSite(subdomain: string, siteTitle?: string, customDomain?: s
 }
 
 /**
+ * Capture site-specific cookies (member-session + crumb) for a newly discovered site.
+ * Fetches a site-scoped API endpoint using account-level cookies, which triggers
+ * Squarespace to return site-specific Set-Cookie headers. Best-effort — failures
+ * are logged but never block discovery.
+ */
+async function captureSiteCookies(subdomain: string): Promise<void> {
+  try {
+    if (!existsSync(SESSION_PATH)) return;
+
+    const session = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
+    const cookies: Array<{ name: string; value: string; domain: string }> = session.cookies ?? [];
+
+    // Build cookie header from account-level + global cookies
+    const accountCookies = cookies.filter(c => {
+      const d = c.domain.replace(/^\./, '');
+      return d === 'squarespace.com' || d === 'account.squarespace.com';
+    });
+    if (accountCookies.length === 0) return;
+
+    const cookieHeader = accountCookies.map(c => `${c.name}=${c.value}`).join('; ');
+
+    const res = await fetch(`https://${subdomain}.squarespace.com/api/commondata/GetCollections`, {
+      headers: { Cookie: cookieHeader },
+      redirect: 'manual',
+    });
+
+    // Parse Set-Cookie headers for member-session and crumb
+    const setCookieHeaders = res.headers.getSetCookie?.() ?? [];
+    const captured: Array<{ name: string; value: string; domain: string }> = [];
+
+    for (const header of setCookieHeaders) {
+      const match = header.match(/^([^=]+)=([^;]*)/);
+      if (!match) continue;
+      const [, name, value] = match;
+      if (name === 'member-session' || name === 'crumb') {
+        // Extract domain from Set-Cookie header, default to site subdomain
+        const domainMatch = header.match(/[Dd]omain=([^;]+)/);
+        const domain = domainMatch ? domainMatch[1].trim() : `.${subdomain}.squarespace.com`;
+        captured.push({ name, value, domain });
+      }
+    }
+
+    if (captured.length === 0) return;
+
+    // Merge captured cookies into the session file
+    const freshSession = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
+    const existingCookies: Array<{ name: string; value: string; domain: string }> =
+      freshSession.cookies ?? [];
+
+    for (const newCookie of captured) {
+      const idx = existingCookies.findIndex(
+        c => c.name === newCookie.name && c.domain === newCookie.domain,
+      );
+      if (idx >= 0) {
+        existingCookies[idx].value = newCookie.value;
+      } else {
+        existingCookies.push(newCookie);
+      }
+    }
+
+    freshSession.cookies = existingCookies;
+    writeFileSync(SESSION_PATH, JSON.stringify(freshSession, null, 2), 'utf-8');
+    logger.info(
+      { subdomain, captured: captured.map(c => c.name) },
+      'Captured site-specific cookies for discovered site',
+    );
+  } catch (err) {
+    logger.debug({ subdomain, error: errMsg(err) }, 'Failed to capture site cookies — skipping');
+  }
+}
+
+/**
+ * Auto-register a discovered site in the sites.json config file.
+ * Only adds if the subdomain isn't already present. Best-effort — failures
+ * are logged but never block discovery.
+ */
+function registerSiteInConfig(
+  subdomain: string,
+  siteTitle?: string,
+  customDomain?: string,
+): void {
+  try {
+    const configPath = process.env.SITES_CONFIG || join(process.cwd(), 'config', 'sites.json');
+    if (!existsSync(configPath)) return;
+
+    const raw = readFileSync(configPath, 'utf-8');
+    const config = JSON.parse(raw) as SitesConfig & { groups?: unknown[] };
+
+    // Check if subdomain already exists in config
+    const alreadyExists = config.clients.some(c => {
+      try {
+        const existing = new URL(c.site.adminUrl).hostname.split('.')[0];
+        return existing === subdomain;
+      } catch { return false; }
+    });
+    if (alreadyExists) return;
+
+    // Build the new client entry
+    const newEntry: SiteConfig = {
+      id: subdomain,
+      name: siteTitle || subdomain,
+      aliases: [],
+      site: {
+        adminUrl: `https://${subdomain}.squarespace.com/config/website`,
+        ...(customDomain ? { customDomain } : {}),
+      },
+    };
+
+    config.clients.push(newEntry);
+    writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+
+    // Reset the mtime-based cache so loadSitesConfig() re-reads next time
+    sitesConfig = null;
+    sitesConfigMtime = 0;
+
+    logger.info({ subdomain, name: siteTitle }, 'Auto-registered site in config');
+  } catch (err) {
+    logger.debug({ subdomain, error: errMsg(err) }, 'Failed to register site in config — skipping');
+  }
+}
+
+/**
  * Fetch all sites from the Squarespace account API and upsert into discovered_sites.
  * Uses GET /api/account/1/website-briefs with account-level session cookies.
  * Called once per session — results are cached via the accountSitesFetched flag.
@@ -153,16 +275,45 @@ export async function fetchAccountSites(): Promise<void> {
         active: boolean;
       }>;
 
+      // Build set of already-known subdomains (DB + config) so we only
+      // run cookie capture and config registration for truly new sites.
+      const knownSubdomains = new Set<string>();
+      try {
+        for (const d of loadDiscoveredSites()) {
+          const sub = new URL(d.site.adminUrl).hostname.split('.')[0];
+          knownSubdomains.add(sub);
+        }
+      } catch { /* best-effort */ }
+      try {
+        for (const c of loadSitesConfig().clients) {
+          const sub = new URL(c.site.adminUrl).hostname.split('.')[0];
+          knownSubdomains.add(sub);
+        }
+      } catch { /* best-effort */ }
+
       let count = 0;
+      const cookiePromises: Promise<void>[] = [];
       for (const brief of briefs) {
         if (!brief.active || !brief.identifier) continue;
         const customDomain = brief.canonicalUrl !== brief.internalUrl
           ? brief.canonicalUrl
           : undefined;
+        const isNew = !knownSubdomains.has(brief.identifier);
         try {
           saveSite(brief.identifier, brief.title, customDomain);
           count++;
         } catch { /* best-effort */ }
+
+        // For newly discovered sites, auto-capture cookies and register in config
+        if (isNew) {
+          cookiePromises.push(captureSiteCookies(brief.identifier));
+          registerSiteInConfig(brief.identifier, brief.title, customDomain);
+        }
+      }
+
+      // Await cookie captures in parallel — best-effort, don't block on failures
+      if (cookiePromises.length > 0) {
+        await Promise.allSettled(cookiePromises);
       }
 
       if (count > 0) {

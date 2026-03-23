@@ -19,6 +19,28 @@ const PROJECT_ROOT = join(__dirname, '..', '..', '..');
 const SESSION_DIR = process.env.SESSION_DIR ?? join(PROJECT_ROOT, 'storage', 'auth');
 const SESSION_PATH = join(SESSION_DIR, 'sqsp-session.json');
 
+/** Build per-site cookie health: for each known site, check if member-session and crumb cookies exist. */
+async function getPerSiteCookieHealth(): Promise<Array<{ name: string; subdomain: string; hasSession: boolean; hasCrumb: boolean }>> {
+  const result: Array<{ name: string; subdomain: string; hasSession: boolean; hasCrumb: boolean }> = [];
+  try {
+    const sessionData = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
+    const cookies: Array<{ name: string; domain: string }> = sessionData.cookies ?? [];
+    const sites = await listSites();
+    for (const site of sites) {
+      const hasSession = cookies.some(
+        (c) => c.name === 'member-session' && c.domain.replace(/^\./, '').includes(site.subdomain),
+      );
+      const hasCrumb = cookies.some(
+        (c) => c.name === 'crumb' && c.domain.replace(/^\./, '').includes(site.subdomain),
+      );
+      result.push({ name: site.name, subdomain: site.subdomain, hasSession, hasCrumb });
+    }
+  } catch {
+    // If session file can't be read or listSites fails, return empty
+  }
+  return result;
+}
+
 export function registerAuthTools(server: McpServer) {
   // ── sq_login ──────────────────────────────────────────────────────────────
   server.registerTool('sq_login', {
@@ -50,17 +72,21 @@ export function registerAuthTools(server: McpServer) {
           const probeMsg = probeErr instanceof Error ? probeErr.message : String(probeErr);
           if (probeMsg.includes('401') || probeMsg.includes('Unauthorized') || probeMsg.includes('not logged in')) {
             // File looks healthy but API says no — session cookies are invalid
+            const invalidSiteHealth = await getPerSiteCookieHealth();
             return {
               content: [{ type: 'text' as const, text: JSON.stringify({
                 status: 'session_invalid',
                 reason: `Session file exists and looks healthy (${Math.round(health.ageHours * 10) / 10}h old) but API returned 401 Unauthorized. The saved cookies are likely incomplete or corrupted.`,
                 suggestion: 'If you recently used sq_save_session, the captured cookies may be missing HTTP-only auth cookies. Try sq_restore_session to recover the previous working session, or re-export cookies from your browser.',
                 loginUrl: 'https://login.squarespace.com',
+                ...(invalidSiteHealth.length > 0 ? { sites: invalidSiteHealth } : {}),
               }, null, 2) }],
             };
           }
           // Non-auth error (network, timeout, etc) — still report file-level health
         }
+
+        const perSiteHealth = await getPerSiteCookieHealth();
 
         // If probe succeeded or had non-auth error, report healthy
         return {
@@ -68,6 +94,7 @@ export function registerAuthTools(server: McpServer) {
             status: 'healthy',
             ageHours: Math.round(health.ageHours * 10) / 10,
             sessionPath: SESSION_PATH,
+            ...(perSiteHealth.length > 0 ? { sites: perSiteHealth } : {}),
             message: `Session is valid (${Math.round(health.ageHours * 10) / 10}h old). No login needed.`,
           }, null, 2) }],
         };
