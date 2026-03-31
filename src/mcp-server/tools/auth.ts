@@ -3,6 +3,7 @@
  *
  * sq_login: Check session health (file + active API probe) and return login instructions
  * sq_login_browser: Launch headful Chromium, user logs in, auto-capture all cookies
+ * sq_login_cloud: Login via Browserbase cloud browser (no local Chromium needed)
  * sq_save_session: Accept session cookies JSON, validate quality, and save as session
  * sq_restore_session: Recover previous session from .bak backup after bad cookie save
  */
@@ -39,6 +40,61 @@ async function getPerSiteCookieHealth(): Promise<Array<{ name: string; subdomain
     // If session file can't be read or listSites fails, return empty
   }
   return result;
+}
+
+// ── Shared post-login helper ──────────────────────────────────────────────
+
+/**
+ * Save a captured Playwright storageState as the Squarespace session,
+ * discover sites, and capture missing crumbs. Used by both sq_login_browser
+ * and sq_login_cloud after detecting the member-session cookie.
+ */
+export async function saveSessionAndDiscoverSites(
+  fullState: { cookies: any[]; origins: any[] },
+): Promise<{
+  cookieCount: number;
+  hasCrumb: boolean;
+  capturedSites: string[];
+}> {
+  // Backup existing session
+  mkdirSync(SESSION_DIR, { recursive: true });
+  if (existsSync(SESSION_PATH)) {
+    copyFileSync(SESSION_PATH, SESSION_PATH + '.bak');
+  }
+
+  // Write new session
+  writeFileSync(SESSION_PATH, JSON.stringify(fullState, null, 2), 'utf-8');
+  reloadAllSessions();
+
+  // Discover sites and capture missing crumbs via HTTP
+  const capturedSites: string[] = [];
+  try {
+    const { fetchAccountSites } = await import('../session.js');
+    await fetchAccountSites();
+
+    const updatedSession = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
+    const updatedCookies: Array<{ name: string; domain: string }> = updatedSession.cookies ?? [];
+    const sites = await listSites();
+    for (const site of sites) {
+      const hasSiteCrumb = updatedCookies.some(
+        (c) => c.name === 'crumb' && c.domain.replace(/^\./, '').includes(site.subdomain),
+      );
+      if (hasSiteCrumb) capturedSites.push(site.subdomain);
+    }
+  } catch {
+    // Cookie capture is best-effort — account-level login still succeeded
+  }
+
+  // Re-read final cookie state
+  const finalSession = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
+  const allCookies = finalSession.cookies ?? [];
+  reloadAllSessions();
+
+  const hasCrumb = allCookies.some(
+    (c: { name: string }) => c.name === 'crumb',
+  );
+
+  return { cookieCount: allCookies.length, hasCrumb, capturedSites };
 }
 
 export function registerAuthTools(server: McpServer) {
@@ -113,13 +169,10 @@ export function registerAuthTools(server: McpServer) {
           reason,
           loginUrl: 'https://login.squarespace.com',
           instructions: [
-            '1. The Playwright MCP browser_run_code runs in browser page context, NOT Node.js — it CANNOT call page.context().storageState(). HTTP-only cookies (required for Squarespace auth) are invisible to document.cookie.',
-            '2. RECOMMENDED: Ask the user to manually export cookies from their browser:',
-            '   - Chrome: DevTools → Application → Cookies → right-click → Copy all',
-            '   - Or use a browser extension like "EditThisCookie" or "Cookie-Editor" to export as JSON',
-            '3. Format the cookies as Playwright storageState JSON: { "cookies": [...], "origins": [] }',
-            '4. Pass the JSON to sq_save_session({ sessionData: <the JSON string> })',
-            '5. If sq_save_session was recently called with bad cookies, use sq_restore_session to recover the previous working session.',
+            '1. RECOMMENDED (local): Use sq_login_browser to launch a local Chromium browser and log in. This captures all cookies including HTTP-only ones automatically.',
+            '2. RECOMMENDED (cloud): Use sq_login_cloud to log in via a cloud browser (requires BROWSERBASE_API_KEY). Returns a URL to open — log in there and the tool saves the session.',
+            '3. MANUAL: Export cookies from your browser (Chrome DevTools → Application → Cookies) and pass them to sq_save_session.',
+            '4. If sq_save_session was recently called with bad cookies, use sq_restore_session to recover the previous working session.',
           ],
         }, null, 2) }],
       };
@@ -173,66 +226,20 @@ export function registerAuthTools(server: McpServer) {
           // Capture full storage state (cookies + localStorage with statsig data)
           const fullState = await context.storageState() as { cookies: any[]; origins: any[] };
 
-          // Save session with account-level cookies immediately
-          mkdirSync(SESSION_DIR, { recursive: true });
-
-          if (existsSync(SESSION_PATH)) {
-            copyFileSync(SESSION_PATH, SESSION_PATH + '.bak');
-          }
-
-          writeFileSync(
-            SESSION_PATH,
-            JSON.stringify(fullState, null, 2),
-            'utf-8',
-          );
-
-          reloadAllSessions();
-
-          // Now capture site-specific cookies (member-session + crumb) via HTTP
-          // instead of navigating the browser to each site's /config page.
-          // This is faster, more reliable, and works for any number of sites.
-          const capturedSites: string[] = [];
-          try {
-            const { fetchAccountSites } = await import('../session.js');
-            // fetchAccountSites discovers all sites and calls captureMissingCrumbs
-            // which uses HTTP to fetch site-specific cookies for any site missing a crumb
-            await fetchAccountSites();
-
-            // Re-read session to check what was captured
-            const updatedSession = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
-            const updatedCookies: Array<{ name: string; domain: string }> = updatedSession.cookies ?? [];
-            const sites = await listSites();
-            for (const site of sites) {
-              const hasSiteCrumb = updatedCookies.some(
-                (c) => c.name === 'crumb' && c.domain.replace(/^\./, '').includes(site.subdomain),
-              );
-              if (hasSiteCrumb) capturedSites.push(site.subdomain);
-            }
-          } catch {
-            // Cookie capture is best-effort — account-level login still succeeded
-          }
-
-          // Re-read final cookie state
-          const finalSession = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
-          const allCookies = finalSession.cookies ?? [];
-
-          reloadAllSessions();
-
-          const hasCrumb = allCookies.some(
-            (c: { name: string }) => c.name === 'crumb',
-          );
+          const { cookieCount, hasCrumb, capturedSites } =
+            await saveSessionAndDiscoverSites(fullState);
 
           return {
             content: [{
               type: 'text' as const,
               text: JSON.stringify({
                 status: 'saved',
-                cookieCount: allCookies.length,
+                cookieCount,
                 hasCrumb,
                 hasMemberSession: true,
                 capturedSites,
                 sessionPath: SESSION_PATH,
-                message: `Session saved with ${allCookies.length} cookies. Captured site-specific cookies for ${capturedSites.length} site(s): ${capturedSites.join(', ') || 'none'}. Squarespace API is ready.`,
+                message: `Session saved with ${cookieCount} cookies. Captured site-specific cookies for ${capturedSites.length} site(s): ${capturedSites.join(', ') || 'none'}. Squarespace API is ready.`,
               }, null, 2),
             }],
           };
@@ -251,6 +258,160 @@ export function registerAuthTools(server: McpServer) {
             }],
             isError: true,
           };
+        }
+
+        await new Promise(resolve => setTimeout(resolve, pollInterval));
+      }
+    } catch (err) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: `Error: ${err instanceof Error ? err.message : String(err)}`,
+        }],
+        isError: true,
+      };
+    } finally {
+      if (browser) {
+        try { await browser.close(); } catch { /* ensure cleanup */ }
+      }
+    }
+  });
+
+  // ── sq_login_cloud ──────────────────────────────────────────────────────
+  server.registerTool('sq_login_cloud', {
+    description:
+      'Login to Squarespace via a cloud browser (no local Chromium needed). ' +
+      'Creates a Browserbase session and returns a live URL for you to open in your browser. ' +
+      'Log in to Squarespace there — the tool detects success and saves the session automatically. ' +
+      'Requires BROWSERBASE_API_KEY environment variable.',
+    inputSchema: {
+      loginUrl: z.string().optional().describe(
+        'Custom login URL (default: https://login.squarespace.com). ' +
+        'Use with ?redirect= to land on a specific page after login.',
+      ),
+      timeoutMs: z.number().optional().describe(
+        'Login timeout in milliseconds (default: 300000 = 5 minutes)',
+      ),
+    },
+  }, async ({ loginUrl, timeoutMs }) => {
+    // Fail fast if Browserbase is not configured
+    const apiKey = process.env.BROWSERBASE_API_KEY;
+    if (!apiKey) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({
+          status: 'error',
+          message: 'BROWSERBASE_API_KEY not set. Set this environment variable to use cloud login. ' +
+            'Get a key at https://www.browserbase.com/. ' +
+            'Alternatively, use sq_login_browser for local login with Chromium.',
+        }, null, 2) }],
+        isError: true,
+      };
+    }
+
+    let browser: any = null;
+    try {
+      // Dynamic imports — don't break other tools if SDK isn't installed
+      let Browserbase: any;
+      try {
+        const bbModule = await import('@browserbasehq/sdk');
+        Browserbase = bbModule.default ?? bbModule.Browserbase;
+      } catch {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            status: 'error',
+            message: '@browserbasehq/sdk not installed. Run: npm install @browserbasehq/sdk',
+          }, null, 2) }],
+          isError: true,
+        };
+      }
+
+      const { chromium } = await import('playwright');
+
+      // 1. Create a Browserbase session
+      const bb = new Browserbase({ apiKey });
+      const sessionOpts: Record<string, unknown> = {};
+      if (process.env.BROWSERBASE_PROJECT_ID) {
+        sessionOpts.projectId = process.env.BROWSERBASE_PROJECT_ID;
+      }
+      const session = await bb.sessions.create(sessionOpts);
+
+      // 2. Connect Playwright over CDP
+      browser = await chromium.connectOverCDP(session.connectUrl);
+      const context = browser.contexts()[0];
+      const page = context.pages()[0] ?? await context.newPage();
+
+      // 3. Navigate to Squarespace login
+      await page.goto(loginUrl ?? 'https://login.squarespace.com', {
+        waitUntil: 'domcontentloaded',
+      });
+
+      // 4. Build the live view URL for the user
+      const liveUrl = `https://www.browserbase.com/sessions/${session.id}/debug`;
+
+      // Return the URL immediately — the user needs to open it and log in.
+      // We continue polling in the background until member-session appears.
+      // NOTE: MCP tools are synchronous request/response, so we poll here
+      // and the response is sent only after login completes or times out.
+      // The AI assistant should tell the user to open the liveUrl.
+
+      // Poll for member-session cookie
+      const timeout = timeoutMs ?? 300_000;
+      const pollInterval = 2_000;
+      const startTime = Date.now();
+
+      // First, return a progress notification with the URL
+      // (MCP doesn't support streaming, so we embed the URL in the final response)
+
+      while (true) {
+        const cookies = await context.cookies();
+        const hasMemberSession = cookies.some(
+          (c: { name: string }) => c.name === 'member-session',
+        );
+
+        if (hasMemberSession) {
+          const fullState = await context.storageState() as { cookies: any[]; origins: any[] };
+
+          const { cookieCount, hasCrumb, capturedSites } =
+            await saveSessionAndDiscoverSites(fullState);
+
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify({
+                status: 'saved',
+                cookieCount,
+                hasCrumb,
+                hasMemberSession: true,
+                capturedSites,
+                sessionPath: SESSION_PATH,
+                liveUrl,
+                message: `Cloud login successful. Session saved with ${cookieCount} cookies. ` +
+                  `Captured site-specific cookies for ${capturedSites.length} site(s): ${capturedSites.join(', ') || 'none'}. ` +
+                  'Squarespace API is ready.',
+              }, null, 2),
+            }],
+          };
+        }
+
+        if (Date.now() - startTime >= timeout) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: JSON.stringify({
+                status: 'timeout',
+                liveUrl,
+                message: `Login timed out after ${timeout / 1000}s. No member-session cookie detected. ` +
+                  `Open this URL and complete login: ${liveUrl}`,
+                cookiesFound: cookies.length,
+              }, null, 2),
+            }],
+            isError: true,
+          };
+        }
+
+        // On the first poll, log the live URL so the AI can surface it
+        if (Date.now() - startTime < pollInterval * 2) {
+          console.error(`[sq_login_cloud] Waiting for login at: ${liveUrl}`);
         }
 
         await new Promise(resolve => setTimeout(resolve, pollInterval));

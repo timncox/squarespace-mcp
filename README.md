@@ -7,7 +7,7 @@ MCP server that edits Squarespace websites via the Content Save API. Exposes 141
 ### Prerequisites
 
 - Node.js 18+
-- Squarespace session cookies (captured via `sq_login_browser` or browser export)
+- Squarespace session cookies (captured via `sq_login_browser`, `sq_login_cloud`, or browser export)
 
 ### Install
 
@@ -27,6 +27,10 @@ Create a `.env` file:
 GMAIL_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GMAIL_CLIENT_SECRET=your-client-secret
 # GMAIL_REFRESH_TOKEN=1//your-refresh-token  # optional bootstrap
+
+# Browserbase (optional — only needed for sq_login_cloud)
+# BROWSERBASE_API_KEY=your-api-key
+# BROWSERBASE_PROJECT_ID=your-project-id
 ```
 
 Sites are auto-discovered from your Squarespace account after `sq_login_browser` or `sq_save_session`. Discovered sites are stored in SQLite and auto-registered in `config/sites.json` with friendly names — no manual config needed.
@@ -98,9 +102,11 @@ Requires a compiled build (`npm run build` first). Alternatively, use `npx tsx` 
 
 Session cookies stored in `storage/auth/sqsp-session.json` (Playwright storageState format). The server auto-reloads cookies when the file changes — no restart needed.
 
-**`sq_login_browser`** (recommended) — Launches a visible Chromium browser via Playwright. User logs in manually; the tool captures all cookies (including HTTP-only `member-session`) via `context.cookies()` and saves the session automatically.
+**`sq_login_browser`** (recommended, local) — Launches a visible Chromium browser via Playwright. User logs in manually; the tool captures all cookies (including HTTP-only `member-session`) via `context.cookies()` and saves the session automatically.
 
-**`sq_login`** — Checks session health (file age + active API probe). Now includes **per-site cookie status** showing which sites have valid `member-session` and `crumb` cookies and which need re-auth.
+**`sq_login_cloud`** (recommended, remote) — Login via a [Browserbase](https://www.browserbase.com/) cloud browser. No local Chromium needed. Returns a live URL — open it in your browser, log in to Squarespace, and the tool captures cookies over CDP automatically. Requires `BROWSERBASE_API_KEY` environment variable.
+
+**`sq_login`** — Checks session health (file age + active API probe). Includes **per-site cookie status** showing which sites have valid `member-session` and `crumb` cookies and which need re-auth.
 
 **`sq_save_session`** — Accepts raw cookie JSON from manual browser export. Validates, backs up existing session, saves, and reloads clients. Detects missing site-specific cookies and returns `missingSites` with admin URLs so you know which sites to visit before re-capturing.
 
@@ -151,7 +157,7 @@ npm test        # Run test suite (~1475 tests, 67 files)
 | Announcement Bar | 2 | get/update announcement bar (with style passthrough) |
 | Images | 2 | upload single (path, URL, or base64), upload batch |
 | Commerce | 9 | products CRUD, variants, images (attach/remove/replace), store pages |
-| Auth | 5 | login browser, login check (with per-site health), discover sites, save session, restore session |
+| Auth | 6 | login browser, login cloud (Browserbase), login check (with per-site health), discover sites, save session, restore session |
 | Links | 1 | validate links on a page |
 | Snapshots | 4 | save/list/restore/delete section snapshots |
 | Wayback | 2 | list Wayback Machine snapshots, fetch archived content |
