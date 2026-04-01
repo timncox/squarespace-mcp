@@ -273,6 +273,29 @@ export const SESSION_PATH = process.env.SESSION_DIR
   : join(process.cwd(), 'storage', 'auth', 'sqsp-session.json');
 export const FETCH_TIMEOUT_MS = 15_000;
 
+// Remote session sync — pull fresh cookies from Squarespace MMP bot
+const REMOTE_SESSION_URL = process.env.SQSP_SESSION_URL || '';
+const REMOTE_SESSION_SECRET = process.env.SQSP_SESSION_SECRET || '';
+
+async function tryFetchRemoteSession(sessionPath: string): Promise<boolean> {
+  if (!REMOTE_SESSION_URL || !REMOTE_SESSION_SECRET) return false;
+  try {
+    const url = `${REMOTE_SESSION_URL}?secret=${REMOTE_SESSION_SECRET}`;
+    const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    if (!resp.ok) return false;
+    const session = await resp.json();
+    if (!session.cookies?.length) return false;
+    const { mkdirSync } = await import('fs');
+    mkdirSync(join(sessionPath, '..'), { recursive: true });
+    writeFileSync(sessionPath, JSON.stringify(session, null, 2), 'utf-8');
+    logger.info({ cookieCount: session.cookies.length }, 'Refreshed session from remote bot');
+    return true;
+  } catch (err) {
+    logger.warn({ err: errMsg(err) }, 'Failed to fetch remote session');
+    return false;
+  }
+}
+
 export const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36';
 
@@ -1403,6 +1426,25 @@ export class ContentSaveClient {
     } catch {
       return { exists: true, ageHours, isStale: ageHours > 24, hasCrumb: false };
     }
+  }
+
+  /**
+   * Check session health and auto-refresh from remote bot if stale.
+   * Returns the same shape as checkSessionHealth but tries remote fetch first.
+   */
+  static async checkSessionHealthWithRemote(sessionPath?: string): Promise<{ exists: boolean; ageHours: number; isStale: boolean; hasCrumb: boolean; refreshedFromRemote: boolean }> {
+    const path = sessionPath ?? SESSION_PATH;
+    let health = ContentSaveClient.checkSessionHealth(path);
+
+    if (health.isStale || !health.hasCrumb) {
+      const fetched = await tryFetchRemoteSession(path);
+      if (fetched) {
+        health = ContentSaveClient.checkSessionHealth(path);
+        return { ...health, refreshedFromRemote: true };
+      }
+    }
+
+    return { ...health, refreshedFromRemote: false };
   }
 
   /**

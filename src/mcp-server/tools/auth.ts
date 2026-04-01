@@ -111,7 +111,8 @@ export function registerAuthTools(server: McpServer) {
   }, async ({ siteId }) => {
     try {
       const { ContentSaveClient } = await import('../../services/content-save.js');
-      const health = ContentSaveClient.checkSessionHealth(SESSION_PATH);
+      // Try remote session refresh if local is stale
+      const health = await ContentSaveClient.checkSessionHealthWithRemote(SESSION_PATH);
 
       if (health.exists && !health.isStale && health.hasCrumb) {
         // Active probe: try an actual API call to verify cookies work
