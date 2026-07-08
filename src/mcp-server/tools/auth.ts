@@ -11,9 +11,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, statSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { reloadAllSessions, listSites } from '../session.js';
+
+const execFileAsync = promisify(execFile);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..', '..', '..');
@@ -681,7 +685,10 @@ export function registerAuthTools(server: McpServer) {
       'Restore the previous Squarespace session from backup. ' +
       'When sq_save_session overwrites a working session with bad cookies, ' +
       'this tool recovers the .bak backup file. Use this when sq_login reports ' +
-      'session_invalid after a recent sq_save_session.',
+      'session_invalid after a recent sq_save_session. ' +
+      '⚠️ Do NOT use to "fix" 401s right after a fresh login — the .bak is then ' +
+      'the OLDER, expired session and restoring it makes things worse. ' +
+      'For 401s, use sq_relogin instead.',
     inputSchema: {},
   }, async () => {
     try {
@@ -722,6 +729,61 @@ export function registerAuthTools(server: McpServer) {
     } catch (err) {
       return {
         content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }],
+        isError: true,
+      };
+    }
+  });
+
+  // ── sq_relogin ────────────────────────────────────────────────────────────
+  server.registerTool('sq_relogin', {
+    description:
+      'Re-authenticate the Squarespace session automatically (headless browser, ' +
+      'no user action needed). Runs scripts/relogin.mjs with credentials from .env, ' +
+      'captures per-site member-session + crumb cookies, saves the session, and ' +
+      'reloads all cached clients. Call this when any tool reports a 401/expired ' +
+      'session, then retry the failed call. Pass subdomains to re-auth only those ' +
+      'sites (faster); omit to re-auth every site on the account (~1.5 min).',
+    inputSchema: {
+      subdomains: z.array(z.string()).optional().describe(
+        'Internal Squarespace subdomains to re-auth (e.g. ["buttercup-pug-e574"]). Omit for all sites.',
+      ),
+    },
+  }, async ({ subdomains }: { subdomains?: string[] }) => {
+    // Locate the repo root — works from both src/ (tsx) and dist/ builds,
+    // where __dirname-relative PROJECT_ROOT math differs.
+    let root = __dirname;
+    while (!existsSync(join(root, 'scripts', 'relogin.mjs'))) {
+      const parent = dirname(root);
+      if (parent === root) {
+        return {
+          content: [{ type: 'text' as const, text: `Error: scripts/relogin.mjs not found above ${__dirname}` }],
+          isError: true,
+        };
+      }
+      root = parent;
+    }
+    try {
+      const scriptArgs = [join(root, 'scripts', 'relogin.mjs'), '--headless', ...(subdomains ?? [])];
+      const { stdout } = await execFileAsync('node', scriptArgs, { timeout: 300_000, cwd: root });
+      reloadAllSessions();
+      const savedLine = stdout.split('\n').find((l: string) => l.startsWith('SAVED')) ?? '';
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({
+          status: savedLine ? 'reauthenticated' : 'error',
+          summary: savedLine || stdout.slice(-400),
+          message: savedLine
+            ? 'Session refreshed and clients reloaded. Retry the failed call now.'
+            : 'relogin produced no SAVED line — see summary for its output.',
+        }, null, 2) }],
+        isError: !savedLine,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({
+          status: 'error',
+          message: `Headless relogin failed: ${msg.slice(0, 300)}. If a CAPTCHA is blocking headless login, run \`node scripts/relogin.mjs\` (headful) manually.`,
+        }, null, 2) }],
         isError: true,
       };
     }

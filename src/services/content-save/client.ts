@@ -754,7 +754,7 @@ export class ContentSaveClient {
       const ageStr = this.sessionAgeHours !== null
         ? ` Session is ${Math.round(this.sessionAgeHours)}h old (max 24h).`
         : '';
-      return `${baseError} — THIS IS LIKELY AN EXPIRED SESSION.${ageStr} Call sq_login to check session health and re-authenticate.`;
+      return `${baseError} — THIS IS LIKELY AN EXPIRED SESSION.${ageStr} Call sq_relogin (headless re-auth, no user action needed), then retry. Fallback: run \`node scripts/relogin.mjs <subdomain>\` from the repo.`;
     }
     // For any 500+ error, append general session advice
     if (status >= 500) {

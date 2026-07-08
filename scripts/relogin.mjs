@@ -15,6 +15,8 @@
 // Run: node scripts/relogin.mjs                (all sites, ~1.5 min)
 //      node scripts/relogin.mjs <subdomain...> (only the named sites — faster,
 //        but sites not visited keep their old, likely-expired cookies)
+//      --headless : no visible window (login has never needed manual rescue,
+//        but if a CAPTCHA ever appears, rerun without the flag)
 import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -30,7 +32,10 @@ const ALL_SUBDOMAINS = [
   'goldfish-harmonica-z7bh', 'jaguar-koi-4kxs', 'sphere-green-b2j7',
   'seahorsenyc', 'msh', 'buttercup-bell-9mx7',
 ];
-const SUBDOMAINS = process.argv.length > 2 ? process.argv.slice(2) : ALL_SUBDOMAINS;
+const args = process.argv.slice(2);
+const HEADLESS = args.includes('--headless');
+const named = args.filter((a) => !a.startsWith('--'));
+const SUBDOMAINS = named.length > 0 ? named : ALL_SUBDOMAINS;
 
 const env = Object.fromEntries(
   readFileSync(join(ROOT, '.env'), 'utf8')
@@ -48,9 +53,9 @@ const { chromium } = await import('playwright');
 let browser;
 try {
   try {
-    browser = await chromium.launch({ headless: false, channel: 'chrome' });
+    browser = await chromium.launch({ headless: HEADLESS, channel: 'chrome' });
   } catch {
-    browser = await chromium.launch({ headless: false });
+    browser = await chromium.launch({ headless: HEADLESS });
   }
   const context = await browser.newContext();
   const page = await context.newPage();

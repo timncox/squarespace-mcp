@@ -1,16 +1,31 @@
+---
+status: active
+last_touched: 2026-07-08
+---
+
 # Squarespace MCP — CLAUDE.md
 
 ## What This Project Is
 
-MCP server that edits Squarespace websites via the Content Save API. Exposes 134 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop.
+MCP server that edits Squarespace websites via the Content Save API. Exposes 134 tools for text, images, sections, blocks, pages, menus, forms, commerce, navigation, design, code injection, blog posts, gallery management, PDF menu parsing, section snapshots, Wayback Machine recovery, and more. Used from Claude Desktop and Claude Code (usually parked — revive via `/mcp-revive squarespace`).
 
 ## Commands
 
 ```bash
 npm run mcp     # Start MCP server (tsx src/mcp-server/index.ts)
-npm run build   # TypeScript compile
-npm test        # vitest run (~1468 tests, 65 files)
+npm run build   # TypeScript compile — the parked MCP config runs dist/, so rebuild after src changes
+npm test        # vitest run (~1468 tests, 65 files; ~10 auth-tools failures pre-date 19468ed's session-refresh change)
+node scripts/relogin.mjs [subdomain...] [--headless]   # re-auth the Squarespace session
+node scripts/smoke.mjs [subdomain]                     # endpoint-drift check (read tools vs live API)
 ```
+
+## Auth & Sessions (read this before debugging 401s)
+
+Auth is **cookie-based** (`storage/auth/sqsp-session.json`, a Playwright storageState). The Content API needs a per-site `member-session` + `crumb` pair for every site; sessions go stale in ~hours and **any browser use of the cookies rotates them**, invalidating the stored copy.
+
+- **401 anywhere** → call the `sq_relogin` tool (headless, no user action) or run `node scripts/relogin.mjs <subdomain>`. Credentials come from `SQSP_EMAIL`/`SQSP_PASSWORD` in `.env`; no CAPTCHA has ever appeared.
+- **Never "fix" a 401 with `sq_restore_session` right after a fresh login** — the `.bak` is the older, expired session.
+- **Endpoint drift is real.** Squarespace changes internal APIs under this server. 2026-07-08: injection values moved out of `/api/settings` (read from `/api/config/GetInjectionSettings`), and `SaveInjectionSettings` requires form-encoded `header`/`footer` (old `injectHeader` names were accepted-but-ignored — a silent no-op). When a tool errors or silently no-ops, run `scripts/smoke.mjs` first, then capture ground truth: drive the config UI with Playwright while logging `page.on('response')` and grep response bodies for a known marker string.
 
 ## Architecture
 

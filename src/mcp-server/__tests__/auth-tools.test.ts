@@ -73,14 +73,15 @@ describe('Auth Tools', () => {
     registerAuthTools(server as any);
   });
 
-  it('should register all six auth tools', () => {
+  it('should register all seven auth tools', () => {
     expect(server.tools.has('sq_login')).toBe(true);
     expect(server.tools.has('sq_login_browser')).toBe(true);
     expect(server.tools.has('sq_login_cloud')).toBe(true);
     expect(server.tools.has('sq_save_session')).toBe(true);
     expect(server.tools.has('sq_discover_sites')).toBe(true);
     expect(server.tools.has('sq_restore_session')).toBe(true);
-    expect(server.tools.size).toBe(6);
+    expect(server.tools.has('sq_relogin')).toBe(true);
+    expect(server.tools.size).toBe(7);
   });
 
   // ── sq_login ──────────────────────────────────────────────────────────────
