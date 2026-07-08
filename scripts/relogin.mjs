@@ -15,8 +15,9 @@
 // Run: node scripts/relogin.mjs                (all sites, ~1.5 min)
 //      node scripts/relogin.mjs <subdomain...> (only the named sites — faster,
 //        but sites not visited keep their old, likely-expired cookies)
-//      --headless : no visible window (login has never needed manual rescue,
-//        but if a CAPTCHA ever appears, rerun without the flag)
+//      --headless : try without a visible window first. Squarespace currently
+//        rejects headless logins (verified 2026-07-08), so this auto-falls
+//        back to a visible window — the flag mostly future-proofs.
 import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -50,52 +51,78 @@ if (!env.SQSP_EMAIL || !env.SQSP_PASSWORD) {
 
 const { chromium } = await import('playwright');
 
-let browser;
-try {
+// Attempt a full login in the given mode. Returns {browser, context, page}
+// on success, or null after closing the browser on failure.
+// NOTE: verified 2026-07-08 that Squarespace REJECTS headless logins (form
+// submits, member-session never granted) — headless is attempted only because
+// that may change; the headful fallback is what actually works.
+async function attemptLogin(headless) {
+  let browser;
   try {
-    browser = await chromium.launch({ headless: HEADLESS, channel: 'chrome' });
+    browser = await chromium.launch({ headless, channel: 'chrome' });
   } catch {
-    browser = await chromium.launch({ headless: HEADLESS });
+    browser = await chromium.launch({ headless });
   }
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await page.goto('https://login.squarespace.com', { waitUntil: 'domcontentloaded' });
-
-  // Best-effort auto-fill; any failure just leaves the window for manual login.
   try {
-    const emailInput = page.locator('input[type="email"], input[name="email"]').first();
-    await emailInput.waitFor({ timeout: 20000 });
-    await emailInput.fill(env.SQSP_EMAIL);
-    const pw = page.locator('input[type="password"]').first();
-    if (!(await pw.isVisible().catch(() => false))) {
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    await page.goto('https://login.squarespace.com', { waitUntil: 'domcontentloaded' });
+
+    // Best-effort auto-fill; any failure just leaves the window for manual login.
+    try {
+      const emailInput = page.locator('input[type="email"], input[name="email"]').first();
+      await emailInput.waitFor({ timeout: 20000 });
+      await emailInput.fill(env.SQSP_EMAIL);
+      const pw = page.locator('input[type="password"]').first();
+      if (!(await pw.isVisible().catch(() => false))) {
+        await page
+          .locator('button[type="submit"], button:has-text("Continue"), button:has-text("Log In")')
+          .first()
+          .click()
+          .catch(() => {});
+      }
+      await pw.waitFor({ timeout: 20000 });
+      await pw.fill(env.SQSP_PASSWORD);
       await page
-        .locator('button[type="submit"], button:has-text("Continue"), button:has-text("Log In")')
+        .locator('button[type="submit"], button:has-text("Log In"), button:has-text("Continue")')
         .first()
         .click()
         .catch(() => {});
+      console.log(`login form submitted (${headless ? 'headless' : 'headful'})`);
+    } catch (e) {
+      console.log(`auto-fill incomplete (${e.message?.slice(0, 100)}); waiting for manual login`);
     }
-    await pw.waitFor({ timeout: 20000 });
-    await pw.fill(env.SQSP_PASSWORD);
-    await page
-      .locator('button[type="submit"], button:has-text("Log In"), button:has-text("Continue")')
-      .first()
-      .click()
-      .catch(() => {});
-    console.log('login form submitted');
-  } catch (e) {
-    console.log(`auto-fill incomplete (${e.message?.slice(0, 100)}); waiting for manual login`);
-  }
 
-  const deadline = Date.now() + 240_000;
-  while (Date.now() < deadline) {
-    const cookies = await context.cookies();
-    if (cookies.some((c) => c.name === 'member-session')) break;
-    await new Promise((r) => setTimeout(r, 2000));
+    // Headless rejection fails fast; give humans/CAPTCHAs time in headful.
+    const deadline = Date.now() + (headless ? 90_000 : 240_000);
+    while (Date.now() < deadline) {
+      const cookies = await context.cookies();
+      if (cookies.some((c) => c.name === 'member-session')) {
+        return { browser, context, page };
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    console.log(`no member-session after ${headless ? 'headless' : 'headful'} attempt`);
+  } catch (e) {
+    console.log(`login attempt error: ${e.message?.slice(0, 120)}`);
   }
-  if (!(await context.cookies()).some((c) => c.name === 'member-session')) {
+  await browser.close().catch(() => {});
+  return null;
+}
+
+let browser;
+try {
+  let session = HEADLESS ? await attemptLogin(true) : null;
+  if (HEADLESS && !session) {
+    console.log('headless login blocked — retrying with a visible window');
+  }
+  if (!session) session = await attemptLogin(false);
+  if (!session) {
     console.error('TIMEOUT: no member-session cookie — login not completed');
     process.exit(3);
   }
+  browser = session.browser;
+  const { context, page } = session;
   console.log('logged in; visiting site config pages…');
 
   await page.goto('https://account.squarespace.com/', { waitUntil: 'domcontentloaded' }).catch(() => {});
