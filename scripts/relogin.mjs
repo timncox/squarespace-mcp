@@ -12,7 +12,9 @@
 // navigation is the only capture path verified to produce a working session
 // (2026-07-08).
 //
-// Run: node scripts/relogin.mjs   (~1.5 min; a Chrome window pops briefly)
+// Run: node scripts/relogin.mjs                (all sites, ~1.5 min)
+//      node scripts/relogin.mjs <subdomain...> (only the named sites — faster,
+//        but sites not visited keep their old, likely-expired cookies)
 import { readFileSync, writeFileSync, copyFileSync, existsSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
@@ -22,12 +24,13 @@ const SESSION_PATH = join(ROOT, 'storage', 'auth', 'sqsp-session.json');
 
 // Site list as of 2026-07-08 — update as sites are added to the account.
 // (buttercup-pug-e574 = Maison Nur / www.maisonnur.nyc)
-const SUBDOMAINS = [
+const ALL_SUBDOMAINS = [
   'buttercup-pug-e574',
   'smyth-tavern', 'bmco', 'tim-cox', 'lurefishbar', 'ruby-iris-ferj',
   'goldfish-harmonica-z7bh', 'jaguar-koi-4kxs', 'sphere-green-b2j7',
   'seahorsenyc', 'msh', 'buttercup-bell-9mx7',
 ];
+const SUBDOMAINS = process.argv.length > 2 ? process.argv.slice(2) : ALL_SUBDOMAINS;
 
 const env = Object.fromEntries(
   readFileSync(join(ROOT, '.env'), 'utf8')

@@ -499,7 +499,10 @@ ContentSaveClient.prototype.getCodeInjection = async function (
 ): Promise<{ success: boolean; data?: CodeInjectionData; error?: string }> {
   this.ensureCookies();
 
-  const url = this.buildApiUrl('/api/settings');
+  // /api/settings does not carry injection values on current sites — the
+  // config UI reads them from GetInjectionSettings ({header, footer,
+  // lockPage, postItem}), the sibling of SaveInjectionSettings.
+  const url = this.buildApiUrl('/api/config/GetInjectionSettings');
 
   logger.info({ siteSubdomain: this.siteSubdomain }, 'Fetching code injection settings');
 
@@ -516,11 +519,10 @@ ContentSaveClient.prototype.getCodeInjection = async function (
     }
 
     const settings = await response.json() as Record<string, unknown>;
-    const injection = settings.codeInjection as Record<string, string> | undefined;
 
     const data: CodeInjectionData = {
-      header: injection?.header ?? (settings.injectHeader as string | undefined) ?? '',
-      footer: injection?.footer ?? (settings.injectFooter as string | undefined) ?? '',
+      header: (settings.header as string | undefined) ?? '',
+      footer: (settings.footer as string | undefined) ?? '',
     };
 
     logger.info(
