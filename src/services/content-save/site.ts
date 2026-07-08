@@ -543,9 +543,12 @@ ContentSaveClient.prototype.saveCodeInjection = async function (
 
   const url = this.buildApiUrl('/api/config/SaveInjectionSettings', true);
 
-  const body: Record<string, string> = {};
-  if (header !== undefined) body.injectHeader = header;
-  if (footer !== undefined) body.injectFooter = footer;
+  // Legacy config RPC — rejects JSON with 415 and wants form encoding, with
+  // field names `header`/`footer` (`injectHeader`/`injectFooter` are accepted
+  // but silently ignored). Verified against the config UI's own save request.
+  const body = new URLSearchParams();
+  if (header !== undefined) body.set('header', header);
+  if (footer !== undefined) body.set('footer', footer);
 
   logger.info(
     { siteSubdomain: this.siteSubdomain, headerLength: header?.length, footerLength: footer?.length },
@@ -557,9 +560,9 @@ ContentSaveClient.prototype.saveCodeInjection = async function (
       method: 'POST',
       headers: {
         ...this.buildHeaders(),
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: JSON.stringify(body),
+      body: body.toString(),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
 
