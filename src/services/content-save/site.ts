@@ -393,8 +393,12 @@ ContentSaveClient.prototype.updateSiteIdentity = async function (
 
       const putRes = await fetch(putUrl, {
         method: 'PUT',
-        headers: { ...this.buildHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify(settingsData),
+        headers: {
+          ...this.buildHeaders(),
+          'Content-Type': 'application/json',
+          ...(this.crumbToken ? { 'x-csrf-token': this.crumbToken } : {}),
+        },
+        body: JSON.stringify(sanitizeSettingsForPut(settingsData)),
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       });
       if (!putRes.ok) {
@@ -411,6 +415,56 @@ ContentSaveClient.prototype.updateSiteIdentity = async function (
 };
 
 // ── Settings ─────────────────────────────────────────────────────────────────
+
+/**
+ * Set-type fields that GET /api/settings serializes as `{key: true}` maps but
+ * the PUT validator only accepts in the array form the editor UI sends
+ * (`["key"]` / `[1]`). Sending the map form back 400s with an empty body.
+ * Observed 2026-07-19 by capturing the config UI's save on sphere-green-b2j7.
+ */
+const SETTINGS_SET_MAP_FIELDS: Record<string, (keys: string[]) => unknown> = {
+  tutorialsCompleted: (keys) => keys,
+  menuShortcuts: (keys) => keys.map(Number),
+};
+
+/**
+ * Server-managed flags present in GET /api/settings responses that the editor
+ * UI never includes in its PUT payload (same 2026-07-19 capture).
+ */
+const SETTINGS_SERVER_MANAGED_FIELDS = new Set([
+  'ampEnabled',
+  'bucketingSeedId',
+  'bundleEligible',
+  'coverPageOnlyEnabled',
+  'creatorAccountCreationDate',
+  'lockScreenBetaEnabled',
+  'newPlanArchitectureEligible',
+  'scriptRegistrationsFlag',
+  'uiComponentRegistrationsFlag',
+  'userAccountsSettings',
+]);
+
+/**
+ * Convert a GET /api/settings response into a payload PUT /api/settings will
+ * accept. Fields already in array form (e.g. set explicitly by a caller) pass
+ * through unchanged.
+ */
+export function sanitizeSettingsForPut(
+  settings: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (SETTINGS_SERVER_MANAGED_FIELDS.has(key)) continue;
+    const toArray = SETTINGS_SET_MAP_FIELDS[key];
+    if (toArray && value !== null && typeof value === 'object' && !Array.isArray(value)) {
+      const record = value as Record<string, unknown>;
+      out[key] = toArray(Object.keys(record).filter((k) => record[k]));
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
 
 ContentSaveClient.prototype.getSettings = async function (
   this: ContentSaveClient,
@@ -470,14 +524,19 @@ ContentSaveClient.prototype.updateSettings = async function (
       current[key] = fields[key as keyof SiteSettings];
     }
 
-    // PUT merged settings
+    // PUT merged settings — sanitized, since the GET body is not round-trippable
+    // as-is (see sanitizeSettingsForPut). x-csrf-token matches the editor UI.
     let putUrl = url;
     if (this.crumbToken) putUrl += `?crumb=${encodeURIComponent(this.crumbToken)}`;
 
     const putRes = await fetch(putUrl, {
       method: 'PUT',
-      headers: { ...this.buildHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify(current),
+      headers: {
+        ...this.buildHeaders(),
+        'Content-Type': 'application/json',
+        ...(this.crumbToken ? { 'x-csrf-token': this.crumbToken } : {}),
+      },
+      body: JSON.stringify(sanitizeSettingsForPut(current)),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     if (!putRes.ok) {

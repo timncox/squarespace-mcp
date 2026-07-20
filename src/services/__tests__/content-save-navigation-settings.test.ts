@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { ContentSaveClient } from '../content-save.js';
+import { ContentSaveClient, sanitizeSettingsForPut } from '../content-save.js';
 
 // ── Mock session file ─────────────────────────────────────────────────────
 
@@ -350,5 +350,102 @@ describe('ContentSaveClient.updateSettings()', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('Connection refused');
+  });
+});
+
+// ── sanitizeSettingsForPut() ──────────────────────────────────────────────
+//
+// GET /api/settings serializes some set-type fields as {key: true} maps, but
+// PUT /api/settings 400s (empty body) unless they are in the array form the
+// editor UI sends. Captured from the config UI 2026-07-19.
+
+describe('sanitizeSettingsForPut()', () => {
+  it('converts tutorialsCompleted map to string array', () => {
+    const out = sanitizeSettingsForPut({
+      tutorialsCompleted: { 'damask-guide': true, 'seven-one-site-styles': true, 'skipped': false },
+    });
+    expect(out.tutorialsCompleted).toEqual(['damask-guide', 'seven-one-site-styles']);
+  });
+
+  it('converts menuShortcuts map to number array', () => {
+    const out = sanitizeSettingsForPut({ menuShortcuts: { '1': true, '2': true, '9': true } });
+    expect(out.menuShortcuts).toEqual([1, 2, 9]);
+  });
+
+  it('passes through fields already in array form', () => {
+    const out = sanitizeSettingsForPut({
+      tutorialsCompleted: ['damask-guide'],
+      menuShortcuts: [1, 2],
+    });
+    expect(out.tutorialsCompleted).toEqual(['damask-guide']);
+    expect(out.menuShortcuts).toEqual([1, 2]);
+  });
+
+  it('strips server-managed fields the editor UI never sends', () => {
+    const out = sanitizeSettingsForPut({
+      siteTitle: 'Keep me',
+      ampEnabled: false,
+      bucketingSeedId: 42,
+      bundleEligible: true,
+      creatorAccountCreationDate: 123456,
+      userAccountsSettings: { enabled: true },
+    });
+    expect(out).toEqual({ siteTitle: 'Keep me' });
+  });
+
+  it('leaves unrelated object fields untouched', () => {
+    const store = { returnPolicy: { raw: false }, expressCheckout: false };
+    const out = sanitizeSettingsForPut({ storeSettings: store, announcementBarSettings: { style: 2 } });
+    expect(out.storeSettings).toEqual(store);
+    expect(out.announcementBarSettings).toEqual({ style: 2 });
+  });
+});
+
+describe('ContentSaveClient.updateSettings() payload sanitization', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('sends sanitized payload: set-maps become arrays, server-managed fields dropped', async () => {
+    const currentSettings = {
+      siteTitle: 'Title',
+      tutorialsCompleted: { 'damask-guide': true },
+      menuShortcuts: { '1': true, '4': true },
+      bucketingSeedId: 7,
+      announcementBarSettings: { style: 1 },
+    };
+    const fetchMock = mockFetch([
+      { ok: true, body: currentSettings }, // GET
+      { ok: true, body: {} },              // PUT
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = makeClient();
+    const result = await client.updateSettings({
+      announcementBarSettings: { style: 2, text: { html: '<p>Hi</p>', raw: false } },
+    });
+
+    expect(result.success).toBe(true);
+    const putCall = fetchMock.mock.calls[1];
+    const putBody = JSON.parse(putCall[1].body);
+    expect(putBody.tutorialsCompleted).toEqual(['damask-guide']);
+    expect(putBody.menuShortcuts).toEqual([1, 4]);
+    expect(putBody).not.toHaveProperty('bucketingSeedId');
+    expect(putBody.announcementBarSettings).toEqual({ style: 2, text: { html: '<p>Hi</p>', raw: false } });
+    expect(putBody.siteTitle).toBe('Title');
+  });
+
+  it('sends the crumb as an x-csrf-token header on the PUT', async () => {
+    const fetchMock = mockFetch([
+      { ok: true, body: { siteTitle: 'Old' } },
+      { ok: true, body: {} },
+    ]);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = makeClient();
+    await client.updateSettings({ siteTitle: 'New' });
+
+    const putCall = fetchMock.mock.calls[1];
+    expect(putCall[1].headers['x-csrf-token']).toBe('crumb-token-abc');
   });
 });
