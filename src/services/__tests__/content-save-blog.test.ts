@@ -127,6 +127,21 @@ describe('updateBlogPost', () => {
     });
   });
 
+  it.each([true, false])('preserves starred=%s during a body-only update', async (starred) => {
+    mockFetch.mockReset();
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ...CURRENT_POST, starred }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response);
+
+    const result = await makeClient().updateBlogPost('col-1', 'item-123', { body: '<p>Updated</p>' });
+
+    expect(result.success).toBe(true);
+    expect(result.updatedFields).toEqual(['body']);
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({
+      ...CURRENT_POST, starred, body: { html: '<p>Updated</p>' },
+    });
+  });
+
   it.each([401, 404, 500])('does not write when reading the post returns %s', async (status) => {
     mockFetch.mockReset();
     mockFetch.mockResolvedValueOnce({ ok: false, status, text: async () => 'Read failed' } as Response);

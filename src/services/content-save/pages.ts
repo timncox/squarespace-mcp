@@ -775,7 +775,7 @@ ContentSaveClient.prototype.updateBlogPost = async function (
     if (current.id !== itemId || typeof current.title !== 'string' || typeof current.authorId !== 'string') {
       return { success: false, itemId, updatedFields: [], error: 'Cannot update blog post: incomplete current metadata' };
     }
-    for (const field of ['authorId', 'title', 'tags', 'categories', 'shareStates']) {
+    for (const field of ['authorId', 'title', 'tags', 'categories', 'shareStates', 'starred']) {
       if (!(field in body) && current[field] !== undefined) body[field] = current[field];
     }
 
