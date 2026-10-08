@@ -175,7 +175,8 @@ export async function resolvePageIds(
   }
 
   // Step 2: Get collectionId + pageSectionsId via API
-  // Uses GetCollections → GetCollectionSettings (same flow as the Squarespace editor)
+  // Uses GetCollections → GetCollectionSettings → by-collection-ids
+  // (same flow as the Squarespace editor)
   let collectionId: string | null = null;
   let pageSectionsId: string | null = null;
   try {
@@ -185,7 +186,7 @@ export async function resolvePageIds(
       collectionId = ids.collectionId;
       pageSectionsId = ids.pageSectionsId ?? null;
       if (pageSectionsId) {
-        logger.info({ subdomain, slug: normalizedSlug }, 'Resolved pageSectionsId via GetCollectionSettings API');
+        logger.info({ subdomain, slug: normalizedSlug }, 'Resolved pageSectionsId via API');
       }
     }
   } catch (err) {

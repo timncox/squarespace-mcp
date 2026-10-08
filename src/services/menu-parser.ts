@@ -18,10 +18,27 @@
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
+/** A priced option ({ price: "24" }) or a labelled one ({ title: "M" } — market price). */
+export interface MenuVariant {
+  price?: string;
+  title?: string;
+}
+
 export interface MenuItem {
   title: string;
   description: string | null;
-  variants: Array<{ price: string }>;
+  variants: MenuVariant[];
+}
+
+/**
+ * Raw-text price line for an item's variants: "$12/18" for prices, "M/P" when the
+ * variants are labels only. NOTE: the label form is unverified against Squarespace's
+ * own editor parser (no live sample survived); the rendered menu uses `menus`, not raw.
+ */
+export function formatVariants(variants: MenuVariant[]): string {
+  const priced = variants.some((v) => v.price !== undefined && v.price !== '');
+  const parts = variants.map((v) => (v.price !== undefined && v.price !== '' ? v.price : v.title ?? ''));
+  return (priced ? '$' : '') + parts.join('/');
 }
 
 export interface MenuSection {
@@ -369,7 +386,7 @@ export function serializeMenu(menus: MenuTab[]): string {
         if (isAddOn) {
           const titleWithoutPrefix = title.substring(2); // remove "+ "
           if (variants.length > 0) {
-            const priceStr = '$' + variants.map(v => v.price).join('/');
+            const priceStr = formatVariants(variants);
             parts.push(`+ ${titleWithoutPrefix} ${priceStr}`);
           } else {
             parts.push(`+ ${titleWithoutPrefix}`);
@@ -387,7 +404,7 @@ export function serializeMenu(menus: MenuTab[]): string {
 
         // Price line
         if (variants.length > 0) {
-          const priceStr = '$' + variants.map(v => v.price).join('/');
+          const priceStr = formatVariants(variants);
           parts.push(priceStr);
         }
       }

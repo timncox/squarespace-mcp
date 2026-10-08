@@ -1,25 +1,47 @@
-import Database from 'better-sqlite3';
+// node:sqlite (built into Node >= 22.13) replaced better-sqlite3 on 2026-10-08:
+// the native addon broke on every Node major upgrade (ABI 141 vs 147), which
+// silently disabled page-id caching and pre-edit snapshots.
+import type { DatabaseSync } from 'node:sqlite';
+import { createRequire } from 'module';
 import { existsSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { logger } from '../utils/logger.js';
 
 const DB_PATH = process.env.DB_PATH || join(process.cwd(), 'data', 'sqhelper.db');
 
-let db: Database.Database | null = null;
+export type Db = DatabaseSync;
 
-export function getDb(): Database.Database {
+let db: Db | null = null;
+
+/**
+ * Load node:sqlite lazily so an older Node (e.g. Claude Desktop launching
+ * /usr/local/bin/node v20) can still start the server — only DB-backed features
+ * (page-id cache, snapshots, template cache) fail, with a clear message.
+ */
+function loadSqlite(): typeof DatabaseSync {
+  try {
+    return createRequire(import.meta.url)('node:sqlite').DatabaseSync;
+  } catch {
+    throw new Error(
+      `node:sqlite is unavailable in Node ${process.version} — squarespace-mcp needs Node >= 22.13. ` +
+      'Point the MCP config "command" at a newer node (e.g. /opt/homebrew/bin/node).',
+    );
+  }
+}
+
+export function getDb(): Db {
   if (db) return db;
 
   // Ensure directory exists
   const dir = dirname(DB_PATH);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
-  db = new Database(DB_PATH);
+  db = new (loadSqlite())(DB_PATH);
 
   // Enable WAL mode for better concurrent read/write performance
-  db.pragma('journal_mode = WAL');
-  db.pragma('busy_timeout = 5000');
-  db.pragma('foreign_keys = ON');
+  db.exec('PRAGMA journal_mode = WAL');
+  db.exec('PRAGMA busy_timeout = 5000');
+  db.exec('PRAGMA foreign_keys = ON');
 
   // Run migrations
   migrate(db);
@@ -28,7 +50,7 @@ export function getDb(): Database.Database {
   return db;
 }
 
-function migrate(db: Database.Database): void {
+function migrate(db: Db): void {
   // ── Drop vestigial tables from old orchestrator/dashboard architecture ──
   db.exec(`
     DROP TABLE IF EXISTS agent_events;

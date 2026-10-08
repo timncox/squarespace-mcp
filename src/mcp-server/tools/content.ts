@@ -23,6 +23,36 @@ import { z } from 'zod';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { getClient, getMediaClient, resolvePageIds } from '../session.js';
 
+// ── Menu schema (shared by sq_update_menu + sq_add_menu_tab) ────────────────
+// Lossless on purpose: the old schema required `price` on every variant, so any
+// menu containing a market-price item ({title:"M"},{title:"P"} — Lure Chicago)
+// failed validation, and it had no section `description`, so updating a menu
+// silently dropped every section description. passthrough() keeps unknown keys.
+const menuVariantSchema = z.object({
+  price: z.string().optional(),
+  title: z.string().optional(),
+}).passthrough().refine((v) => v.price !== undefined || v.title !== undefined, {
+  message: 'A variant needs a price (e.g. "24") or a title (e.g. "M" for market price)',
+});
+
+const menuItemSchema = z.object({
+  title: z.string(),
+  description: z.string().optional().nullable(),
+  variants: z.array(menuVariantSchema).optional().nullable().default([]),
+}).passthrough();
+
+const menuSectionSchema = z.object({
+  title: z.string().nullable(),
+  description: z.string().optional().nullable(),
+  items: z.array(menuItemSchema).optional().default([]),
+}).passthrough();
+
+const menuTabSchema = z.object({
+  title: z.string(),
+  description: z.string().optional().nullable(),
+  sections: z.array(menuSectionSchema).optional().default([]),
+}).passthrough();
+
 export function registerContentTools(server: McpServer) {
   // ── sq_create_blog_post ─────────────────────────────────────────────────────
   server.registerTool('sq_create_blog_post', {
@@ -470,25 +500,15 @@ export function registerContentTools(server: McpServer) {
   // ── sq_update_menu ──────────────────────────────────────────────────────────
   server.registerTool('sq_update_menu', {
     description:
-      'Update a menu block on a Squarespace page. Provide the full MenuTab[] JSON structure. Each MenuTab has { title, sections: [{ title, items: [{ title, description, price }] }] }.',
+      'Update a menu block on a Squarespace page. Provide the full MenuTab[] JSON structure — start from sq_get_menu output and edit it. ' +
+      'Each MenuTab has { title, description, sections: [{ title, description, items: [{ title, description, variants }] }] }. ' +
+      'A variant is { price: "24" } for a priced item or { title: "M" } / { title: "P" } for market price (renders "M / P"). ' +
+      'Unknown fields from sq_get_menu are kept, so round-tripping a menu never drops data.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
       pageSlug: z.string().describe('Page URL slug containing the menu'),
       searchText: z.string().describe('Text to find the menu block'),
-      menus: z.array(z.object({
-        title: z.string(),
-        description: z.string().optional().nullable(),
-        sections: z.array(z.object({
-          title: z.string().nullable(),
-          items: z.array(z.object({
-            title: z.string(),
-            description: z.string().optional().nullable(),
-            variants: z.array(z.object({
-              price: z.string(),
-            })).optional().nullable().default([]),
-          })).optional().default([]),
-        })).optional().default([]),
-      })).describe('Full MenuTab[] structure to set'),
+      menus: z.array(menuTabSchema).describe('Full MenuTab[] structure to set'),
       preserveRaw: z.boolean().optional().default(false).describe('If true, keep existing raw text instead of regenerating'),
     },
   }, async ({ siteId, pageSlug, searchText, menus, preserveRaw }) => {
@@ -531,20 +551,7 @@ export function registerContentTools(server: McpServer) {
       pageSlug: z.string().describe('Page URL slug containing the menu'),
       searchText: z.string().describe('Text to find the menu block (e.g. any existing tab name)'),
       index: z.number().describe('0-based position to insert the new tab. Use -1 to append at the end.'),
-      tab: z.object({
-        title: z.string(),
-        description: z.string().optional().nullable(),
-        sections: z.array(z.object({
-          title: z.string().nullable(),
-          items: z.array(z.object({
-            title: z.string(),
-            description: z.string().optional().nullable(),
-            variants: z.array(z.object({
-              price: z.string(),
-            })).optional().nullable().default([]),
-          })).optional().default([]),
-        })).optional().default([]),
-      }).describe('The menu tab to insert'),
+      tab: menuTabSchema.describe('The menu tab to insert'),
     },
   }, async ({ siteId, pageSlug, searchText, index, tab }) => {
     try {

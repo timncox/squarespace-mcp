@@ -9,6 +9,7 @@
  */
 
 import { createContentSaveClient } from '../services/content-save.js';
+import { hasBrowserSiteSession, mergeCapturedCookies, type SessionCookie } from '../utils/session-cookies.js';
 import { ContentSaveClient, SESSION_PATH } from '../services/content-save.js';
 import { MediaUploadClient } from '../services/media-upload.js';
 import { resolvePageIds as resolvePageIdsImpl } from '../services/page-id-resolver.js';
@@ -118,7 +119,11 @@ async function captureSiteCookies(subdomain: string): Promise<void> {
     if (!existsSync(SESSION_PATH)) return;
 
     const session = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
-    const cookies: Array<{ name: string; value: string; domain: string }> = session.cookies ?? [];
+    const cookies: SessionCookie[] = session.cookies ?? [];
+
+    // The browser login already gave this site a real session — capturing would only
+    // add anonymous cookies that shadow it (instant 401 after relogin, 2026-10-06).
+    if (hasBrowserSiteSession(cookies, subdomain)) return;
 
     // Build cookie header from account-level + global cookies
     const accountCookies = cookies.filter(c => {
@@ -136,7 +141,7 @@ async function captureSiteCookies(subdomain: string): Promise<void> {
 
     // Parse Set-Cookie headers for member-session and crumb
     const setCookieHeaders = res.headers.getSetCookie?.() ?? [];
-    const captured: Array<{ name: string; value: string; domain: string }> = [];
+    const captured: SessionCookie[] = [];
 
     for (const header of setCookieHeaders) {
       const match = header.match(/^([^=]+)=([^;]*)/);
@@ -152,26 +157,17 @@ async function captureSiteCookies(subdomain: string): Promise<void> {
 
     if (captured.length === 0) return;
 
-    // Merge captured cookies into the session file
+    // Merge captured cookies into the session file — never over a browser-saved
+    // cookie and never onto the global .squarespace.com domain.
     const freshSession = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'));
-    const existingCookies: Array<{ name: string; value: string; domain: string }> =
-      freshSession.cookies ?? [];
-
-    for (const newCookie of captured) {
-      const idx = existingCookies.findIndex(
-        c => c.name === newCookie.name && c.domain === newCookie.domain,
-      );
-      if (idx >= 0) {
-        existingCookies[idx].value = newCookie.value;
-      } else {
-        existingCookies.push(newCookie);
-      }
-    }
+    const existingCookies: SessionCookie[] = freshSession.cookies ?? [];
+    const changed = mergeCapturedCookies(existingCookies, captured, subdomain);
+    if (changed.length === 0) return;
 
     freshSession.cookies = existingCookies;
     writeFileSync(SESSION_PATH, JSON.stringify(freshSession, null, 2), 'utf-8');
     logger.info(
-      { subdomain, captured: captured.map(c => c.name) },
+      { subdomain, captured: changed.map(c => c.name) },
       'Captured site-specific cookies for discovered site',
     );
   } catch (err) {

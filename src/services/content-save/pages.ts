@@ -30,6 +30,7 @@ declare module './index.js' {
       collectionId: string;
       pageSectionsId?: string;
     } | null>;
+    getPageSectionsIdByCollectionId(collectionId: string): Promise<string | null>;
     listCollections(): Promise<CollectionInfo[]>;
     getPageMetadata(slug: string): Promise<PageMetadata | null>;
     getCollectionItems(
@@ -132,6 +133,43 @@ ContentSaveClient.prototype.getCollectionSettings = async function (
   }
 };
 
+/**
+ * Resolve a collection's pageSectionsId via the editor's batch endpoint:
+ * GET /api/page-sections/by-collection-ids?collectionIds={id}
+ *   → [{ id: <pageSectionsId>, collectionId, sections, updatedOn }]
+ * As of ~Aug 2026 this is the only API that still exposes the mapping —
+ * rendered HTML no longer carries data-page-sections, and
+ * GetCollectionSettings has no mainContent/pageSectionsId field.
+ */
+ContentSaveClient.prototype.getPageSectionsIdByCollectionId = async function (
+  this: ContentSaveClient,
+  collectionId: string,
+): Promise<string | null> {
+  this.ensureCookies();
+
+  try {
+    const url = this.buildApiUrl(`/api/page-sections/by-collection-ids?collectionIds=${collectionId}`);
+    const response = await fetch(url, {
+      headers: this.buildHeaders(),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+
+    if (!response.ok) return null;
+
+    const data = (await response.json()) as Array<Record<string, unknown>>;
+    if (!Array.isArray(data)) return null;
+
+    const entry = data.find((e) => String(e.collectionId) === collectionId);
+    if (!entry?.id) return null;
+
+    logger.info({ collectionId, pageSectionsId: entry.id }, 'Resolved pageSectionsId via by-collection-ids');
+    return String(entry.id);
+  } catch (err) {
+    logger.warn({ error: errMsg(err), collectionId }, 'by-collection-ids lookup failed');
+    return null;
+  }
+};
+
 ContentSaveClient.prototype.getPageIds = async function (
   this: ContentSaveClient,
   slug: string,
@@ -170,10 +208,15 @@ ContentSaveClient.prototype.getPageIds = async function (
 
         // Try to resolve pageSectionsId via GetCollectionSettings
         const settings = await this.getCollectionSettings(collectionId);
-        return {
-          collectionId,
-          pageSectionsId: settings?.pageSectionsId,
-        };
+        let pageSectionsId = settings?.pageSectionsId;
+
+        // GetCollectionSettings stopped carrying it — fall back to the
+        // editor's by-collection-ids endpoint (see method above)
+        if (!pageSectionsId) {
+          pageSectionsId = (await this.getPageSectionsIdByCollectionId(collectionId)) ?? undefined;
+        }
+
+        return { collectionId, pageSectionsId };
       }
     }
 
