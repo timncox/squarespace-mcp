@@ -1,6 +1,6 @@
 ---
 status: active
-last_touched: 2026-07-08
+last_touched: 2026-10-08
 ---
 
 # Squarespace MCP — CLAUDE.md
@@ -14,7 +14,7 @@ MCP server that edits Squarespace websites via the Content Save API. Exposes 134
 ```bash
 npm run mcp     # Start MCP server (tsx src/mcp-server/index.ts)
 npm run build   # TypeScript compile — the parked MCP config runs dist/, so rebuild after src changes
-npm test        # vitest run (~1468 tests, 65 files; ~10 auth-tools failures pre-date 19468ed's session-refresh change)
+npm test        # vitest run (~1508 tests, 69 files; 15 known auth/login failures in 3 files pre-date 2026-10-08)
 node scripts/relogin.mjs [subdomain...] [--headless]   # re-auth the Squarespace session
 node scripts/smoke.mjs [subdomain]                     # endpoint-drift check (read tools vs live API)
 ```
@@ -107,7 +107,7 @@ Session cookies from `storage/auth/sqsp-session.json`. The `sq_login_browser` to
 
 - **TypeScript** with ES modules (`"type": "module"`, `.js` extensions in imports)
 - **Pino logger** — structured logging (`logger.info({ key: value }, 'message')`)
-- **SQLite** via better-sqlite3 — synchronous queries, migrations in `database.ts`
+- **SQLite** via built-in `node:sqlite` (Node >= 22.13, loaded lazily — replaced better-sqlite3 2026-10-08) — synchronous queries, migrations in `database.ts`
 - **Error handling**: `errMsg()` utility wraps unknown errors into strings
 - **Database path**: `data/sqhelper.db`
 
@@ -130,7 +130,7 @@ The `content-save/` directory uses **TypeScript prototype augmentation** to spli
 ## Testing
 
 - `npm test` runs vitest with dist excluded
-- 65 test files, ~1468 tests
+- 69 test files, ~1508 tests
 - Service tests in `src/services/__tests__/`
 - MCP tool tests in `src/mcp-server/__tests__/`
 

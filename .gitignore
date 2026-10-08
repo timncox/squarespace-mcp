@@ -11,3 +11,4 @@ data/*.json
 .worktrees/
 .claude/worktrees/
 .playwright-mcp/
+.DS_Store
