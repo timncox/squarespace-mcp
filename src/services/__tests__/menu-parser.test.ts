@@ -968,3 +968,20 @@ describe('serializeMenu defensive handling', () => {
     expect(result).not.toContain('$');
   });
 });
+
+describe('formatVariants / serializeMenu with market-price items', () => {
+  it('formats prices with a $ and labels without one', async () => {
+    const { formatVariants } = await import('../menu-parser.js');
+    expect(formatVariants([{ price: '12' }, { price: '18' }])).toBe('$12/18');
+    expect(formatVariants([{ title: 'M' }, { title: 'P' }])).toBe('M/P');
+  });
+
+  it('never writes "undefined" into the raw text', async () => {
+    const { serializeMenu } = await import('../menu-parser.js');
+    const raw = serializeMenu([{ title: 'Dinner', description: null, sections: [{ title: 'Raw Bar', description: null, items: [
+      { title: 'Whole Maine Lobster', description: 'Drawn butter', variants: [{ title: 'M' }, { title: 'P' }] },
+    ] }] }]);
+    expect(raw).not.toContain('undefined');
+    expect(raw).toContain('Whole Maine Lobster\nDrawn butter\nM/P');
+  });
+});

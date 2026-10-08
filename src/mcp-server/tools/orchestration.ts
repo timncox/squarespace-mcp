@@ -111,7 +111,7 @@ function structureMenuWithClaude(rawText: string, label: string): {
     items: Array<{
       title: string;
       description: string | null;
-      variants: Array<{ price: string }>;
+      variants: Array<{ price?: string; title?: string }>;
     }>;
   }>;
 } {
@@ -188,7 +188,7 @@ function summarizeWineListWithClaude(rawText: string, maxItems: number): {
     items: Array<{
       title: string;
       description: string | null;
-      variants: Array<{ price: string }>;
+      variants: Array<{ price?: string; title?: string }>;
     }>;
   }>;
 } {
@@ -308,7 +308,7 @@ export function registerOrchestrationTools(server: McpServer) {
           items: Array<{
             title: string;
             description: string | null;
-            variants: Array<{ price: string }>;
+            variants: Array<{ price?: string; title?: string }>;
           }>;
         }>;
       }> = [];

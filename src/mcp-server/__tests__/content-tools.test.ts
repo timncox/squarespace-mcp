@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock session module
@@ -384,6 +385,49 @@ describe('Content Tools (Blog, Menu, Gallery)', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Menu block not found');
+    });
+  });
+
+  describe('menu schema (sq_update_menu / sq_add_menu_tab)', () => {
+    const parseUpdate = (menus: unknown) =>
+      z.object(server.tools.get('sq_update_menu')!.config.inputSchema).safeParse({
+        siteId: 'lurefishbar', pageSlug: 'chicago-menu', searchText: 'Brunch', menus,
+      });
+
+    it('accepts market-price items (title-only variants) and keeps the titles', () => {
+      const r = parseUpdate([{ title: 'Dinner', sections: [{ title: 'Raw Bar', items: [
+        { title: 'Whole Maine Lobster', variants: [{ title: 'M' }, { title: 'P' }] },
+        { title: 'Oysters', variants: [{ price: '4.50' }] },
+      ] }] }]);
+      expect(r.success).toBe(true);
+      const items = (r as any).data.menus[0].sections[0].items;
+      expect(items[0].variants).toEqual([{ title: 'M' }, { title: 'P' }]);
+      expect(items[1].variants).toEqual([{ price: '4.50' }]);
+    });
+
+    it('keeps section descriptions and unknown fields from sq_get_menu', () => {
+      const r = parseUpdate([{ title: 'Lunch', extra: 1, sections: [
+        { title: 'Prix Fixe', description: '$45 per person', items: [{ title: 'Soup', variants: [], id: 'keep-me' }] },
+      ] }]);
+      expect(r.success).toBe(true);
+      const tab = (r as any).data.menus[0];
+      expect(tab.extra).toBe(1);
+      expect(tab.sections[0].description).toBe('$45 per person');
+      expect(tab.sections[0].items[0].id).toBe('keep-me');
+    });
+
+    it('rejects a variant with neither price nor title', () => {
+      const r = parseUpdate([{ title: 'X', sections: [{ title: 'Y', items: [{ title: 'Z', variants: [{}] }] }] }]);
+      expect(r.success).toBe(false);
+    });
+
+    it('applies the same schema to sq_add_menu_tab', () => {
+      const r = z.object(server.tools.get('sq_add_menu_tab')!.config.inputSchema).safeParse({
+        siteId: 's', pageSlug: 'p', searchText: 't', index: -1,
+        tab: { title: 'Raw Bar', sections: [{ title: 'Market', description: 'Daily', items: [{ title: 'Crab', variants: [{ title: 'M' }, { title: 'P' }] }] }] },
+      });
+      expect(r.success).toBe(true);
+      expect((r as any).data.tab.sections[0].description).toBe('Daily');
     });
   });
 
