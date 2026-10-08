@@ -17,6 +17,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, statSync } from 'fs';
+import { selectSiteCookies, cookieHeader, type SessionCookie } from '../../utils/session-cookies.js';
 import { randomBytes, createHash } from 'crypto';
 import { join } from 'path';
 import { logger } from '../../utils/logger.js';
@@ -347,12 +348,7 @@ export const BUTTON_DEFINITION_NAME = 'website.components.button';
 // Product block definitionName for type 1337 — confirmed via live site discovery (Mar 9 2026, home page grey-yellow-hbxc)
 export const PRODUCT_DEFINITION_NAME = 'website.components.product';
 
-export interface SessionCookie {
-  name: string;
-  value: string;
-  domain: string;
-  path?: string;
-}
+export type { SessionCookie } from '../../utils/session-cookies.js';
 
 // ── Content Save Client ─────────────────────────────────────────────────────
 
@@ -391,42 +387,16 @@ export class ContentSaveClient {
     const session = JSON.parse(readFileSync(path, 'utf-8'));
     const cookies: SessionCookie[] = session.cookies ?? [];
 
-    const globalCookies: SessionCookie[] = [];
-    const siteCookies: SessionCookie[] = [];
-
-    for (const c of cookies) {
-      const domain = c.domain.replace(/^\./, '');
-      if (domain === 'squarespace.com') {
-        globalCookies.push(c);
-      } else if (
-        domain === `${this.siteSubdomain}.squarespace.com` ||
-        domain === `.${this.siteSubdomain}.squarespace.com` ||
-        domain === 'account.squarespace.com'
-      ) {
-        siteCookies.push(c);
-      }
-    }
-
-    // Build full cookie header (global + site-specific, deduplicated)
-    const allCookies = [...globalCookies, ...siteCookies];
-    const byName = new Map<string, SessionCookie>();
-    for (const c of allCookies) {
-      const existing = byName.get(c.name);
-      if (!existing || c.domain.includes(this.siteSubdomain)) {
-        byName.set(c.name, c);
-      }
-    }
-    this.siteCookieHeader = Array.from(byName.values())
-      .map((c) => `${c.name}=${c.value}`)
-      .join('; ');
+    // Rank-based selection: a browser-saved site cookie always beats a synthesized
+    // (path-less) one — see utils/session-cookies.ts for the 401 it prevents.
+    const { global: globalCookies, site: siteCookies, byName } = selectSiteCookies(cookies, this.siteSubdomain);
+    this.siteCookieHeader = cookieHeader(byName.values());
 
     // Extract crumb token from site-specific cookies (must be from the site subdomain,
     // NOT from account.squarespace.com which has its own crumb)
-    for (const c of siteCookies) {
-      if (c.name === 'crumb' && c.domain.includes(this.siteSubdomain)) {
-        this.crumbToken = c.value;
-        break;
-      }
+    const siteCrumb = byName.get('crumb');
+    if (siteCrumb && siteCrumb.domain.includes(this.siteSubdomain)) {
+      this.crumbToken = siteCrumb.value;
     }
 
     // SQLite crumb cache is authoritative — it's atomically written and safe under concurrency

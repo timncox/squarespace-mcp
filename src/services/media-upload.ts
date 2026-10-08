@@ -12,6 +12,7 @@
  */
 
 import { readFileSync, statSync, existsSync, writeFileSync, mkdirSync } from 'fs';
+import { selectSiteCookies, cookieHeader, isBrowserCookie, type SessionCookie } from '../utils/session-cookies.js';
 import { basename, extname, join } from 'path';
 import { tmpdir } from 'os';
 import { randomUUID } from 'crypto';
@@ -139,12 +140,6 @@ interface JobStatusEntry {
   };
 }
 
-interface SessionCookie {
-  name: string;
-  value: string;
-  domain: string;
-  path?: string;
-}
 
 // ── Media Upload Client ─────────────────────────────────────────────────────
 
@@ -185,40 +180,18 @@ export class MediaUploadClient {
     // Separate global (.squarespace.com) cookies from site-specific ones.
     // media-api.squarespace.com only receives .squarespace.com cookies (browser behavior).
     // The site's internal API receives both global + site-specific cookies.
-    const globalCookies: SessionCookie[] = [];
-    const siteCookies: SessionCookie[] = [];
+    const { global: globalCookies, site: siteCookies, byName } = selectSiteCookies(cookies, this.siteSubdomain);
 
-    for (const c of cookies) {
-      const domain = c.domain.replace(/^\./, '');
-      if (domain === 'squarespace.com') {
-        globalCookies.push(c);
-      } else if (
-        domain === `${this.siteSubdomain}.squarespace.com` ||
-        domain === `.${this.siteSubdomain}.squarespace.com` ||
-        domain === 'account.squarespace.com'
-      ) {
-        siteCookies.push(c);
-      }
+    // Global cookie header for media-api.squarespace.com (browser-saved first)
+    const globalByName = new Map<string, SessionCookie>();
+    for (const c of globalCookies) {
+      const prev = globalByName.get(c.name);
+      if (!prev || (isBrowserCookie(c) && !isBrowserCookie(prev))) globalByName.set(c.name, c);
     }
+    this.globalCookieHeader = cookieHeader(globalByName.values());
 
-    // Global cookie header for media-api.squarespace.com
-    this.globalCookieHeader = globalCookies
-      .map((c) => `${c.name}=${c.value}`)
-      .join('; ');
-
-    // Full cookie header for site-specific requests (global + site-specific)
-    const allCookies = [...globalCookies, ...siteCookies];
-    // Deduplicate by name (prefer site-specific over global)
-    const byName = new Map<string, SessionCookie>();
-    for (const c of allCookies) {
-      const existing = byName.get(c.name);
-      if (!existing || c.domain.includes(this.siteSubdomain)) {
-        byName.set(c.name, c);
-      }
-    }
-    this.siteCookieHeader = Array.from(byName.values())
-      .map((c) => `${c.name}=${c.value}`)
-      .join('; ');
+    // Full cookie header for site-specific requests (ranked: see utils/session-cookies.ts)
+    this.siteCookieHeader = cookieHeader(byName.values());
 
     logger.info(
       {
