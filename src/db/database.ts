@@ -1,7 +1,8 @@
 // node:sqlite (built into Node >= 22.13) replaced better-sqlite3 on 2026-10-08:
 // the native addon broke on every Node major upgrade (ABI 141 vs 147), which
 // silently disabled page-id caching and pre-edit snapshots.
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
+import { createRequire } from 'module';
 import { existsSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { logger } from '../utils/logger.js';
@@ -12,6 +13,22 @@ export type Db = DatabaseSync;
 
 let db: Db | null = null;
 
+/**
+ * Load node:sqlite lazily so an older Node (e.g. Claude Desktop launching
+ * /usr/local/bin/node v20) can still start the server — only DB-backed features
+ * (page-id cache, snapshots, template cache) fail, with a clear message.
+ */
+function loadSqlite(): typeof DatabaseSync {
+  try {
+    return createRequire(import.meta.url)('node:sqlite').DatabaseSync;
+  } catch {
+    throw new Error(
+      `node:sqlite is unavailable in Node ${process.version} — squarespace-mcp needs Node >= 22.13. ` +
+      'Point the MCP config "command" at a newer node (e.g. /opt/homebrew/bin/node).',
+    );
+  }
+}
+
 export function getDb(): Db {
   if (db) return db;
 
@@ -19,7 +36,7 @@ export function getDb(): Db {
   const dir = dirname(DB_PATH);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
-  db = new DatabaseSync(DB_PATH);
+  db = new (loadSqlite())(DB_PATH);
 
   // Enable WAL mode for better concurrent read/write performance
   db.exec('PRAGMA journal_mode = WAL');
