@@ -45,7 +45,7 @@ export function saveSnapshot(params: SaveSnapshotParams): number {
     params.label ?? null,
     params.isAuto ? 1 : 0,
   );
-  return result.lastInsertRowid as number;
+  return Number(result.lastInsertRowid);
 }
 
 export function listSnapshots(opts: {
@@ -56,7 +56,7 @@ export function listSnapshots(opts: {
 }): SnapshotSummary[] {
   const db = getDb();
   const conditions: string[] = [];
-  const values: unknown[] = [];
+  const values: string[] = [];
 
   if (opts.siteId) {
     conditions.push('site_id = ?');
@@ -132,7 +132,7 @@ export function getSnapshot(id: number): SnapshotRecord | null {
 export function deleteSnapshot(id: number): boolean {
   const db = getDb();
   const result = db.prepare('DELETE FROM section_snapshots WHERE id = ?').run(id);
-  return result.changes > 0;
+  return Number(result.changes) > 0;
 }
 
 export function shouldAutoSnapshot(
@@ -157,5 +157,5 @@ export function cleanupOldSnapshots(retentionDays = 7): number {
     `DELETE FROM section_snapshots
      WHERE is_auto = 1 AND created_at < datetime('now', ?)`,
   ).run(`-${retentionDays} days`);
-  return result.changes;
+  return Number(result.changes);
 }

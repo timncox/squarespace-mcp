@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import Database from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 
 // Create in-memory database with Phase 21 migration
 function createTestDb() {
-  const db = new Database(':memory:');
-  db.pragma('journal_mode = WAL');
+  const db = new DatabaseSync(':memory:');
+  db.exec('PRAGMA journal_mode = WAL');
   db.exec(`
     CREATE TABLE IF NOT EXISTS section_snapshots (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,7 +25,7 @@ function createTestDb() {
   return db;
 }
 
-let testDb: Database.Database;
+let testDb: DatabaseSync;
 
 vi.mock('../../db/database.js', () => ({
   getDb: () => testDb,
