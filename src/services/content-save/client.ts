@@ -350,6 +350,15 @@ export const PRODUCT_DEFINITION_NAME = 'website.components.product';
 
 export type { SessionCookie } from '../../utils/session-cookies.js';
 
+/** JSON.stringify with object keys sorted recursively (array order preserved). */
+export function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, v) =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, (v as Record<string, unknown>)[k]]))
+      : v,
+  );
+}
+
 // ── Content Save Client ─────────────────────────────────────────────────────
 
 export class ContentSaveClient {
@@ -1435,7 +1444,11 @@ export class ContentSaveClient {
    * Not security-critical — just detects whether sections changed between GET and PUT.
    */
   static computeSectionsHash(sections: PageSection[]): string {
-    return createHash('md5').update(JSON.stringify(sections)).digest('hex');
+    // Canonical (sorted-key) JSON: Squarespace's page-sections GET alternates between
+    // replicas that return identical content with different key order, so a raw
+    // JSON.stringify hash raised a false CONFLICT on ~half of saves (seahorsenyc, 2026-10-06).
+    // Array order is kept — it is meaningful (section/block order).
+    return createHash('md5').update(canonicalJson(sections)).digest('hex');
   }
 
   /**

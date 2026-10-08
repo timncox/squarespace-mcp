@@ -48,6 +48,17 @@ function makeSections(...blocks: GridContent[]): PageSection[] {
   ];
 }
 
+/** Same content, every object's keys in reverse order — what a different Squarespace replica returns. */
+function reverseKeys<T>(value: T): T {
+  if (Array.isArray(value)) return value.map(reverseKeys) as T;
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value).reverse().map((k) => [k, reverseKeys((value as Record<string, unknown>)[k])]),
+    ) as T;
+  }
+  return value;
+}
+
 function makePageSectionsData(sections: PageSection[]): PageSectionsData {
   return {
     id: 'page-sections-id-1',
@@ -86,6 +97,20 @@ describe('Optimistic locking (conflict detection)', () => {
       const hash1 = ContentSaveClient.computeSectionsHash(sections1);
       const hash2 = ContentSaveClient.computeSectionsHash(sections2);
       expect(hash1).not.toBe(hash2);
+    });
+
+    it('ignores object key order (Squarespace replicas reorder keys)', () => {
+      const sections = makeSections(makeTextBlock('b1', '<p>Hello</p>'), makeTextBlock('b2', '<p>There</p>'));
+      const reordered = reverseKeys(sections);
+      expect(JSON.stringify(reordered)).not.toBe(JSON.stringify(sections));
+      expect(ContentSaveClient.computeSectionsHash(reordered)).toBe(ContentSaveClient.computeSectionsHash(sections));
+    });
+
+    it('still detects reordered blocks (array order matters)', () => {
+      const a = makeTextBlock('b1', '<p>Hello</p>');
+      const b = makeTextBlock('b2', '<p>There</p>');
+      expect(ContentSaveClient.computeSectionsHash(makeSections(a, b)))
+        .not.toBe(ContentSaveClient.computeSectionsHash(makeSections(b, a)));
     });
   });
 
@@ -153,6 +178,25 @@ describe('Optimistic locking (conflict detection)', () => {
       expect(result.error).toContain('modified by another session');
       // Should NOT have made a PUT request (4 GETs: initial + conflict check + crumb refresh + retry)
       expect(fetchSpy.mock.calls).toHaveLength(4);
+    });
+
+    it('saves without a false CONFLICT when the re-fetch only reorders keys', async () => {
+      const sections = makeSections(makeTextBlock('b1', '<p>Hello</p>'));
+      const data = makePageSectionsData(sections);
+      const reorderedData = { ...data, sections: reverseKeys(data.sections) };
+
+      const fetchSpy = vi.spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(new Response(JSON.stringify(data), { status: 200 }))
+        // conflict-check GET served by a replica with a different key order
+        .mockResolvedValueOnce(new Response(JSON.stringify(reorderedData), { status: 200 }))
+        .mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+      await client.getPageSections('psid-1');
+      const result = await client.savePageSections('psid-1', 'cid-1', sections);
+
+      expect(result.success).toBe(true);
+      // initial GET + conflict GET + PUT — no crumb-refresh retry was needed
+      expect(fetchSpy.mock.calls).toHaveLength(3);
     });
 
     it('proceeds when conflict check fetch fails (does not block save)', async () => {
