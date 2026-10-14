@@ -30,6 +30,9 @@ declare module './index.js' {
     getCodeInjection(): Promise<{ success: boolean; data?: CodeInjectionData; error?: string }>;
     saveCodeInjection(header?: string, footer?: string, _isRetry?: boolean): Promise<{ success: boolean; error?: string }>;
     getNavigation(): Promise<NavigationResult>;
+    getSiteSeo(): Promise<{ success: boolean; data?: SiteSeo; error?: string }>;
+    updateSiteSeo(updates: SiteSeoUpdate): Promise<{ success: boolean; updatedFields?: string[]; error?: string }>;
+    updateNavLink(title: string, url: string, newWindow?: boolean): Promise<{ success: boolean; navigation?: string; previousUrl?: string; error?: string }>;
     updateNavigation(fieldName: string, items: UpdateNavigationItem[]): Promise<UpdateNavigationResult>;
     resolveTemplateId(): Promise<string | null>;
     getSocialAccounts(): Promise<{ success: boolean; data?: SocialAccount[]; error?: string }>;
@@ -967,6 +970,148 @@ ContentSaveClient.prototype.removeSocialAccount = async function (
 
     logger.info({ siteSubdomain: this.siteSubdomain, accountId }, 'Social account removed');
     return { success: true };
+  } catch (err) {
+    return { success: false, error: errMsg(err) };
+  }
+};
+
+
+// ── Site-wide SEO (SEO Settings panel) ──────────────────────────────────────
+// Captured from the SEO Settings panel's own save (seahorsenyc, 2026-10-14):
+// metaDescription/siteTitle → PUT /api/rest/websites/mine; title formats → PUT /api/settings.
+
+export interface SiteSeo {
+  siteTitle: string;
+  metaDescription: string;
+  homepageTitleFormat: string;
+  collectionTitleFormat: string;
+  itemTitleFormat: string;
+}
+export type SiteSeoUpdate = Partial<SiteSeo>;
+
+/**
+ * The 35 keys the SEO Settings panel PUTs to /api/rest/websites/mine. The GET
+ * body also carries expanded image objects, *Url fields, installationId,
+ * internalUrl, screenshotId, templateWebsiteId, typekitId and hasBeenCloneable;
+ * sending those back 400s with an empty body.
+ */
+const WEBSITE_PUT_KEYS = [
+  'authenticUrl', 'baseUrl', 'cloneable', 'contentModifiedOn', 'createdOn', 'darkModeFaviconItemId', 'developerMode',
+  'faviconItemId', 'captchaSettings', 'hasPassword', 'id', 'identifier', 'language', 'location', 'logoImageId',
+  'imageMetadataProcessingEnabled', 'machineTimeZoneOffset', 'metaDescription', 'mobileLogoImageId', 'primaryDomain',
+  'revalidateBefore', 'shareButtonOptions', 'showOwnerLogin', 'siteDescription', 'siteStatus', 'siteTitle',
+  'socialLogoImageId', 'sslSetting', 'isHstsEnabled', 'statsMigrated', 'templateId', 'timeZone', 'timeZoneAbbr',
+  'timeZoneOffset', 'websiteType',
+];
+
+export function websiteRecordForPut(site: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(WEBSITE_PUT_KEYS.filter((k) => k in site).map((k) => [k, site[k]]));
+}
+
+ContentSaveClient.prototype.getSiteSeo = async function (this: ContentSaveClient) {
+  this.ensureCookies();
+  try {
+    const res = await fetch(this.buildApiUrl('/api/rest/websites/mine', true), { headers: this.buildHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!res.ok) return { success: false, error: `GET /api/rest/websites/mine failed: ${res.status}` };
+    const site = await res.json() as Record<string, unknown>;
+    const settings = await this.getSettings();
+    if (!settings.success) return { success: false, error: settings.error };
+    const st = settings.data as Record<string, unknown>;
+    return {
+      success: true,
+      data: {
+        siteTitle: String(site.siteTitle ?? ''),
+        metaDescription: String(site.metaDescription ?? ''),
+        homepageTitleFormat: String(st.homepageTitleFormat ?? ''),
+        collectionTitleFormat: String(st.collectionTitleFormat ?? ''),
+        itemTitleFormat: String(st.itemTitleFormat ?? ''),
+      },
+    };
+  } catch (err) {
+    return { success: false, error: errMsg(err) };
+  }
+};
+
+ContentSaveClient.prototype.updateSiteSeo = async function (this: ContentSaveClient, updates: SiteSeoUpdate) {
+  this.ensureCookies();
+  const updatedFields: string[] = [];
+  try {
+    const siteKeys = (['siteTitle', 'metaDescription'] as const).filter((k) => updates[k] !== undefined);
+    const fmtKeys = (['homepageTitleFormat', 'collectionTitleFormat', 'itemTitleFormat'] as const).filter((k) => updates[k] !== undefined);
+    if (!siteKeys.length && !fmtKeys.length) return { success: false, error: 'No fields provided for update' };
+
+    if (siteKeys.length) {
+      const url = this.buildApiUrl('/api/rest/websites/mine', true);
+      const getRes = await fetch(url, { headers: this.buildHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (!getRes.ok) return { success: false, error: `GET /api/rest/websites/mine failed: ${getRes.status}` };
+      const body = websiteRecordForPut(await getRes.json() as Record<string, unknown>);
+      for (const k of siteKeys) { body[k] = updates[k]; updatedFields.push(k); }
+      const putRes = await fetch(url, {
+        method: 'PUT',
+        headers: { ...this.buildHeaders(), 'Content-Type': 'application/json', ...(this.crumbToken ? { 'x-csrf-token': this.crumbToken } : {}) },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
+      if (!putRes.ok) {
+        const text = await putRes.text().catch(() => '');
+        return { success: false, error: this.enhanceError(putRes.status, text, `PUT /api/rest/websites/mine failed: ${putRes.status} ${text}`) };
+      }
+    }
+    if (fmtKeys.length) {
+      const fields: Record<string, unknown> = {};
+      for (const k of fmtKeys) { fields[k] = updates[k]; updatedFields.push(k); }
+      const r = await this.updateSettings(fields);
+      if (!r.success) return { success: false, updatedFields, error: r.error };
+    }
+    logger.info({ siteSubdomain: this.siteSubdomain, updatedFields }, 'Site SEO updated');
+    return { success: true, updatedFields };
+  } catch (err) {
+    return { success: false, updatedFields, error: errMsg(err) };
+  }
+};
+
+// ── Navigation: edit one custom link ────────────────────────────────────────
+// GET /api/navigation returns [{identifier, links}] per navigation. The editor's
+// own UpdateNavigation save (bmco, 2026-10-14) sends each link back with `icon`
+// (and blog `categories`/`tags`) dropped, page entries given `items` (their
+// children), and external links passed through unchanged.
+
+export function navLinkToUpdateItem(link: Record<string, unknown>): Record<string, unknown> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { icon, categories, tags, links, items, ...rest } = link as Record<string, any>;
+  if (rest.externalLink) return rest;
+  const children = (links ?? items ?? []) as Record<string, unknown>[];
+  return { ...rest, items: children.map(navLinkToUpdateItem) };
+}
+
+ContentSaveClient.prototype.updateNavLink = async function (this: ContentSaveClient, title: string, url: string, newWindow?: boolean) {
+  this.ensureCookies();
+  try {
+    const res = await fetch(this.buildApiUrl('/api/navigation'), { headers: this.buildHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (!res.ok) return { success: false, error: `GET /api/navigation failed: ${res.status}` };
+    const raw = await res.json() as unknown;
+    const navs = (Array.isArray(raw) ? raw : Object.values(raw as Record<string, unknown>)) as Array<Record<string, any>>;
+
+    type Hit = { nav: Record<string, any>; link: Record<string, any> };
+    const hits: Hit[] = [];
+    const walk = (nav: Record<string, any>, links: Array<Record<string, any>> = []) => {
+      for (const l of links) {
+        if (l.externalLink && (l.title === title || l.externalLink.title === title)) hits.push({ nav, link: l });
+        walk(nav, l.links ?? l.items);
+      }
+    };
+    for (const nav of navs) if (nav && Array.isArray(nav.links)) walk(nav, nav.links);
+    if (hits.length === 0) return { success: false, error: `No custom link titled "${title}" in any navigation (page links are edited via their page, not here)` };
+    if (hits.length > 1) return { success: false, error: `"${title}" matches ${hits.length} links — rename one first` };
+
+    const { nav, link } = hits[0];
+    const previousUrl = String(link.externalLink.url ?? '');
+    link.externalLink = { ...link.externalLink, url, ...(newWindow !== undefined ? { newWindow } : {}) };
+    const items = (nav.links as Record<string, unknown>[]).map(navLinkToUpdateItem);
+    const r = await this.updateNavigation(String(nav.identifier), items as any);
+    if (!r.success) return { success: false, error: r.error };
+    logger.info({ siteSubdomain: this.siteSubdomain, title, navigation: nav.identifier }, 'Navigation link updated');
+    return { success: true, navigation: String(nav.identifier), previousUrl };
   } catch (err) {
     return { success: false, error: errMsg(err) };
   }

@@ -662,6 +662,8 @@ export interface PageMetadataUpdateOptions {
   navigationTitle?: string;
   enabled?: boolean;
   deleted?: boolean;
+  /** Hide the page from search engines (adds noindex). */
+  seoHidden?: boolean;
 }
 
 /** Result of updatePageMetadata */

@@ -1097,7 +1097,7 @@ ContentSaveClient.prototype.updatePageMetadata = async function (
   if (updates.deleted != null) {
     return fail('deleted is not supported here — use sq_delete_page (RemoveCollection) to trash a page');
   }
-  const editable = ['title', 'urlId', 'description', 'seoTitle', 'seoDescription', 'navigationTitle', 'enabled'] as const;
+  const editable = ['title', 'urlId', 'description', 'seoTitle', 'seoDescription', 'navigationTitle', 'enabled', 'seoHidden'] as const;
   if (!editable.some((k) => updates[k] != null)) return fail('No fields provided for update');
 
   try {
@@ -1119,6 +1119,7 @@ ContentSaveClient.prototype.updatePageMetadata = async function (
     if (updates.seoTitle != null) { seoData.seoTitle = updates.seoTitle; updatedFields.push('seoTitle'); }
     if (updates.seoDescription != null) { seoData.seoDescription = updates.seoDescription; updatedFields.push('seoDescription'); }
     if (updates.navigationTitle != null) { settings.navigationTitle = updates.navigationTitle; updatedFields.push('navigationTitle'); }
+    if (updates.seoHidden != null) { seoData.seoHidden = updates.seoHidden; updatedFields.push('seoHidden'); }
     if (updates.enabled != null) { settings.enabled = updates.enabled; updatedFields.push('enabled'); }
 
     if (updatedFields.length === 0) return fail('No fields provided for update');

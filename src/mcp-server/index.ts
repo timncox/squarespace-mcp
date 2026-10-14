@@ -114,6 +114,11 @@ When the user asks you to create a new page (contact, about, services, etc.):
 - sq_update_announcement_bar — toggle visibility, change text, set click-through URL (all params optional, only provided fields change)
 Note: Announcement bars are a paid feature (Business/Commerce plans).
 
+## Site SEO & Navigation Links
+- sq_get_site_seo / sq_update_site_seo — site meta description (homepage/link-preview text), site title, title formats (%p page, %s site)
+- sq_update_page_metadata — per-page SEO title/description; seoHidden:true hides a page from search
+- sq_update_nav_link — change a custom nav link URL by title (do not type URLs into the Pages panel link field)
+
 ## Promotional Pop-Up
 - sq_get_popup — read pop-up state (on/off, triggers, layout, heading, body, image, buttons)
 - sq_update_popup — turn on/off, set triggers (pages, mobile, timer, scroll, re-show days), edit heading/body/buttons, replace the image from a local file

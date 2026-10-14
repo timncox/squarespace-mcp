@@ -482,8 +482,9 @@ export function registerPageTools(server: McpServer) {
       seoDescription: z.string().optional().describe('SEO meta description'),
       description: z.string().optional().describe('Page description'),
       navigationTitle: z.string().optional().describe('Title shown in navigation menu'),
+      seoHidden: z.boolean().optional().describe('Hide the page from search engines (noindex); false to show it again'),
     },
-  }, async ({ siteId, pageSlug, seoTitle, seoDescription, description, navigationTitle }) => {
+  }, async ({ siteId, pageSlug, seoTitle, seoDescription, description, navigationTitle, seoHidden }) => {
     try {
       const ids = await resolvePageIds(siteId, pageSlug);
       if (!ids) {
@@ -495,6 +496,7 @@ export function registerPageTools(server: McpServer) {
         ...(seoDescription != null ? { seoDescription } : {}),
         ...(description != null ? { description } : {}),
         ...(navigationTitle != null ? { navigationTitle } : {}),
+        ...(seoHidden != null ? { seoHidden } : {}),
       });
 
       if (!result.success) {

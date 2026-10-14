@@ -768,4 +768,69 @@ export function registerSiteTools(server: McpServer) {
       };
     }
   });
+
+  // ── sq_get_site_seo ─────────────────────────────────────────────────────────
+  server.registerTool('sq_get_site_seo', {
+    description:
+      'Read site-wide SEO (Website → SEO / AI Visibility → SEO Settings): site title, the site meta description ' +
+      '(what the homepage shows in Google, link previews and AI answers), and the title formats for the homepage, ' +
+      'pages (%p = page title, %s = site title) and items (%i).',
+    inputSchema: { siteId: z.string().describe('Site identifier') },
+  }, async ({ siteId }) => {
+    try {
+      const r = await getClient(siteId).getSiteSeo();
+      if (!r.success) return { content: [{ type: 'text' as const, text: `Error: ${r.error}` }], isError: true };
+      return { content: [{ type: 'text' as const, text: JSON.stringify(r.data, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_update_site_seo ──────────────────────────────────────────────────────
+  server.registerTool('sq_update_site_seo', {
+    description:
+      'Update site-wide SEO — the same save as the SEO Settings panel. metaDescription is the homepage/site description ' +
+      'shown in search results and link previews (aim for 50–160 characters). Title formats use %p (page title), ' +
+      '%s (site title), %i (item title), e.g. "%p — Seahorse NYC". Only provided fields change.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      metaDescription: z.string().optional().describe('Site meta description'),
+      siteTitle: z.string().optional().describe('Site title (%s in title formats)'),
+      homepageTitleFormat: z.string().optional().describe('Homepage title format, e.g. "%s"'),
+      collectionTitleFormat: z.string().optional().describe('Page title format, e.g. "%p — %s"'),
+      itemTitleFormat: z.string().optional().describe('Blog/item title format, e.g. "%i — %s"'),
+    },
+  }, async ({ siteId, ...updates }) => {
+    try {
+      const client = getClient(siteId);
+      const r = await client.updateSiteSeo(updates);
+      if (!r.success) return { content: [{ type: 'text' as const, text: `Error: ${r.error}` }], isError: true };
+      const after = await client.getSiteSeo();
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ success: true, updatedFields: r.updatedFields, now: after.data }, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
+
+  // ── sq_update_nav_link ──────────────────────────────────────────────────────
+  server.registerTool('sq_update_nav_link', {
+    description:
+      'Change where a custom navigation link (a "Link" item, e.g. "Event Inquiries") points. Finds it by title in any ' +
+      'navigation and saves the whole menu back the way the Pages panel does, so other items are untouched. ' +
+      'Use this instead of the Pages panel\'s link field, which can save a truncated URL when filled by automation.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      title: z.string().describe('Exact title of the custom link, e.g. "Event Inquiries"'),
+      url: z.string().url().describe('New absolute URL'),
+      newWindow: z.boolean().optional().describe('Open in a new tab (unchanged if omitted)'),
+    },
+  }, async ({ siteId, title, url, newWindow }) => {
+    try {
+      const r = await getClient(siteId).updateNavLink(title, url, newWindow);
+      if (!r.success) return { content: [{ type: 'text' as const, text: `Error: ${r.error}` }], isError: true };
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ success: true, title, navigation: r.navigation, previousUrl: r.previousUrl, url }, null, 2) }] };
+    } catch (err) {
+      return { content: [{ type: 'text' as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+    }
+  });
 }
