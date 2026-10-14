@@ -27,7 +27,8 @@ import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+// SQSP_ROOT lets a worktree copy of this script use the main checkout's session.
+const ROOT = process.env.SQSP_ROOT ?? join(dirname(fileURLToPath(import.meta.url)), '..');
 const SESSION_PATH = join(ROOT, 'storage', 'auth', 'sqsp-session.json');
 const CAPTURE_DIR = join(ROOT, 'storage', 'captures');
 
@@ -45,13 +46,28 @@ const WAIT_SEC = waitIdx >= 0 ? Number(args[waitIdx + 1]) : 20;
 const { chromium } = await import('playwright');
 const rawState = JSON.parse(readFileSync(SESSION_PATH, 'utf8'));
 rawState.cookies = rawState.cookies.filter((c) => c.domain && c.path); // drop malformed empty-value placeholders
-const browser = await chromium.launch({ headless: !HEADFUL });
+// Playwright's own signal handlers close the browser on Ctrl+C before our
+// SIGINT handler can save — that lost a whole hand-driven capture (2026-10-14).
+const browser = await chromium.launch({ headless: !HEADFUL, handleSIGINT: false, handleSIGTERM: false, handleSIGHUP: false });
 const context = await browser.newContext({ storageState: rawState, viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
 
-const NOISE = /events\.|clanker|sentry|census|fullstory|location\.squarespace|insights\.squarespace/;
+mkdirSync(CAPTURE_DIR, { recursive: true });
+const stamp = Date.now();
+const slug = `${sub}${configPath.replace(/\//g, '-')}-${stamp}`;
+const outPath = join(CAPTURE_DIR, `${slug}.json`);
+const shotPath = join(CAPTURE_DIR, `${slug}.png`);
+
+const NOISE = /ai-catalogs|events\.|clanker|sentry|census|fullstory|location\.squarespace|insights\.squarespace/;
 const calls = [];
-page.on('request', (req) => {
+// Flush to disk after every write, so a crash or a closed window never loses
+// what was already recorded. Also refresh the stored session while we can.
+function flush() {
+  writeFileSync(outPath, JSON.stringify({ finalUrl: null, partial: true, calls }, null, 2));
+  context.storageState({ path: SESSION_PATH }).catch(() => {});
+}
+// Context-level listeners: also catch requests from editor iframes and new tabs.
+context.on('request', (req) => {
   const url = req.url();
   if (!/\/api\//.test(url) || NOISE.test(url)) return;
   const isWrite = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method());
@@ -62,7 +78,7 @@ page.on('request', (req) => {
     csrfHeader: req.headers()['x-csrf-token'] ?? null,
   });
 });
-page.on('response', async (res) => {
+context.on('response', async (res) => {
   const url = res.url();
   const req = res.request();
   if (!/\/api\//.test(url) || NOISE.test(url)) return;
@@ -70,13 +86,11 @@ page.on('response', async (res) => {
   let body = null;
   try { body = (await res.text()).slice(0, isWrite ? 20000 : 4000); } catch { /* stream gone */ }
   calls.push({ t: Date.now(), kind: 'response', status: res.status(), method: req.method(), url, body });
+  if (isWrite) {
+    flush();
+    console.error(`recorded ${req.method()} ${url.split('?')[0]} -> ${res.status()}`);
+  }
 });
-
-mkdirSync(CAPTURE_DIR, { recursive: true });
-const stamp = Date.now();
-const slug = `${sub}${configPath.replace(/\//g, '-')}-${stamp}`;
-const outPath = join(CAPTURE_DIR, `${slug}.json`);
-const shotPath = join(CAPTURE_DIR, `${slug}.png`);
 
 let saved = false;
 async function saveAndExit(code) {
@@ -91,7 +105,7 @@ async function saveAndExit(code) {
         text: (el.textContent || '').trim().slice(0, 60), editable: el.getAttribute('contenteditable'),
       }));
     }).catch(() => []);
-    await context.storageState({ path: SESSION_PATH }); // keep MCP session valid
+    await context.storageState({ path: SESSION_PATH }).catch(() => {}); // keep MCP session valid
     writeFileSync(outPath, JSON.stringify({ finalUrl: page.url(), screenshot: shotPath, controls, calls }, null, 2));
     console.error(`saved ${calls.length} calls -> ${outPath}`);
   } finally {
@@ -100,9 +114,16 @@ async function saveAndExit(code) {
   }
 }
 process.on('SIGINT', () => void saveAndExit(0));
+process.on('SIGTERM', () => void saveAndExit(0));
 
 const target = `https://${sub}.squarespace.com${configPath}`;
-console.error(`capturing ${target} (${HEADFUL ? 'headful — drive the UI, Ctrl+C to finish' : 'headless read-capture'}, ${WAIT_SEC}s)`);
+console.error(`capturing ${target} (${HEADFUL ? 'headful — drive the UI, then Ctrl+C or close the window to finish' : 'headless read-capture'}, ${WAIT_SEC}s)`);
 await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 60000 });
-await page.waitForTimeout(WAIT_SEC * 1000);
+// Finish on whichever comes first: the wait elapsing, or the window being closed.
+await new Promise((resolve) => {
+  const timer = setTimeout(resolve, WAIT_SEC * 1000);
+  const done = () => { clearTimeout(timer); resolve(); };
+  page.on('close', done);
+  browser.on('disconnected', done);
+});
 await saveAndExit(0);
