@@ -36,6 +36,7 @@ import { registerLinkTools } from './tools/links.js';
 import { registerAuthTools } from './tools/auth.js';
 import { registerCommerceTools } from './tools/commerce.js';
 import { registerAnnouncementBarTools } from './tools/announcement-bar.js';
+import { registerPopupTools } from './tools/popup.js';
 import { registerPdfMenuTools } from './tools/pdf-menu.js';
 import { registerMenuParserTools } from './tools/menu.js';
 import { registerGmailTools } from './tools/gmail.js';
@@ -113,6 +114,11 @@ When the user asks you to create a new page (contact, about, services, etc.):
 - sq_update_announcement_bar — toggle visibility, change text, set click-through URL (all params optional, only provided fields change)
 Note: Announcement bars are a paid feature (Business/Commerce plans).
 
+## Promotional Pop-Up
+- sq_get_popup — read pop-up state (on/off, triggers, layout, heading, body, image, buttons)
+- sq_update_popup — turn on/off, set triggers (pages, mobile, timer, scroll, re-show days), edit heading/body/buttons, replace the image from a local file
+Note: the pop-up must be created once in Marketing > Pop-Up; layout/style are UI-only. No end date exists — turn it off with enabled:false.
+
 ## Map Blocks
 - sq_add_map — add a map block by street address (auto-geocodes via OpenStreetMap). Supports zoom, style, labels, terrain options.
 - sq_update_map — update an existing map block (new address, zoom, style, labels, terrain). Re-geocodes if address changes.
@@ -157,6 +163,7 @@ registerLinkTools(server);
 registerAuthTools(server);
 registerCommerceTools(server);
 registerAnnouncementBarTools(server);
+registerPopupTools(server);
 registerPdfMenuTools(server);
 registerMenuParserTools(server);
 registerGmailTools(server);
@@ -253,6 +260,10 @@ server.registerPrompt('squarespace-guide', {
 ### Announcement Bar
 - sq_get_announcement_bar — read announcement bar state
 - sq_update_announcement_bar — toggle, change text, set URL
+
+### Promotional Pop-Up
+- sq_get_popup — read pop-up state
+- sq_update_popup — toggle, triggers, heading/body/buttons, replace image
 
 ### Map Blocks
 - sq_add_map — add map block by street address (auto-geocodes)

@@ -1399,3 +1399,54 @@ export interface SocialAccount {
   serviceName: string;
 }
 
+
+// ── Promotional pop-up ───────────────────────────────────────────────────────
+
+/** `popupOverlaySettings` inside GET/PUT /api/settings. style: 1 = off, 2 = on. */
+export interface PopupOverlaySettings {
+  style?: number;
+  showOnAllPages?: boolean;
+  enabledPages?: string[];
+  enableMobile?: boolean;
+  showOnTimer?: boolean;
+  /** milliseconds */
+  timerDelay?: number;
+  showOnScroll?: boolean;
+  scrollPercentage?: number;
+  showUntilSignup?: boolean;
+  /** days before a dismissed pop-up shows again */
+  displayFrequency?: number;
+  version?: number;
+  [key: string]: unknown;
+}
+
+export interface PopupSlide {
+  id: string;
+  websiteId?: string;
+  type?: number;
+  layoutIdentifier?: string;
+  [key: string]: unknown;
+}
+
+/** Slice types seen on pop-ups: 1 Heading, 3 Body, 5 Gallery (image), 20 PopupOverlayAction (buttons/newsletter). */
+export interface PopupSlice {
+  id?: string;
+  slideId?: string;
+  type: number;
+  content: Record<string, any>;
+  [key: string]: unknown;
+}
+
+export interface PopupSummaryResult {
+  success: boolean;
+  slide?: PopupSlide;
+  slices?: PopupSlice[];
+  tweakValues?: Record<string, string>;
+  error?: string;
+}
+
+export interface PopupSlicesSaveResult {
+  success: boolean;
+  savedCount?: number;
+  error?: string;
+}

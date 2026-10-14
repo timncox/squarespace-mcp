@@ -13,6 +13,7 @@ import './site.js';
 import './design.js';
 import './gallery.js';
 import './commerce.js';
+import './popup.js';
 
 // Named helpers from domain modules (after the augmentation imports so module
 // evaluation order is unchanged)
