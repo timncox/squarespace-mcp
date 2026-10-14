@@ -248,149 +248,128 @@ describe('ContentSaveClient — Page Management APIs', () => {
   });
 
   // ── updatePageMetadata ─────────────────────────────────────────────────
+  // Recorded flow (Pages → gear → SEO, 2026-10-14): GetCollectionSettings → SaveCollectionSettings.
+
+  const SETTINGS = {
+    id: 'coll-123', websiteId: 'web-1', title: 'Menus', navigationTitle: 'Menus', urlId: 'menus',
+    enabled: true, description: { html: '', raw: false },
+    seoData: { seoTitle: 'Menus', seoDescription: '', seoHidden: false },
+    typeName: 'page',
+  };
 
   describe('updatePageMetadata()', () => {
-    it('returns success with all fields updated', async () => {
-      mockFetch.mockResolvedValueOnce(
-        jsonResponse({ id: 'coll-123', title: 'New Title', urlId: 'new-slug' }),
-      );
+    it('reads settings, merges SEO fields into seoData, and posts SaveCollectionSettings', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse(SETTINGS))
+        .mockResolvedValueOnce(jsonResponse({ ...SETTINGS, id: 'coll-123' }));
 
       const result = await client.updatePageMetadata('coll-123', {
-        title: 'New Title',
-        urlId: 'new-slug',
-        description: 'New description',
-        seoTitle: 'SEO Title',
-        seoDescription: 'SEO Description',
-        navigationTitle: 'Nav Title',
-        enabled: true,
+        seoTitle: 'Menus: Breakfast, Lunch & Dinner',
+        seoDescription: 'Seafood menus',
+        navigationTitle: 'Our Menus',
       });
 
       expect(result.success).toBe(true);
-      expect(result.collectionId).toBe('coll-123');
-      expect(result.updatedFields).toEqual([
-        'title', 'urlId', 'description', 'seoTitle', 'seoDescription', 'navigationTitle', 'enabled',
-      ]);
+      expect(result.updatedFields).toEqual(['seoTitle', 'seoDescription', 'navigationTitle']);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
 
-      // Verify PUT was sent with correct body
-      expect(mockFetch).toHaveBeenCalledTimes(1);
-      const [fetchUrl, fetchOpts] = mockFetch.mock.calls[0];
-      expect(fetchUrl).toContain('/api/collections/coll-123');
-      expect(fetchUrl).toContain('crumb=');
-      expect(fetchOpts.method).toBe('PUT');
+      const [getUrl] = mockFetch.mock.calls[0];
+      expect(getUrl).toContain('/api/commondata/GetCollectionSettings?collectionId=coll-123');
 
-      const sentBody = JSON.parse(fetchOpts.body as string);
-      expect(sentBody.title).toBe('New Title');
-      expect(sentBody.urlId).toBe('new-slug');
-      expect(sentBody.description).toBe('New description');
-      expect(sentBody.seoTitle).toBe('SEO Title');
-      expect(sentBody.seoDescription).toBe('SEO Description');
-      expect(sentBody.navigationTitle).toBe('Nav Title');
-      expect(sentBody.enabled).toBe(true);
-    });
-
-    it('handles partial updates (only title)', async () => {
-      mockFetch.mockResolvedValueOnce(
-        jsonResponse({ id: 'coll-123', title: 'Updated Title' }),
-      );
-
-      const result = await client.updatePageMetadata('coll-123', {
-        title: 'Updated Title',
+      const [postUrl, postOpts] = mockFetch.mock.calls[1];
+      expect(postUrl).toContain('/api/commondata/SaveCollectionSettings');
+      expect(postOpts.method).toBe('POST');
+      expect(postOpts.headers['x-csrf-token']).toBe('crumb-token-abc');
+      const sent = JSON.parse(postOpts.body as string);
+      expect(sent.memberAreaData).toEqual({});
+      expect(sent.collectionData.collectionId).toBe('coll-123');
+      expect(sent.collectionData.seoData).toEqual({
+        seoTitle: 'Menus: Breakfast, Lunch & Dinner', seoDescription: 'Seafood menus', seoHidden: false,
       });
-
-      expect(result.success).toBe(true);
-      expect(result.updatedFields).toEqual(['title']);
-
-      const sentBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-      expect(sentBody.title).toBe('Updated Title');
-      expect(sentBody.urlId).toBeUndefined();
-      expect(sentBody.description).toBeUndefined();
+      expect(sent.collectionData.navigationTitle).toBe('Our Menus');
+      // untouched fields round-trip
+      expect(sent.collectionData.urlId).toBe('menus');
+      expect(sent.collectionData.title).toBe('Menus');
     });
 
-    it('handles partial updates (only SEO fields)', async () => {
-      mockFetch.mockResolvedValueOnce(
-        jsonResponse({ id: 'coll-123' }),
-      );
-
-      const result = await client.updatePageMetadata('coll-123', {
-        seoTitle: 'Best Restaurant in NYC',
-        seoDescription: 'Fine dining in Manhattan since 1985',
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.updatedFields).toEqual(['seoTitle', 'seoDescription']);
+    it('wraps a plain-text description in the editor shape', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(SETTINGS)).mockResolvedValueOnce(jsonResponse(SETTINGS));
+      await client.updatePageMetadata('coll-123', { description: 'Fish & <chips>' });
+      const sent = JSON.parse(mockFetch.mock.calls[1][1].body as string);
+      expect(sent.collectionData.description).toEqual({ html: '<p>Fish &amp; &lt;chips&gt;</p>', raw: false });
     });
 
-    it('returns error when no fields provided', async () => {
+    it('returns error when no fields provided, without calling the API', async () => {
       const result = await client.updatePageMetadata('coll-123', {});
-
       expect(result.success).toBe(false);
       expect(result.error).toContain('No fields provided');
-      expect(result.updatedFields).toEqual([]);
-      // Should NOT have called fetch
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('returns error on 401 (session expired)', async () => {
-      mockFetch.mockResolvedValueOnce(errorResponse(401));
-
-      const result = await client.updatePageMetadata('coll-123', {
-        title: 'New Title',
-      });
-
+    it('refuses deleted (use sq_delete_page)', async () => {
+      const result = await client.updatePageMetadata('coll-123', { deleted: true });
       expect(result.success).toBe(false);
-      expect(result.error).toContain('Session expired');
-      expect(result.updatedFields).toEqual([]);
+      expect(result.error).toContain('sq_delete_page');
+      expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('returns error on crumb failure', async () => {
-      mockFetch.mockResolvedValueOnce(
-        jsonResponse({ crumbFail: true }, 200),
-      );
+    it('returns error on 401 from the read', async () => {
+      mockFetch.mockResolvedValueOnce(errorResponse(401));
+      const result = await client.updatePageMetadata('coll-123', { seoTitle: 'x' });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Session expired');
+    });
 
-      const result = await client.updatePageMetadata('coll-123', {
-        title: 'New Title',
-      });
-
+    it('returns error on crumb failure from the save', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(SETTINGS)).mockResolvedValueOnce(jsonResponse({ crumbFail: true }));
+      const result = await client.updatePageMetadata('coll-123', { seoTitle: 'x' });
       expect(result.success).toBe(false);
       expect(result.error).toContain('invalid or expired session crumb');
     });
 
-    it('returns error on server error (500)', async () => {
-      mockFetch.mockResolvedValueOnce(errorResponse(500));
-
-      const result = await client.updatePageMetadata('coll-123', {
-        title: 'New Title',
-      });
-
+    it('returns error on server error from the save', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse(SETTINGS)).mockResolvedValueOnce(errorResponse(500));
+      const result = await client.updatePageMetadata('coll-123', { seoTitle: 'x' });
       expect(result.success).toBe(false);
       expect(result.error).toContain('500');
     });
 
     it('never throws on network error', async () => {
       mockFetch.mockRejectedValueOnce(new Error('Connection refused'));
-
-      const result = await client.updatePageMetadata('coll-123', {
-        title: 'New Title',
-      });
-
+      const result = await client.updatePageMetadata('coll-123', { seoTitle: 'x' });
       expect(result.success).toBe(false);
       expect(result.error).toContain('Connection refused');
     });
+  });
 
-    it('handles enabled: false (disable page)', async () => {
-      mockFetch.mockResolvedValueOnce(
-        jsonResponse({ id: 'coll-123', enabled: false }),
-      );
+  // ── setImageAltText ────────────────────────────────────────────────────
 
-      const result = await client.updatePageMetadata('coll-123', {
-        enabled: false,
-      });
-
+  describe('setImageAltText()', () => {
+    it('posts SaveItemField as a form with the csrf header', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ item: { id: 'img-1', altText: 'Lure Fishbar logo' } }));
+      const result = await client.setImageAltText('img-1', 'coll-123', 'Lure Fishbar logo');
       expect(result.success).toBe(true);
-      expect(result.updatedFields).toEqual(['enabled']);
+      const [url, opts] = mockFetch.mock.calls[0];
+      expect(url).toContain('/api/commondata/SaveItemField');
+      expect(opts.method).toBe('POST');
+      expect(opts.headers['Content-Type']).toBe('application/x-www-form-urlencoded');
+      expect(opts.headers['x-csrf-token']).toBe('crumb-token-abc');
+      expect(Object.fromEntries(new URLSearchParams(opts.body as string))).toEqual({
+        itemId: 'img-1', field: 'altText', value: 'Lure Fishbar logo', targetCollectionId: 'coll-123',
+      });
+    });
 
-      const sentBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-      expect(sentBody.enabled).toBe(false);
+    it('fails when the saved record does not carry the new alt text', async () => {
+      mockFetch.mockResolvedValueOnce(jsonResponse({ item: { id: 'img-1', altText: 'old' } }));
+      const result = await client.setImageAltText('img-1', 'coll-123', 'new');
+      expect(result.success).toBe(false);
+    });
+
+    it('fails on HTTP error', async () => {
+      mockFetch.mockResolvedValueOnce(errorResponse(500));
+      const result = await client.setImageAltText('img-1', 'coll-123', 'new');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('500');
     });
   });
 });

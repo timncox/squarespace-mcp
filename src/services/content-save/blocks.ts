@@ -200,6 +200,9 @@ declare module './index.js' {
       pageSectionsId: string, collectionId: string, sectionIndex: number, menuText?: string,
       options?: { menuStyle?: string; currencySymbol?: string; columns?: number; rowHeight?: number; gapRows?: number; startX?: number; endX?: number; startY?: number; endY?: number },
     ): Promise<MenuBlockAddResult>;
+    setImageAltText(
+      imageId: string, collectionId: string, altText: string,
+    ): Promise<{ success: boolean; error?: string }>;
     getMenuBlock(
       pageSectionsId: string, searchText: string,
     ): Promise<{ success: boolean; menus?: any[]; menuStyle?: number; currencySymbol?: string; blockId?: string; raw?: string; error?: string }>;
@@ -388,7 +391,56 @@ ContentSaveClient.prototype.updateImageBlock = async function (
       return { success: false, error: saveResult.error };
     }
 
+    // The rendered alt comes from the image record, not the block (the block-level
+    // write above "succeeds" but never shows live) — write it where the editor does.
+    if (fields.altText !== undefined && blockValue.value?.imageId) {
+      const alt = await this.setImageAltText(blockValue.value.imageId, collectionId, fields.altText);
+      if (!alt.success) {
+        return { success: false, blockId, updatedFields, error: `Block saved, but image alt text was not: ${alt.error}` };
+      }
+    }
+
     return { success: true, blockId, updatedFields };
+  } catch (err) {
+    return { success: false, error: errMsg(err) };
+  }
+};
+
+// ── Image record alt text ─────────────────────────────────────────────
+
+ContentSaveClient.prototype.setImageAltText = async function (
+  this: ContentSaveClient,
+  imageId: string,
+  collectionId: string,
+  altText: string,
+): Promise<{ success: boolean; error?: string }> {
+  // Captured from the image editor's own save on seahorsenyc, 2026-10-14:
+  // POST /api/commondata/SaveItemField (form) itemId, field=altText, value, targetCollectionId.
+  this.ensureCookies();
+  try {
+    const body = new URLSearchParams({ itemId: imageId, field: 'altText', value: altText, targetCollectionId: collectionId });
+    const response = await fetch(this.buildApiUrl('/api/commondata/SaveItemField'), {
+      method: 'POST',
+      headers: {
+        ...this.buildHeaders(),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        ...(this.crumbToken ? { 'x-csrf-token': this.crumbToken } : {}),
+      },
+      body: body.toString(),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    const text = await response.text().catch(() => '');
+    if (!response.ok) {
+      return { success: false, error: this.enhanceError(response.status, text, `SaveItemField returned ${response.status}`) };
+    }
+    let data: Record<string, any> = {};
+    try { data = JSON.parse(text); } catch { /* non-JSON */ }
+    if (data.error || data.crumbFail) return { success: false, error: String(data.error ?? 'crumb failure') };
+    if (data.item && data.item.altText !== undefined && data.item.altText !== altText) {
+      return { success: false, error: `SaveItemField returned altText "${data.item.altText}"` };
+    }
+    logger.info({ imageId, collectionId }, 'Image alt text saved');
+    return { success: true };
   } catch (err) {
     return { success: false, error: errMsg(err) };
   }

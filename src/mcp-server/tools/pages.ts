@@ -474,7 +474,7 @@ export function registerPageTools(server: McpServer) {
 
   // ── sq_update_page_metadata ─────────────────────────────────────────────────
   server.registerTool('sq_update_page_metadata', {
-    description: 'Update page metadata including SEO title, description, and navigation title. Requires resolving page to get collectionId.',
+    description: 'Update page metadata including SEO title, SEO description, and navigation title (same save as Pages → gear → SEO). Note: the homepage/site-wide meta description is website.metaDescription (SEO Settings panel), not a page field.',
     inputSchema: {
       siteId: z.string().describe('Site identifier'),
       pageSlug: z.string().describe('Page URL slug'),

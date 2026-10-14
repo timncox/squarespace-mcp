@@ -1086,89 +1086,76 @@ ContentSaveClient.prototype.updatePageMetadata = async function (
 ): Promise<PageMetadataUpdateResult> {
   this.ensureCookies();
 
+  // Read-modify-write through the same legacy RPCs the Pages → gear panel uses
+  // (captured from the config UI on seahorsenyc, 2026-10-14):
+  //   GET  /api/commondata/GetCollectionSettings?collectionId={id}
+  //   POST /api/commondata/SaveCollectionSettings {collectionData: {...settings, collectionId}, memberAreaData: {}}
+  // SEO fields live inside collectionData.seoData. The old PUT /api/collections/{id} 404s.
+  const updatedFields: string[] = [];
+  const fail = (error: string): PageMetadataUpdateResult => ({ success: false, collectionId, updatedFields: [], error });
+
+  if (updates.deleted != null) {
+    return fail('deleted is not supported here — use sq_delete_page (RemoveCollection) to trash a page');
+  }
+  const editable = ['title', 'urlId', 'description', 'seoTitle', 'seoDescription', 'navigationTitle', 'enabled'] as const;
+  if (!editable.some((k) => updates[k] != null)) return fail('No fields provided for update');
+
   try {
-    const path = `/api/collections/${collectionId}`;
-    const url = this.buildApiUrl(path, true);
+    const getUrl = this.buildApiUrl(`/api/commondata/GetCollectionSettings?collectionId=${encodeURIComponent(collectionId)}`, true);
+    const getRes = await fetch(getUrl, { headers: this.buildHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+    if (getRes.status === 401) return fail('Session expired — call sq_relogin, then retry.');
+    if (!getRes.ok) return fail(`GetCollectionSettings returned ${getRes.status}`);
+    const settings = (await getRes.json()) as Record<string, unknown>;
+    if (!settings.id) return fail(`No page settings found for collection ${collectionId}`);
 
-    const body: Record<string, unknown> = {};
-    const updatedFields: string[] = [];
-
-    if (updates.title != null) { body.title = updates.title; updatedFields.push('title'); }
-    if (updates.urlId != null) { body.urlId = updates.urlId; updatedFields.push('urlId'); }
-    if (updates.description != null) { body.description = updates.description; updatedFields.push('description'); }
-    if (updates.seoTitle != null) { body.seoTitle = updates.seoTitle; updatedFields.push('seoTitle'); }
-    if (updates.seoDescription != null) { body.seoDescription = updates.seoDescription; updatedFields.push('seoDescription'); }
-    if (updates.navigationTitle != null) { body.navigationTitle = updates.navigationTitle; updatedFields.push('navigationTitle'); }
-    if (updates.enabled != null) { body.enabled = updates.enabled; updatedFields.push('enabled'); }
-    if (updates.deleted != null) { body.deleted = updates.deleted; updatedFields.push('deleted'); }
-
-    if (updatedFields.length === 0) {
-      return {
-        success: false,
-        collectionId,
-        updatedFields: [],
-        error: 'No fields provided for update',
-      };
+    const seoData = { ...((settings.seoData as Record<string, unknown>) ?? {}) };
+    if (updates.title != null) { settings.title = updates.title; updatedFields.push('title'); }
+    if (updates.urlId != null) { settings.urlId = updates.urlId; updatedFields.push('urlId'); }
+    if (updates.description != null) {
+      const html = updates.description === '' ? '' : `<p>${updates.description.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`;
+      settings.description = { html, raw: false };
+      updatedFields.push('description');
     }
+    if (updates.seoTitle != null) { seoData.seoTitle = updates.seoTitle; updatedFields.push('seoTitle'); }
+    if (updates.seoDescription != null) { seoData.seoDescription = updates.seoDescription; updatedFields.push('seoDescription'); }
+    if (updates.navigationTitle != null) { settings.navigationTitle = updates.navigationTitle; updatedFields.push('navigationTitle'); }
+    if (updates.enabled != null) { settings.enabled = updates.enabled; updatedFields.push('enabled'); }
 
-    const response = await fetch(url, {
-      method: 'PUT',
+    if (updatedFields.length === 0) return fail('No fields provided for update');
+    settings.seoData = seoData;
+
+    const response = await fetch(this.buildApiUrl('/api/commondata/SaveCollectionSettings'), {
+      method: 'POST',
       headers: {
         ...this.buildHeaders(),
         'Content-Type': 'application/json',
+        ...(this.crumbToken ? { 'x-csrf-token': this.crumbToken } : {}),
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ collectionData: { ...settings, collectionId }, memberAreaData: {} }),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
 
-    if (response.status === 401) {
-      return {
-        success: false,
-        collectionId,
-        updatedFields: [],
-        error: 'Session expired — call sq_login to check session health and re-authenticate.',
-      };
-    }
-
+    if (response.status === 401) return fail('Session expired — call sq_relogin, then retry.');
     if (!response.ok) {
-      return {
-        success: false,
-        collectionId,
-        updatedFields: [],
-        error: `API returned ${response.status}`,
-      };
+      const body = await response.text().catch(() => '');
+      return fail(this.enhanceError(response.status, body, `SaveCollectionSettings returned ${response.status}`));
     }
 
     const data = (await response.json()) as Record<string, unknown>;
-
     if (data.crumbFail || (typeof data.error === 'string' && String(data.error).includes('Invalid session crumb'))) {
       if (!_isRetry && await this.handleCrumbFailure(JSON.stringify(data))) {
         logger.info('updatePageMetadata: retrying after crumb refresh');
         return this.updatePageMetadata(collectionId, updates, true);
       }
       const ageInfo = this.sessionAgeHours !== null ? ` Session age: ${Math.round(this.sessionAgeHours)}h.` : '';
-      return {
-        success: false,
-        collectionId,
-        updatedFields: [],
-        error: `updatePageMetadata rejected: invalid or expired session crumb.${ageInfo} Call sq_login to check session health and re-authenticate.`,
-      };
+      return fail(`updatePageMetadata rejected: invalid or expired session crumb.${ageInfo} Call sq_relogin and retry.`);
     }
+    if (typeof data.error === 'string') return fail(`SaveCollectionSettings error: ${data.error}`);
 
     logger.info({ collectionId, updatedFields }, 'updatePageMetadata: metadata updated');
-
-    return {
-      success: true,
-      collectionId,
-      updatedFields,
-    };
+    return { success: true, collectionId, updatedFields };
   } catch (err) {
-    return {
-      success: false,
-      collectionId,
-      updatedFields: [],
-      error: errMsg(err),
-    };
+    return fail(errMsg(err));
   }
 };
 

@@ -195,6 +195,69 @@ export function registerBlockTools(server: McpServer) {
     }
   });
 
+  // ── sq_set_image_alt ────────────────────────────────────────────────────────
+  server.registerTool('sq_set_image_alt', {
+    description:
+      'Set the alt text that actually renders on a live image (it lives on the image record, not the page block). ' +
+      'Finds the image on the published page by its CURRENT alt text or filename (case-insensitive substring), ' +
+      'so it works for logos and images whose block has no searchable text. Errors if the match is ambiguous.',
+    inputSchema: {
+      siteId: z.string().describe('Site identifier'),
+      pageSlug: z.string().describe('Page URL slug ("home" for the homepage)'),
+      match: z.string().min(2).describe('Substring of the image\'s current alt text or filename, e.g. "lure-black" or "Galerie"'),
+      altText: z.string().describe('New alt text'),
+    },
+  }, async ({ siteId, pageSlug, match, altText }) => {
+    const err = (text: string) => ({ content: [{ type: 'text' as const, text: `Error: ${text}` }], isError: true });
+    try {
+      const ids = await resolvePageIds(siteId, pageSlug);
+      if (!ids) return err(`Could not resolve page "${pageSlug}" on site "${siteId}"`);
+      const client = getClient(siteId);
+
+      // 1. Live page → block ids with their rendered alt + filename
+      const pageUrl = `https://${client.siteSubdomain}.squarespace.com/${pageSlug === 'home' ? '' : pageSlug}`;
+      const res = await fetch(pageUrl, { redirect: 'follow' });
+      if (!res.ok) return err(`Fetching ${pageUrl} returned ${res.status}`);
+      const html = await res.text();
+      const images = html.split('data-component-id="').slice(1).map((chunk) => {
+        const blockId = chunk.slice(0, chunk.indexOf('"'));
+        const img = chunk.match(/<img\b[^>]*>/)?.[0] ?? '';
+        const alt = img.match(/\balt="([^"]*)"/)?.[1] ?? '';
+        const src = img.match(/\b(?:data-src|src)="([^"]*)"/)?.[1] ?? '';
+        return { blockId, alt, filename: decodeURIComponent(src.split('?')[0].split('/').pop() ?? '') };
+      }).filter((i) => i.alt || i.filename);
+      const needle = match.toLowerCase();
+      const hits = images.filter((i) => i.alt.toLowerCase().includes(needle) || i.filename.toLowerCase().includes(needle));
+      if (hits.length === 0) return err(`No image on /${pageSlug} has alt text or filename containing "${match}"`);
+      if (hits.length > 1) {
+        return err(`"${match}" matches ${hits.length} images — be more specific:\n` + hits.map((h) => `- ${h.filename} (alt: "${h.alt}")`).join('\n'));
+      }
+      const hit = hits[0];
+
+      // 2. Block id → image record id
+      const data = await client.getPageSections(ids.pageSectionsId);
+      let imageId: string | undefined;
+      for (const section of data.sections) {
+        for (const g of (section as any).fluidEngineContext?.gridContents ?? []) {
+          if (g.content?.value?.id === hit.blockId) imageId = g.content.value.value?.imageId;
+        }
+      }
+      if (!imageId) return err(`Found block ${hit.blockId} on the live page but it has no image record in the page data`);
+
+      // 3. Write where the editor writes
+      const result = await client.setImageAltText(imageId, ids.collectionId, altText);
+      if (!result.success) return err(result.error ?? 'SaveItemField failed');
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({ success: true, blockId: hit.blockId, imageId, filename: hit.filename, previousAlt: hit.alt, altText }, null, 2),
+        }],
+      };
+    } catch (e) {
+      return err(e instanceof Error ? e.message : String(e));
+    }
+  });
+
   // ── sq_upload_image ─────────────────────────────────────────────────────────
   server.registerTool('sq_upload_image', {
     description:
