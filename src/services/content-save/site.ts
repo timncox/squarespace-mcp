@@ -1071,17 +1071,21 @@ ContentSaveClient.prototype.updateSiteSeo = async function (this: ContentSaveCli
 };
 
 // ── Navigation: edit one custom link ────────────────────────────────────────
-// GET /api/navigation returns [{identifier, links}] per navigation. The editor's
-// own UpdateNavigation save (bmco, 2026-10-14) sends each link back with `icon`
-// (and blog `categories`/`tags`) dropped, page entries given `items` (their
-// children), and external links passed through unchanged.
+// GET /api/navigation returns [{identifier, links}] per navigation; a FOLDER keeps
+// its entries under `children`. The editor's own UpdateNavigation save (bmco and
+// lurefishbar, 2026-10-14) sends each entry back with `icon` (and blog
+// `categories`/`tags`) dropped and a folder's/page's entries under `items`;
+// external links pass through unchanged. Missing `children` here once meant a
+// save would have emptied every folder — keep the folder test in sync.
+
+const navChildren = (link: Record<string, any>): Record<string, unknown>[] =>
+  (link.children ?? link.links ?? link.items ?? []) as Record<string, unknown>[];
 
 export function navLinkToUpdateItem(link: Record<string, unknown>): Record<string, unknown> {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { icon, categories, tags, links, items, ...rest } = link as Record<string, any>;
+  const { icon, categories, tags, links, items, children, ...rest } = link as Record<string, any>;
   if (rest.externalLink) return rest;
-  const children = (links ?? items ?? []) as Record<string, unknown>[];
-  return { ...rest, items: children.map(navLinkToUpdateItem) };
+  return { ...rest, items: navChildren(link).map(navLinkToUpdateItem) };
 }
 
 ContentSaveClient.prototype.updateNavLink = async function (this: ContentSaveClient, title: string, url: string, newWindow?: boolean) {
@@ -1097,7 +1101,7 @@ ContentSaveClient.prototype.updateNavLink = async function (this: ContentSaveCli
     const walk = (nav: Record<string, any>, links: Array<Record<string, any>> = []) => {
       for (const l of links) {
         if (l.externalLink && (l.title === title || l.externalLink.title === title)) hits.push({ nav, link: l });
-        walk(nav, l.links ?? l.items);
+        walk(nav, navChildren(l) as Array<Record<string, any>>);
       }
     };
     for (const nav of navs) if (nav && Array.isArray(nav.links)) walk(nav, nav.links);

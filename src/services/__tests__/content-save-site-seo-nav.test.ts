@@ -134,6 +134,41 @@ describe('ContentSaveClient — site SEO + navigation links', () => {
     });
   });
 
+  // GET /api/navigation shape with FOLDERS (lurefishbar, 2026-10-14): entries under `children`
+  const FOLDER_NAV = [
+    {
+      identifier: 'mainNav', links: [
+        { title: 'Event Request', urlId: 'event-request', typeName: 'folder', collectionId: 'f-ev', isFolder: true, icon: 'folder', enabled: true, children: [
+          { title: 'Chicago Event Request', externalLink: { title: 'Chicago Event Request', url: '#', newWindow: true }, enabled: false, isFolder: false, isDraft: false },
+          { title: 'New York Event Request', externalLink: { title: 'New York Event Request', url: '#', newWindow: true }, enabled: false, isFolder: false, isDraft: false },
+        ] },
+        { title: 'Locations', urlId: 'locations', typeName: 'folder', collectionId: 'f-loc', isFolder: true, icon: 'folder', enabled: true, children: [
+          { title: 'Chicago', urlId: 'chicago', typeName: 'page', collectionId: 'c-chi', isFolder: false, icon: 'page', enabled: true },
+          { title: 'New York', urlId: 'new-york', typeName: 'page', collectionId: 'c-ny', isFolder: false, icon: 'page', enabled: true },
+        ] },
+      ],
+    },
+  ];
+
+  describe('updateNavLink() with folders', () => {
+    it('finds a link inside a folder and keeps every folder\'s entries', async () => {
+      mockFetch
+        .mockResolvedValueOnce(jsonResponse(structuredClone(FOLDER_NAV)))
+        .mockResolvedValueOnce(jsonResponse({ templateId: 'tmpl-1' }))
+        .mockResolvedValueOnce(jsonResponse({}));
+      const r = await client.updateNavLink('New York Event Request', 'https://mercerstreet.tripleseat.com/party_request/48940');
+      expect(r).toMatchObject({ success: true, previousUrl: '#' });
+      const sent = JSON.parse(mockFetch.mock.calls[2][1].body);
+      const [events, locations] = sent.navigation.items;
+      expect(events.items.map((i: any) => i.title)).toEqual(['Chicago Event Request', 'New York Event Request']);
+      expect(events.items[1].externalLink.url).toBe('https://mercerstreet.tripleseat.com/party_request/48940');
+      expect(events.items[0].externalLink.url).toBe('#');
+      expect(locations.items.map((i: any) => i.title)).toEqual(['Chicago', 'New York']);
+      expect(events).not.toHaveProperty('children');
+      expect(locations.items[0]).not.toHaveProperty('icon');
+    });
+  });
+
   describe('updateNavLink()', () => {
     it('rewrites one link and sends the whole navigation back in editor shape', async () => {
       mockFetch
