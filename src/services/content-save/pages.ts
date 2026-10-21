@@ -766,11 +766,7 @@ ContentSaveClient.prototype.updateBlogPost = async function (
   this.ensureCookies();
 
   try {
-    // Build partial body — always include id and authorId so the server can identify the author
-    const body: Record<string, unknown> = {
-      id: itemId,
-      ...(this.memberAccountIdCache ? { authorId: this.memberAccountIdCache } : {}),
-    };
+    const body: Record<string, unknown> = { id: itemId };
     const updatedFields: string[] = [];
     // set() assigns a field and records it; null/undefined values are skipped.
     // label overrides the name pushed to updatedFields (for key aliases like workflowState→draft).
@@ -804,6 +800,27 @@ ContentSaveClient.prototype.updateBlogPost = async function (
 
     // Same endpoint pattern as create: PUT /api/content/blogs/{collectionId}/text-posts/{itemId}
     const url = `https://${this.siteSubdomain}.squarespace.com/api/content/blogs/${collectionId}/text-posts/${itemId}`;
+
+    // PUT clears omitted metadata rather than behaving like PATCH. Read it first
+    // and retain the post's author instead of assigning the signed-in member.
+    const currentResponse = await fetch(url, {
+      headers: this.buildHeaders(),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    if (!currentResponse.ok) {
+      const text = await currentResponse.text().catch(() => '');
+      return {
+        success: false, itemId, updatedFields: [],
+        error: this.enhanceError(currentResponse.status, text, `Failed to read blog post: HTTP ${currentResponse.status}: ${text}`),
+      };
+    }
+    const current = (await currentResponse.json()) as Record<string, unknown>;
+    if (current.id !== itemId || typeof current.title !== 'string' || typeof current.authorId !== 'string') {
+      return { success: false, itemId, updatedFields: [], error: 'Cannot update blog post: incomplete current metadata' };
+    }
+    for (const field of ['authorId', 'title', 'tags', 'categories', 'shareStates', 'starred']) {
+      if (!(field in body) && current[field] !== undefined) body[field] = current[field];
+    }
 
     const response = await fetch(url, {
       method: 'PUT',

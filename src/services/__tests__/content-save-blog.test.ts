@@ -40,10 +40,29 @@ function makeClient() {
   return client;
 }
 
+const CURRENT_POST = {
+  id: 'item-123',
+  title: 'Original title',
+  authorId: 'original-author',
+  tags: ['original-tag'],
+  categories: ['original-category'],
+  shareStates: [{ connectedAccountId: 'account-1', pushEnabled: false }],
+};
+
+function currentPostResponse(id = CURRENT_POST.id) {
+  return {
+    ok: true, status: 200,
+    json: async () => ({ ...CURRENT_POST, id }),
+  } as Response;
+}
+
 // ─── updateBlogPost ───────────────────────────────────────────────────────
 
 describe('updateBlogPost', () => {
-  beforeEach(() => mockFetch.mockReset());
+  beforeEach(() => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValueOnce(currentPostResponse());
+  });
 
   it('updates specified fields and returns updatedFields list', async () => {
     mockFetch.mockResolvedValueOnce({
@@ -60,6 +79,7 @@ describe('updateBlogPost', () => {
     expect(result.itemId).toBe('item-123');
     expect(result.updatedFields).toContain('title');
     expect(result.updatedFields).toContain('draft');
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toMatchObject({ title: 'New Title', workflowState: 1 });
   });
 
   it('uses blogs/text-posts endpoint with X-CSRF-Token header', async () => {
@@ -72,13 +92,13 @@ describe('updateBlogPost', () => {
     const client = makeClient();
     await client.updateBlogPost('col-1', 'item-123', { title: 'Updated' });
 
-    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit & { headers: Record<string, string> }];
+    const [url, init] = mockFetch.mock.calls[1] as [string, RequestInit & { headers: Record<string, string> }];
     expect(url).toContain('/api/content/blogs/col-1/text-posts/item-123');
     expect(url).not.toContain('crumb=');
     expect(init.headers['X-CSRF-Token']).toBeTruthy();
   });
 
-  it('always includes id and authorId in body', async () => {
+  it('preserves omitted metadata and the original author during a slug-only update', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true, status: 200,
       json: async () => ({ id: 'item-123' }),
@@ -86,11 +106,63 @@ describe('updateBlogPost', () => {
     } as Response);
 
     const client = makeClient();
-    await client.updateBlogPost('col-1', 'item-123', { title: 'Test' });
+    await client.updateBlogPost('col-1', 'item-123', { urlId: 'new-slug' });
 
-    const sentBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    expect(sentBody.id).toBe('item-123');
-    expect(sentBody.authorId).toBe('deadbeef1234567890abcdef');
+    const sentBody = JSON.parse(mockFetch.mock.calls[1][1].body as string);
+    expect(sentBody).toEqual({ ...CURRENT_POST, urlId: 'new-slug' });
+    expect(mockFetch.mock.calls[0][0]).toContain('/text-posts/item-123');
+    expect(mockFetch.mock.calls[0][1].method).toBeUndefined();
+  });
+
+  it('allows explicit metadata replacements, including empty arrays', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}) } as Response);
+
+    const result = await makeClient().updateBlogPost('col-1', 'item-123', {
+      title: 'New title', tags: [], categories: [],
+    });
+
+    expect(result.updatedFields).toEqual(['title', 'tags', 'categories']);
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({
+      ...CURRENT_POST, title: 'New title', tags: [], categories: [],
+    });
+  });
+
+  it.each([true, false])('preserves starred=%s during a body-only update', async (starred) => {
+    mockFetch.mockReset();
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ...CURRENT_POST, starred }) } as Response)
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) } as Response);
+
+    const result = await makeClient().updateBlogPost('col-1', 'item-123', { body: '<p>Updated</p>' });
+
+    expect(result.success).toBe(true);
+    expect(result.updatedFields).toEqual(['body']);
+    expect(JSON.parse(mockFetch.mock.calls[1][1].body)).toEqual({
+      ...CURRENT_POST, starred, body: { html: '<p>Updated</p>' },
+    });
+  });
+
+  it.each([401, 404, 500])('does not write when reading the post returns %s', async (status) => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValueOnce({ ok: false, status, text: async () => 'Read failed' } as Response);
+
+    const result = await makeClient().updateBlogPost('col-1', 'item-123', { urlId: 'new-slug' });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain(`HTTP ${status}`);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][1].method).toBeUndefined();
+  });
+
+  it('does not write when the current metadata is incomplete', async () => {
+    mockFetch.mockReset();
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ id: 'item-123' }) } as Response);
+
+    const result = await makeClient().updateBlogPost('col-1', 'item-123', { urlId: 'new-slug' });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('incomplete current metadata');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('wraps string excerpt into { html, raw: false }', async () => {
@@ -103,21 +175,24 @@ describe('updateBlogPost', () => {
     const client = makeClient();
     await client.updateBlogPost('col-1', 'item-123', { excerpt: 'Plain text summary' });
 
-    const sentBody = JSON.parse(mockFetch.mock.calls[0][1].body as string);
+    const sentBody = JSON.parse(mockFetch.mock.calls[1][1].body as string);
     expect(sentBody.excerpt).toEqual({ html: 'Plain text summary', raw: false });
   });
 
   it('maps draft boolean to workflowState number', async () => {
+    mockFetch.mockReset();
     mockFetch
+      .mockResolvedValueOnce(currentPostResponse('item-1'))
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}), text: async () => '' } as Response)
+      .mockResolvedValueOnce(currentPostResponse('item-1'))
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({}), text: async () => '' } as Response);
 
     const client = makeClient();
     await client.updateBlogPost('col-1', 'item-1', { draft: true });
     await client.updateBlogPost('col-1', 'item-1', { draft: false });
 
-    const body1 = JSON.parse(mockFetch.mock.calls[0][1].body as string);
-    const body2 = JSON.parse(mockFetch.mock.calls[1][1].body as string);
+    const body1 = JSON.parse(mockFetch.mock.calls[1][1].body as string);
+    const body2 = JSON.parse(mockFetch.mock.calls[3][1].body as string);
     expect(body1.workflowState).toBe(4); // draft
     expect(body2.workflowState).toBe(1); // published
   });
@@ -127,6 +202,7 @@ describe('updateBlogPost', () => {
     const result = await client.updateBlogPost('col-1', 'item-123', {});
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/no fields/i);
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 
   it('returns error on 404', async () => {
@@ -157,7 +233,7 @@ describe('updateBlogPost', () => {
       publishDate: '2026-01-15T10:00:00Z',
     });
 
-    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const [, init] = mockFetch.mock.calls[1] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
     expect(body.publishOn).toBe(new Date('2026-01-15T10:00:00Z').getTime());
   });
@@ -174,7 +250,7 @@ describe('updateBlogPost', () => {
       coverImageUrl: 'https://images.squarespace-cdn.com/content/v1/site/img.jpg',
     });
 
-    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const [, init] = mockFetch.mock.calls[1] as [string, RequestInit];
     const body = JSON.parse(init.body as string);
     expect(body.coverImageUrl).toBe('https://images.squarespace-cdn.com/content/v1/site/img.jpg');
   });
@@ -211,7 +287,9 @@ describe('createBlogPost', () => {
       json: async () => ({ id: 'new-post-2', urlId: 'rich-post' }),
       text: async () => '',
     } as Response);
-    // Second call: PUT update → success
+    // Read current post before the follow-up PUT.
+    mockFetch.mockResolvedValueOnce(currentPostResponse('new-post-2'));
+    // Third call: PUT update → success
     mockFetch.mockResolvedValueOnce({
       ok: true, status: 200,
       json: async () => ({ id: 'new-post-2' }),
@@ -228,9 +306,9 @@ describe('createBlogPost', () => {
 
     expect(result.success).toBe(true);
     expect(result.itemId).toBe('new-post-2');
-    // Should have made 2 fetch calls: POST create + PUT update
-    expect(mockFetch).toHaveBeenCalledTimes(2);
-    const [updateUrl, updateInit] = mockFetch.mock.calls[1] as [string, RequestInit];
+    // POST create, GET current post, PUT update
+    expect(mockFetch).toHaveBeenCalledTimes(3);
+    const [updateUrl, updateInit] = mockFetch.mock.calls[2] as [string, RequestInit];
     expect(updateUrl).toContain('/text-posts/new-post-2');
     expect(updateInit.method).toBe('PUT');
     const updateBody = JSON.parse(updateInit.body as string);
@@ -247,7 +325,8 @@ describe('createBlogPost', () => {
       json: async () => ({ id: 'new-post-fail', urlId: 'fail-post' }),
       text: async () => '',
     } as Response);
-    // Second call: PUT update → 401 session expired
+    mockFetch.mockResolvedValueOnce(currentPostResponse('new-post-fail'));
+    // Third call: PUT update → 401 session expired
     mockFetch.mockResolvedValueOnce({
       ok: false, status: 401,
       text: async () => '',
@@ -261,7 +340,7 @@ describe('createBlogPost', () => {
     expect(result.success).toBe(false);
     expect(result.itemId).toBe('new-post-fail');
     expect(result.error).toMatch(/follow-up update failed/i);
-    expect(mockFetch).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenCalledTimes(3);
   });
 
   it('does not call updateBlogPost when only title and draft provided', async () => {
