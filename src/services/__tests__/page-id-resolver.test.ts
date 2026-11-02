@@ -15,13 +15,19 @@ vi.mock('../../db/database.js', () => ({
 const mockGetPageIds = vi.fn();
 const mockLoadSessionCookies = vi.fn();
 const mockFetchAuthenticatedPageHtml = vi.fn();
+const mockIsPageRegionBased = vi.fn(async () => false);
+const regionFlags = new Map<string, { collectionId: string; isRegionBased: boolean }>();
 
 vi.mock('../content-save.js', () => ({
   createContentSaveClient: vi.fn(() => ({
     getPageIds: mockGetPageIds,
     loadSessionCookies: mockLoadSessionCookies,
     fetchAuthenticatedPageHtml: mockFetchAuthenticatedPageHtml,
+    _isPageRegionBased: mockIsPageRegionBased,
   })),
+  getRegionBasedPage: (sub: string, psid: string) => regionFlags.get(`${sub}:${psid}`),
+  setRegionBasedPage: (sub: string, psid: string, v: { collectionId: string; isRegionBased: boolean }) =>
+    regionFlags.set(`${sub}:${psid}`, v),
 }));
 
 // ── Mock browser-manager ─────────────────────────────────────────────────────
@@ -50,6 +56,8 @@ import { resolvePageIds, cachePageIds } from '../page-id-resolver.js';
 describe('page-id-resolver', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    regionFlags.clear();
+    mockIsPageRegionBased.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -102,6 +110,24 @@ describe('page-id-resolver', () => {
       // Should NOT have called fetch or getPageIds
       expect(mockGetPageIds).not.toHaveBeenCalled();
       expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('flags a modernized (region-based) page on resolution — even from a cache hit', async () => {
+      mockGet.mockReturnValue({
+        page_sections_id: 'ps-cached',
+        collection_id: 'col-cached',
+        cached_at: new Date().toISOString(),
+      });
+      mockIsPageRegionBased.mockResolvedValue(true);
+
+      await resolvePageIds('my-site', 'chicago-menu');
+
+      // The shared module memo is set so the tools' client reads/writes via the
+      // regions document instead of the stale legacy API.
+      expect(regionFlags.get('my-site:ps-cached')).toEqual({
+        collectionId: 'col-cached',
+        isRegionBased: true,
+      });
     });
 
     it('skips stale cache (>30 days)', async () => {

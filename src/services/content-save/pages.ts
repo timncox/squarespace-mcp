@@ -162,21 +162,8 @@ ContentSaveClient.prototype.getPageSectionsIdByCollectionId = async function (
     const entry = data.find((e) => String(e.collectionId) === collectionId);
     if (!entry?.id) return null;
 
-    const pageSectionsId = String(entry.id);
-
-    // Flag modernized (region-based) pages up front so the first read already
-    // routes to the regions document. GetCollectionSettings yields no
-    // pageSectionsId for these pages, so this resolver IS their path — making it
-    // the right place to detect modernization before any stale legacy read.
-    try {
-      const isRegionBased = await this._isPageRegionBased(collectionId);
-      this._regionBasedPages.set(pageSectionsId, { collectionId, isRegionBased });
-    } catch {
-      /* detection is best-effort; the save-time standalone-400 is the safety net */
-    }
-
-    logger.info({ collectionId, pageSectionsId }, 'Resolved pageSectionsId via by-collection-ids');
-    return pageSectionsId;
+    logger.info({ collectionId, pageSectionsId: entry.id }, 'Resolved pageSectionsId via by-collection-ids');
+    return String(entry.id);
   } catch (err) {
     logger.warn({ error: errMsg(err), collectionId }, 'by-collection-ids lookup failed');
     return null;

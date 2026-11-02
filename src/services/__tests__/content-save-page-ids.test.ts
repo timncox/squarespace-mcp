@@ -108,40 +108,11 @@ describe('ContentSaveClient — Page ID resolution', () => {
         .mockResolvedValueOnce({
           ok: true,
           json: async () => [{ id: 'ps-menu', collectionId: 'coll-menu', sections: [] }],
-        })
-        // pages/by-collection-ids — region-based detection probe
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => [{ collectionId: 'coll-menu', isRegionBased: false }],
         });
 
       const result = await client.getPageIds('chicago-menu');
       expect(result).toEqual({ collectionId: 'coll-menu', pageSectionsId: 'ps-menu' });
-      expect(mockFetch).toHaveBeenCalledTimes(4);
-    });
-
-    it('flags a region-based page during resolution so reads use the regions doc', async () => {
-      mockFetch
-        .mockResolvedValueOnce({ ok: true, json: async () => COLLECTIONS })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => ({ id: 'coll-menu', urlId: 'chicago-menu', title: 'Chicago Menu' }),
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => [{ id: 'ps-menu', collectionId: 'coll-menu', sections: [] }],
-        })
-        // pages/by-collection-ids reports this page as modernized
-        .mockResolvedValueOnce({
-          ok: true,
-          json: async () => [{ collectionId: 'coll-menu', isRegionBased: true }],
-        });
-
-      await client.getPageIds('chicago-menu');
-      expect(client._regionBasedPages.get('ps-menu')).toEqual({
-        collectionId: 'coll-menu',
-        isRegionBased: true,
-      });
+      expect(mockFetch).toHaveBeenCalledTimes(3);
     });
 
     it('does not call by-collection-ids when GetCollectionSettings provides the id', async () => {
