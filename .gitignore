@@ -12,3 +12,15 @@ data/*.json
 .claude/worktrees/
 .playwright-mcp/
 .DS_Store
+# --- secrets & local files (added 2026-11-02, GitHub migration) ---
+.dev.vars
+.env.*
+.env*.local
+.vercel
+*.key
+*.p12
+*.p8
+*.pem
+!.env.example
+!.env.*.example
+!.env.sample

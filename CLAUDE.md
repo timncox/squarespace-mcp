@@ -1,6 +1,6 @@
 ---
 status: active
-last_touched: 2026-10-08
+last_touched: 2026-10-15
 ---
 
 # Squarespace MCP — CLAUDE.md
