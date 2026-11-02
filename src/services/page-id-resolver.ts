@@ -15,7 +15,7 @@
 import { logger } from '../utils/logger.js';
 import { errMsg } from '../utils/errors.js';
 import { getDb } from '../db/database.js';
-import { createContentSaveClient } from './content-save.js';
+import { createContentSaveClient, getRegionBasedPage, setRegionBasedPage } from './content-save.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -161,6 +161,32 @@ async function fetchPageSectionsIdFromBrowser(
  *
  * Returns null if resolution fails at every step.
  */
+/**
+ * Flag whether a resolved page is a modernized (region-based) standalone page,
+ * so the content-save client reads/writes it through the regions document
+ * instead of the stale/rejected legacy API. Memoized module-level (shared across
+ * client instances) and probed at most once per page per process. Best-effort:
+ * if the probe fails, the save-time standalone-400 is the safety net.
+ *
+ * This lives in the resolver — the single choke point every editing tool passes
+ * through — so it covers BOTH the SQLite cache-hit path (which never reaches
+ * getPageIds) and the API-resolve path.
+ */
+async function ensureRegionFlag(
+  subdomain: string,
+  pageSectionsId: string,
+  collectionId: string,
+): Promise<void> {
+  if (getRegionBasedPage(subdomain, pageSectionsId)) return;
+  try {
+    const client = createContentSaveClient(subdomain);
+    const isRegionBased = await client._isPageRegionBased(collectionId);
+    setRegionBasedPage(subdomain, pageSectionsId, { collectionId, isRegionBased });
+  } catch {
+    /* best-effort; the save-time standalone-400 refuses rather than reverting */
+  }
+}
+
 export async function resolvePageIds(
   subdomain: string,
   slug: string,
@@ -171,6 +197,7 @@ export async function resolvePageIds(
   const cached = getCachedIds(subdomain, normalizedSlug);
   if (cached) {
     logger.debug({ subdomain, slug: normalizedSlug }, 'Page ID cache hit');
+    await ensureRegionFlag(subdomain, cached.pageSectionsId, cached.collectionId);
     return { pageSectionsId: cached.pageSectionsId, collectionId: cached.collectionId };
   }
 
@@ -234,5 +261,6 @@ export async function resolvePageIds(
   // Step 5: Cache for future use
   cachePageIds(subdomain, normalizedSlug, pageSectionsId, collectionId);
 
+  await ensureRegionFlag(subdomain, pageSectionsId, collectionId);
   return { pageSectionsId, collectionId };
 }

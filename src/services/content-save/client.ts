@@ -363,6 +363,38 @@ export function canonicalJson(value: unknown): string {
   );
 }
 
+// ── Modernized-page (region-based) memo ─────────────────────────────────────
+// Whether a page is served by the regions API is memoized MODULE-level, not per
+// instance: the page-id resolver and the MCP tools use different client
+// instances for the same site (getClient caches one; resolvePageIds builds its
+// own), so a per-instance flag set during resolution would never reach the tool
+// that reads/writes. Keyed by `${subdomain}:${pageSectionsId}`.
+const regionBasedPages = new Map<string, { collectionId: string; isRegionBased: boolean }>();
+
+export function getRegionBasedPage(
+  subdomain: string,
+  pageSectionsId: string,
+): { collectionId: string; isRegionBased: boolean } | undefined {
+  return regionBasedPages.get(`${subdomain}:${pageSectionsId}`);
+}
+
+export function setRegionBasedPage(
+  subdomain: string,
+  pageSectionsId: string,
+  value: { collectionId: string; isRegionBased: boolean },
+): void {
+  regionBasedPages.set(`${subdomain}:${pageSectionsId}`, value);
+}
+
+export function deleteRegionBasedPage(subdomain: string, pageSectionsId: string): void {
+  regionBasedPages.delete(`${subdomain}:${pageSectionsId}`);
+}
+
+/** Test helper — clears the module-level region-based memo. */
+export function __clearRegionBasedPages(): void {
+  regionBasedPages.clear();
+}
+
 // ── Content Save Client ─────────────────────────────────────────────────────
 
 export class ContentSaveClient {
@@ -376,15 +408,6 @@ export class ContentSaveClient {
   templateIdCache: string | null = null;
   _preWriteCache: Map<string, PageSection[]> = new Map();
   _sectionsHashCache: Map<string, string> = new Map();
-  /**
-   * Per-pageSectionsId memo of whether the page is a "modernized standalone
-   * page" served by /api/pages/by-collection-id (region-based) rather than the
-   * legacy /api/page-sections API. On modernized pages the legacy GET is
-   * permanently STALE and the legacy PUT 400s, so reads and writes must both go
-   * through the regions document. Discovered on first read; see
-   * _fetchPageSectionsRaw / savePageSectionsViaRegions.
-   */
-  _regionBasedPages: Map<string, { collectionId: string; isRegionBased: boolean }> = new Map();
   _snapshotSiteId: string | null = null;
   _lastCrumbRefreshMs: number = 0;
   _sessionPath: string | null = null;
@@ -529,13 +552,13 @@ export class ContentSaveClient {
     // it straight from the authoritative regions doc. Non-flagged pages take the
     // unchanged legacy path — no extra request — so existing behavior (and the
     // unit tests that mock a single GET+PUT) are untouched.
-    const memo = this._regionBasedPages.get(pageSectionsId);
+    const memo = getRegionBasedPage(this.siteSubdomain, pageSectionsId);
     if (memo?.isRegionBased) {
       const doc = await this._tryFetchRegionsDoc(memo.collectionId);
-      if (doc) return this._regionsDocToPageSections(doc, { collectionId: memo.collectionId });
+      if (doc) return this._regionsDocToPageSections(doc, { id: pageSectionsId, collectionId: memo.collectionId });
       // Regions endpoint unexpectedly unavailable — drop the flag and fall back
       // to the legacy read rather than hard-failing.
-      this._regionBasedPages.delete(pageSectionsId);
+      deleteRegionBasedPage(this.siteSubdomain, pageSectionsId);
     }
 
     const url = `https://${this.siteSubdomain}.squarespace.com/api/page-sections/${pageSectionsId}`;
@@ -700,7 +723,7 @@ export class ContentSaveClient {
     // Modernized standalone pages reject the legacy PUT (and their legacy GET is
     // stale), so once a page is known to be region-based, write straight through
     // the regions document instead of attempting a save we know will 400.
-    if (this._regionBasedPages.get(pageSectionsId)?.isRegionBased) {
+    if (getRegionBasedPage(this.siteSubdomain, pageSectionsId)?.isRegionBased) {
       return this.savePageSectionsViaRegions(pageSectionsId, collectionId, sections, _isRetry);
     }
 
@@ -734,7 +757,7 @@ export class ContentSaveClient {
       // than persist stale content. (The happy path never gets here: the
       // resolver flags modernized pages up front.)
       if (/Standalone-page section updates are not supported/i.test(responseBody)) {
-        this._regionBasedPages.set(pageSectionsId, { collectionId, isRegionBased: true });
+        setRegionBasedPage(this.siteSubdomain, pageSectionsId, { collectionId, isRegionBased: true });
         const error =
           'This page uses Squarespace\'s modernized content model; the sections read for this edit were ' +
           'stale, so the save was refused to avoid reverting the page. Re-read the page and retry — the ' +
