@@ -48,6 +48,8 @@ export type {
   GridSettings,
   PageSection,
   PageSectionsData,
+  RegionsDoc,
+  RegionSection,
   ContentSaveResult,
   MenuBlockUpdateResult,
   TextUpdateResult,
@@ -169,6 +171,8 @@ import type {
   GridSettings,
   PageSection,
   PageSectionsData,
+  RegionsDoc,
+  RegionSection,
   ContentSaveResult,
   MenuBlockUpdateResult,
   TextUpdateResult,
@@ -372,6 +376,15 @@ export class ContentSaveClient {
   templateIdCache: string | null = null;
   _preWriteCache: Map<string, PageSection[]> = new Map();
   _sectionsHashCache: Map<string, string> = new Map();
+  /**
+   * Per-pageSectionsId memo of whether the page is a "modernized standalone
+   * page" served by /api/pages/by-collection-id (region-based) rather than the
+   * legacy /api/page-sections API. On modernized pages the legacy GET is
+   * permanently STALE and the legacy PUT 400s, so reads and writes must both go
+   * through the regions document. Discovered on first read; see
+   * _fetchPageSectionsRaw / savePageSectionsViaRegions.
+   */
+  _regionBasedPages: Map<string, { collectionId: string; isRegionBased: boolean }> = new Map();
   _snapshotSiteId: string | null = null;
   _lastCrumbRefreshMs: number = 0;
   _sessionPath: string | null = null;
@@ -510,22 +523,71 @@ export class ContentSaveClient {
   async _fetchPageSectionsRaw(pageSectionsId: string): Promise<PageSectionsData> {
     this.ensureCookies();
 
-    const siteUrl = `https://${this.siteSubdomain}.squarespace.com`;
-    const url = `${siteUrl}/api/page-sections/${pageSectionsId}`;
+    // Modernized standalone pages are served by the regions document, and their
+    // legacy /api/page-sections GET is permanently STALE. When the resolver has
+    // flagged a page as region-based (see getPageSectionsIdByCollectionId), read
+    // it straight from the authoritative regions doc. Non-flagged pages take the
+    // unchanged legacy path — no extra request — so existing behavior (and the
+    // unit tests that mock a single GET+PUT) are untouched.
+    const memo = this._regionBasedPages.get(pageSectionsId);
+    if (memo?.isRegionBased) {
+      const doc = await this._tryFetchRegionsDoc(memo.collectionId);
+      if (doc) return this._regionsDocToPageSections(doc, { collectionId: memo.collectionId });
+      // Regions endpoint unexpectedly unavailable — drop the flag and fall back
+      // to the legacy read rather than hard-failing.
+      this._regionBasedPages.delete(pageSectionsId);
+    }
 
+    const url = `https://${this.siteSubdomain}.squarespace.com/api/page-sections/${pageSectionsId}`;
     const response = await fetch(url, {
       method: 'GET',
       headers: this.buildHeaders(),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
-
     if (!response.ok) {
       const body = await response.text().catch(() => '');
       const baseError = `Failed to fetch page sections: ${response.status} ${response.statusText}. Body: ${body}`;
       throw new Error(this.enhanceError(response.status, body, baseError));
     }
-
     return (await response.json()) as PageSectionsData;
+  }
+
+  /** GET the regions document for a collection, or null if it isn't available. */
+  async _tryFetchRegionsDoc(collectionId: string): Promise<RegionsDoc | null> {
+    try {
+      const url = `https://${this.siteSubdomain}.squarespace.com/api/pages/by-collection-id/${collectionId}`;
+      const r = await fetch(url, { headers: this.buildHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (!r.ok) return null;
+      const doc = (await r.json()) as RegionsDoc;
+      return Array.isArray(doc.regions) ? doc : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Whether a page has been migrated to the regions content model. The
+   * /api/pages/by-collection-ids endpoint reports this explicitly via
+   * `isRegionBased` (the legacy page-sections APIs do not). Used by the resolver
+   * to flag pages before the first read, so reads/writes route correctly.
+   */
+  async _isPageRegionBased(collectionId: string): Promise<boolean> {
+    try {
+      const url = `https://${this.siteSubdomain}.squarespace.com/api/pages/by-collection-ids?collectionIds=${collectionId}`;
+      const r = await fetch(url, { headers: this.buildHeaders(), signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+      if (!r.ok) return false;
+      const data = (await r.json()) as Array<Record<string, unknown>>;
+      const entry = Array.isArray(data) ? data.find((e) => String(e.collectionId) === collectionId) : null;
+      return entry?.isRegionBased === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Flatten a regions document's sections into the legacy PageSectionsData shape. */
+  _regionsDocToPageSections(doc: RegionsDoc, base: Partial<PageSectionsData>): PageSectionsData {
+    const sections = (doc.regions ?? []).flatMap((r) => r.sections ?? []);
+    return { ...base, sections };
   }
 
   /**
@@ -635,6 +697,13 @@ export class ContentSaveClient {
     const conflictResult = await this._checkForConflict(pageSectionsId, collectionId, sections.length);
     if (conflictResult) return conflictResult;
 
+    // Modernized standalone pages reject the legacy PUT (and their legacy GET is
+    // stale), so once a page is known to be region-based, write straight through
+    // the regions document instead of attempting a save we know will 400.
+    if (this._regionBasedPages.get(pageSectionsId)?.isRegionBased) {
+      return this.savePageSectionsViaRegions(pageSectionsId, collectionId, sections, _isRetry);
+    }
+
     const url = this.buildPutUrl(pageSectionsId, collectionId);
     const body = JSON.stringify({ sections });
 
@@ -657,6 +726,22 @@ export class ContentSaveClient {
     const responseBody = await response.text().catch(() => '');
 
     if (!response.ok) {
+      // Reaching a standalone-400 means this modernized page was NOT flagged
+      // region-based before the read (otherwise the short-circuit above would
+      // have saved via the regions doc). So the `sections` we were handed came
+      // from the stale legacy read — writing them back would REVERT the page.
+      // Flag the page so the next read uses the regions doc, and refuse rather
+      // than persist stale content. (The happy path never gets here: the
+      // resolver flags modernized pages up front.)
+      if (/Standalone-page section updates are not supported/i.test(responseBody)) {
+        this._regionBasedPages.set(pageSectionsId, { collectionId, isRegionBased: true });
+        const error =
+          'This page uses Squarespace\'s modernized content model; the sections read for this edit were ' +
+          'stale, so the save was refused to avoid reverting the page. Re-read the page and retry — the ' +
+          'next read will return current content.';
+        logger.warn({ pageSectionsId, collectionId }, error);
+        return { success: false, pageSectionsId, collectionId, sectionsCount: sections.length, error };
+      }
       const baseError = `Save failed: ${response.status} ${response.statusText}. Body: ${responseBody}`;
       const error = this.enhanceError(response.status, responseBody, baseError);
       logger.error({ pageSectionsId, status: response.status }, error);
@@ -678,6 +763,84 @@ export class ContentSaveClient {
     // Clean up hash cache after successful save
     this._sectionsHashCache.delete(pageSectionsId);
 
+    return { success: true, pageSectionsId, collectionId, sectionsCount: sections.length };
+  }
+
+  /**
+   * Save sections through the modernized standalone-pages API:
+   * PUT /api/pages/by-collection-id/{collectionId}. The document wraps the same
+   * section objects the legacy API serves inside `regions`; we re-fetch it
+   * fresh, graft our edited section content in by section id (keeping each
+   * section's region wrapper keys), and PUT the whole document back.
+   *
+   * Replacement-only: a section id the document doesn't contain is reported as
+   * an error, never appended — adding or removing whole sections isn't supported
+   * here (menu edits change items/sub-sections INSIDE a section, so they work).
+   * The edited content lives in `section.fluidEngineContext`, so `{...mine}`
+   * carries it; we deliberately do NOT preserve the document's fluidEngineContext
+   * (that would discard the edit).
+   */
+  private async savePageSectionsViaRegions(
+    pageSectionsId: string,
+    collectionId: string,
+    sections: PageSection[],
+    _isRetry = false,
+  ): Promise<ContentSaveResult> {
+    const fail = (error: string): ContentSaveResult => {
+      logger.error({ pageSectionsId, collectionId }, error);
+      return { success: false, pageSectionsId, collectionId, sectionsCount: sections.length, error };
+    };
+
+    const doc = await this._tryFetchRegionsDoc(collectionId);
+    if (!doc || !Array.isArray(doc.regions)) {
+      return fail('Fallback fetch of pages document failed (/api/pages/by-collection-id)');
+    }
+
+    const byId = new Map(sections.map((s) => [s.id, s]));
+    const grafted = new Set<string>();
+    for (const region of doc.regions) {
+      if (!Array.isArray(region.sections)) continue;
+      region.sections = region.sections.map((rs): RegionSection => {
+        const mine = byId.get(rs.id);
+        if (!mine) return rs;
+        grafted.add(rs.id);
+        return { ...mine, regionId: rs.regionId, parentSectionId: rs.parentSectionId };
+      });
+    }
+    const missing = sections.filter((s) => !grafted.has(s.id));
+    if (missing.length > 0) {
+      return fail(
+        `Fallback pages document is missing section id(s) ${missing.map((s) => s.id).join(', ')} — ` +
+        'adding or removing whole sections is not supported through the by-collection-id fallback',
+      );
+    }
+
+    let putUrl = `https://${this.siteSubdomain}.squarespace.com/api/pages/by-collection-id/${collectionId}`;
+    if (this.crumbToken) putUrl += `?crumb=${encodeURIComponent(this.crumbToken)}`;
+    const putResp = await fetch(putUrl, {
+      method: 'PUT',
+      headers: { ...this.buildHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(doc),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    });
+    const putBody = await putResp.text().catch(() => '');
+    if (!putResp.ok) {
+      return fail(this.enhanceError(putResp.status, putBody,
+        `Fallback save failed: ${putResp.status} ${putResp.statusText}. Body: ${putBody.slice(0, 300)}`));
+    }
+    if (this.isCrumbFailure(putBody)) {
+      if (!_isRetry && await this.handleCrumbFailure(putBody)) {
+        logger.info({ pageSectionsId }, 'Retrying fallback save after crumb refresh');
+        return this.savePageSectionsViaRegions(pageSectionsId, collectionId, sections, true);
+      }
+      return fail('Fallback save rejected: invalid or expired session crumb. Call sq_login to re-authenticate.');
+    }
+
+    this._sectionsHashCache.delete(pageSectionsId);
+    logger.info(
+      { pageSectionsId, collectionId, sectionsCount: sections.length },
+      'Saved page sections via by-collection-id (regions) fallback',
+    );
     return { success: true, pageSectionsId, collectionId, sectionsCount: sections.length };
   }
 

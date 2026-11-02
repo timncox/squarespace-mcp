@@ -236,6 +236,37 @@ export interface PageSectionsData {
   [key: string]: unknown;
 }
 
+/**
+ * A section as it appears inside a regions document (the "modernized standalone
+ * pages" model). Identical to a legacy PageSection plus the region wrapper keys
+ * the regions API round-trips.
+ */
+export interface RegionSection extends PageSection {
+  regionId?: string;
+  parentSectionId?: string | null;
+}
+
+/** One region within a regions document. */
+export interface RegionsDocRegion {
+  id?: string;
+  displayName?: string;
+  /** "USER_PRIMARY" marks the region that owns the page's editable content. */
+  type?: string;
+  ownerId?: string;
+  sections?: RegionSection[];
+  [key: string]: unknown;
+}
+
+/**
+ * The document served by GET/PUT /api/pages/by-collection-id/{collectionId} for
+ * modernized standalone pages. The legacy /api/page-sections API is stale (read)
+ * and rejected (write) for these pages — this is the authoritative source.
+ */
+export interface RegionsDoc {
+  regions?: RegionsDocRegion[];
+  [key: string]: unknown;
+}
+
 /** Result of a content save operation */
 export interface ContentSaveResult {
   success: boolean;
